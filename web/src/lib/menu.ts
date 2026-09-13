@@ -38,6 +38,7 @@ export const menu: MenuTab[] = [
           { label: "Interest Formular", href: "/settings/formulas", permission: "settings.manage" },
           { label: "Main Loan Category", href: "/settings/main-categories", permission: "settings.manage" },
           { label: "Loan Category", href: "/settings/loan-categories", permission: "settings.manage" },
+          { label: "Customer Categories", href: "/settings/customer-categories", permission: "settings.manage" },
           { label: "Loan Fee", href: "/settings/loan-fees", permission: "settings.manage" },
           { label: "Penalty", href: "/settings/penalty", permission: "settings.manage" },
           { label: "Reserve Setting", href: "/settings/reserve", permission: "settings.manage" },

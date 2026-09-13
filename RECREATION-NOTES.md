@@ -93,6 +93,13 @@ Server-side postings, penalty and default timing, PDF layouts, SMS sending, othe
 guarantor/collateral step after submitting a loan (which would have created production data). These follow
 the Documents where they cover them, otherwise conventional behaviour.
 
+## Logins
+
+- The live system was audited with an authorised test login (phone `0755`). That credential belongs to the
+  production system and is deliberately **not** seeded here, so it does not work on the recreation.
+- The recreation seeds its own demo-only accounts, one per role, with fixed phones and passwords from
+  `api/config/demo.php` / `DEMO_*` variables. The list is in README.md → "Demo accounts".
+
 ## Data
 
 Configuration seeded from live observation (regions, branches, zones, products, formulas, settings) plus

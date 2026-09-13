@@ -76,7 +76,7 @@ class Employee extends Authenticatable
 
     protected function photoUrl(): Attribute
     {
-        return Attribute::get(fn (): string => $this->photo ? asset('storage/'.$this->photo) : asset('assets/img/male.jpeg'));
+        return Attribute::get(fn (): string => $this->photo ? asset('storage/'.$this->photo) : '/assets/img/male.jpeg');
     }
 
     public function company(): BelongsTo

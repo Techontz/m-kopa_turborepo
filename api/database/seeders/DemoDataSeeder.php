@@ -50,6 +50,9 @@ class DemoDataSeeder extends Seeder
             $ledger->transfer($company, ['account' => Account::Company], ['account' => Account::Principal, 'branch' => $branch], 6000000, 'FLOAT', $float);
 
             foreach (['branch_manager', 'loan_officer', 'teller'] as $roleKey) {
+                if ($branch->name === config('demo.branch')) {
+                    continue;
+                }
                 Employee::factory()->create([
                     'company_id' => $company->id,
                     'branch_id' => $branch->id,
@@ -59,10 +62,7 @@ class DemoDataSeeder extends Seeder
             }
         });
 
-        foreach (['admin', 'finance', 'hr', 'credit_officer'] as $roleKey) {
-            Employee::factory()->create(['company_id' => $company->id, 'branch_id' => $branches->first()->id, 'position' => 'hq', 'role_id' => $company->roles()->where('key', $roleKey)->value('id')]);
-        }
-        foreach ($company->zones()->get() as $zone) {
+        foreach ($company->zones()->where('name', '!=', config('demo.zone'))->get() as $zone) {
             Employee::factory()->create(['company_id' => $company->id, 'branch_id' => $zone->branches()->value('id'), 'zone_id' => $zone->id, 'position' => 'zone', 'role_id' => $company->roles()->where('key', 'zone_manager')->value('id')]);
         }
 
@@ -155,8 +155,12 @@ class DemoDataSeeder extends Seeder
         $branches = $company->branches()->get();
         $bank = BankAccount::where('company_id', $company->id)->firstOrFail();
 
-        Employee::where('company_id', $company->id)->where('phone', '!=', config('demo.admin_phone'))->each(function (Employee $employee, int $index): void {
-            $employee->forceFill(['employee_number' => sprintf('MK-%03d%d', $index + 1, now()->year)])->save();
+        $demoNumbers = array_column(config('demo.accounts'), 'employee_number');
+
+        Employee::where('company_id', $company->id)->where('phone', '!=', config('demo.admin_phone'))->each(function (Employee $employee, int $index) use ($demoNumbers): void {
+            if (! in_array($employee->employee_number, $demoNumbers, true)) {
+                $employee->forceFill(['employee_number' => sprintf('MK-%03d%d', $index + 1, now()->year)])->save();
+            }
             EmployeeSalary::create([
                 'employee_id' => $employee->id,
                 'salary' => [300000, 400000, 250000][$index % 3],

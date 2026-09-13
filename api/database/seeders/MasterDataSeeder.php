@@ -85,6 +85,7 @@ class MasterDataSeeder extends Seeder
         foreach (array_keys(Employee::PRIVILEGES) as $privilege) {
             $admin->privileges()->firstOrCreate(['privilege' => $privilege]);
         }
+        $this->seedDemoAccounts($company);
 
         foreach ([['SIMPLE', 'SIMPLE FORMULAR', true], ['FLATRATE', 'FLAT RATE FORMULAR', true], ['REDUCING', 'REDUCING FORMULAR', false]] as [$code, $name, $enabled]) {
             InterestFormula::updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => $enabled]);
@@ -164,6 +165,38 @@ class MasterDataSeeder extends Seeder
      * Loan limits, allowed products, required documents and risk levels are defaults the
      * business can change under Settings.
      */
+    /**
+     * One fixed demo login per role (config/demo.php), so every role can be tested with known credentials.
+     */
+    private function seedDemoAccounts(Company $company): void
+    {
+        $zone = $company->zones()->where('name', config('demo.zone'))->firstOrFail();
+        $branch = $company->branches()->where('name', config('demo.branch'))->firstOrFail();
+        $headOffice = $company->branches()->where('name', config('demo.hq_branch'))->firstOrFail();
+        $roles = $company->roles()->pluck('id', 'key');
+
+        foreach (config('demo.accounts') as $roleKey => $account) {
+            $placement = match ($account['placement']) {
+                'branch' => ['branch_id' => $branch->id, 'zone_id' => $branch->zone_id, 'position' => 'employee'],
+                'zone' => ['branch_id' => $branch->id, 'zone_id' => $zone->id, 'position' => 'zone'],
+                default => ['branch_id' => $headOffice->id, 'zone_id' => null, 'position' => 'hq'],
+            };
+
+            Employee::updateOrCreate(['company_id' => $company->id, 'employee_number' => $account['employee_number']], [
+                ...$placement,
+                'phone' => $account['phone'],
+                'first_name' => 'DEMO',
+                'last_name' => strtoupper(str_replace('_', ' ', $roleKey)),
+                'email' => str_replace('_', '.', $roleKey).'@example.com',
+                'username' => 'demo.'.$roleKey,
+                'gender' => 'male',
+                'role_id' => $roles[$roleKey],
+                'status' => 'active',
+                'password' => $account['password'],
+            ]);
+        }
+    }
+
     private function seedCustomerCategories(Company $company): void
     {
         $definition = json_decode((string) file_get_contents(database_path('data/customer-types.json')), true);

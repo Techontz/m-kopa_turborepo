@@ -35,9 +35,28 @@ cp .env.example .env.local      # API_URL=http://127.0.0.1:8000
 npm run dev -- --port 3000
 ```
 
-Open http://127.0.0.1:3000 and log in with `DEMO_ADMIN_PHONE` / `DEMO_ADMIN_PASSWORD`.
-The demo seeder also creates one user per role (branch manager, loan officer, teller per branch; admin,
-finance, HR, credit officer at HQ; zone managers) with the same password.
+Open http://127.0.0.1:3000 and log in with one of the demo accounts below.
+
+### Demo accounts (local/demo only)
+
+Created by `php artisan migrate:fresh --seed` (`MasterDataSeeder::seedDemoAccounts`, values from
+`api/config/demo.php`, overridable with the `DEMO_*` variables in `api/.env`). These are fixed test
+credentials for local development — never use them on a shared or production deployment.
+
+| Role | Login (phone) | Password | Employee ID | Placement |
+|---|---|---|---|---|
+| Super Admin | 0700000000 | password | MK-0012024 | Head office, all branches |
+| Admin | 0700000008 | password | MK-9082024 | Head office, all branches |
+| Teller | 0700000001 | password | MK-9012024 | Kakonko branch |
+| Finance | 0700000002 | password | MK-9022024 | Head office, all branches |
+| Zone Manager | 0700000003 | password | MK-9032024 | KANDA YA ZIWA zone (Head office, Kakonko, Missenyi) |
+| Branch Manager | 0700000004 | password | MK-9042024 | Kakonko branch |
+| Loan Officer | 0700000005 | password | MK-9052024 | Kakonko branch |
+| Credit Officer | 0700000006 | password | MK-9062024 | Head office, all branches |
+| HR | 0700000007 | password | MK-9072024 | Head office, all branches |
+
+The demo seeder also adds extra staff with random names/phones in the other branches and zone (password
+`password`) to populate lists. The live system's test login is not used by this project.
 
 Scheduled jobs (overdue/penalty processing) need the scheduler: `php artisan schedule:work`.
 

@@ -93,7 +93,7 @@ class Customer extends Model
 
     protected function photoUrl(): Attribute
     {
-        return Attribute::get(fn (): string => $this->passport_photo ? asset('storage/'.$this->passport_photo) : asset('assets/img/default.jpeg'));
+        return Attribute::get(fn (): string => $this->passport_photo ? asset('storage/'.$this->passport_photo) : '/assets/img/default.jpeg');
     }
 
     public function company(): BelongsTo

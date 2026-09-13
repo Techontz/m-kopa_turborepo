@@ -7,9 +7,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Region extends Model
 {
-    public $timestamps = false;
-
     protected $guarded = ['id'];
+
+    public function districts(): HasMany
+    {
+        return $this->hasMany(District::class);
+    }
 
     public function branches(): HasMany
     {

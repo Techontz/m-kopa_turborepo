@@ -5,8 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Mtaa (street / village) under a ward. all-ward.json stops at Kata level, so streets are
- * collected as officers register customers and become selectable for later registrations.
+ * Legacy Mtaa (street / village) names keyed by the old ward code, collected by the previous registration flow.
  */
 class Street extends Model
 {

@@ -3,53 +3,56 @@
 namespace App\Http\Controllers\Api\V1\Customers;
 
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Http\Requests\Customers\GuarantorRequest;
+use App\Http\Requests\Api\Customers\CustomerRelationRowRequest;
+use App\Http\Resources\Api\V1\Customers\GuarantorResource;
 use App\Models\Customer;
 use App\Models\Guarantor;
+use App\Services\Customers\CustomerRegistrar;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * Profile → Guarantors tab ("Gualantors List").
+ * Profile → Guarantors tab.
  */
 class GuarantorController extends ApiController
 {
-    public function store(GuarantorRequest $request, Customer $customer): JsonResponse
+    public function __construct(private CustomerRegistrar $registrar) {}
+
+    public function index(Customer $customer): AnonymousResourceCollection
     {
-        $this->authorizeAny('customers.register', 'customers.update');
+        $this->authorizeAny('customers.view');
         $this->assertAccessible($customer);
 
-        $guarantor = $customer->guarantors()->create($this->normalised($request->validated()));
-
-        return $this->message('Guarantor Registered successfully', 201, ['data' => ['id' => $guarantor->id]]);
+        return GuarantorResource::collection($customer->guarantors()->orderBy('id')->get());
     }
 
-    public function update(GuarantorRequest $request, Guarantor $guarantor): JsonResponse
+    public function store(CustomerRelationRowRequest $request, Customer $customer): JsonResponse
     {
-        $this->authorizeAny('customers.register', 'customers.update');
-        $this->assertAccessible($guarantor->customer);
+        $optional = fn (string $key): ?string => $request->filled($key) ? trim($request->string($key)->toString()) : null;
 
-        $guarantor->update($this->normalised($request->validated()));
+        $guarantor = $customer->guarantors()->create([
+            'name' => trim($request->string('name')->toString()),
+            'phone' => trim($request->string('phone')->toString()),
+            'nida_number' => $optional('nidaNumber'),
+            'relationship' => $request->string('relationship')->toString(),
+            'address' => $optional('address'),
+            'occupation' => $optional('occupation'),
+        ]);
+        $this->registrar->audit($customer, 'Customer.guarantor_added', ['guarantor_id' => $guarantor->id, 'name' => $guarantor->name]);
 
-        return $this->message('Guarantor Updated successfully');
+        return (new GuarantorResource($guarantor))->response()->setStatusCode(201);
     }
 
-    public function destroy(Guarantor $guarantor): JsonResponse
+    public function destroy(Customer $customer, Guarantor $guarantor): JsonResponse
     {
-        $this->authorizeAny('customers.update');
-        $this->assertAccessible($guarantor->customer);
+        $this->authorizeAny('customers.manage');
+        $this->assertAccessible($customer);
+        abort_unless($guarantor->customer_id === $customer->id, 404);
 
         $guarantor->delete();
+        $this->registrar->audit($customer, 'Customer.guarantor_removed', [], ['guarantor_id' => $guarantor->id, 'name' => $guarantor->name]);
 
-        return $this->message('Guarantor Removed successfully');
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    private function normalised(array $data): array
-    {
-        return array_merge($data, ['middle_name' => $data['middle_name'] ?? null]);
+        return $this->message('Guarantor removed.');
     }
 
     private function assertAccessible(Customer $customer): void

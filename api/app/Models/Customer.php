@@ -3,6 +3,10 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\MasterData\Bank;
+use App\Models\MasterData\IdType;
+use App\Models\MasterData\MaritalStatus;
+use App\Models\MasterData\MobileMoneyProvider;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,11 +14,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Customer extends Model
 {
     /** @use HasFactory<CustomerFactory> */
-    use Auditable, HasFactory;
+    use Auditable, HasFactory, SoftDeletes;
 
     /**
      * Customer lifecycle statuses (live values: pending / open / out / close).
@@ -61,6 +66,19 @@ class Customer extends Model
             'date_of_birth' => 'date',
             'monthly_income' => 'decimal:2',
             'is_marked' => 'boolean',
+            'dynamic_form_data' => 'array',
+            'retirement_date' => 'date',
+            'contract_expiry_date' => 'date',
+            'basic_salary' => 'integer',
+            'take_home' => 'integer',
+            'dependents' => 'integer',
+            'face_scan_quality' => 'integer',
+            'face_scanned_at' => 'datetime',
+            'face_verified_at' => 'datetime',
+            'nida_verified_at' => 'datetime',
+            'otp_verified_at' => 'datetime',
+            'status_changed_at' => 'datetime',
+            'approved_at' => 'datetime',
         ];
     }
 
@@ -171,20 +189,76 @@ class Customer extends Model
         return $this->hasMany(CustomerDocument::class);
     }
 
-    public function salaryAdvances(): HasMany
+    public function district(): BelongsTo
     {
-        return $this->hasMany(SalaryAdvance::class);
+        return $this->belongsTo(District::class);
+    }
+
+    public function wardRecord(): BelongsTo
+    {
+        return $this->belongsTo(Ward::class, 'ward_id');
+    }
+
+    public function idType(): BelongsTo
+    {
+        return $this->belongsTo(IdType::class);
+    }
+
+    public function maritalStatusRecord(): BelongsTo
+    {
+        return $this->belongsTo(MaritalStatus::class, 'marital_status_id');
+    }
+
+    public function bank(): BelongsTo
+    {
+        return $this->belongsTo(Bank::class);
+    }
+
+    public function mobileMoneyProviderRecord(): BelongsTo
+    {
+        return $this->belongsTo(MobileMoneyProvider::class, 'mobile_money_provider_id');
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'created_by');
+    }
+
+    public function faceScannedBy(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'face_scanned_by');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'approved_by');
     }
 
     /**
-     * URL of the first incomplete registration step, or null when registration is complete.
+     * Next of kin rows (the registration collects a list; `nextOfKin` is the legacy single row).
      */
-    public function nextRegistrationUrl(): ?string
+    public function nextOfKins(): HasMany
     {
-        return match (true) {
-            $this->registration_step <= self::STEP_ADDITIONAL => route('customers.additional', $this),
-            $this->registration_step === self::STEP_PASSPORT => route('customers.passport', $this),
-            default => null,
-        };
+        return $this->hasMany(CustomerNextOfKin::class);
+    }
+
+    public function faceScans(): HasMany
+    {
+        return $this->hasMany(FaceScan::class);
+    }
+
+    public function activeFaceScan(): BelongsTo
+    {
+        return $this->belongsTo(FaceScan::class, 'active_face_scan_id');
+    }
+
+    public function notes(): HasMany
+    {
+        return $this->hasMany(CustomerNote::class);
+    }
+
+    public function salaryAdvances(): HasMany
+    {
+        return $this->hasMany(SalaryAdvance::class);
     }
 }

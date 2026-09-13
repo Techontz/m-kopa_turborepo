@@ -6,6 +6,8 @@ use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Customer category acting as a rule engine: allowed loan products, loan limits,
@@ -13,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  */
 class CustomerCategory extends Model
 {
-    use Auditable;
+    use Auditable, SoftDeletes;
 
     protected $guarded = ['id'];
 
@@ -28,12 +30,26 @@ class CustomerCategory extends Model
             'required_documents' => 'array',
             'form_schema' => 'array',
             'is_active' => 'boolean',
+            'optional_documents' => 'array',
+            'dynamic_form_schema' => 'array',
+            'omitted_standard_fields' => 'array',
+            'sort_order' => 'integer',
+            'requires_sector' => 'boolean',
+            'requires_employer' => 'boolean',
+            'requires_contract' => 'boolean',
+            'requires_salary' => 'boolean',
+            'requires_extra_approval' => 'boolean',
         ];
     }
 
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function customers(): HasMany
+    {
+        return $this->hasMany(Customer::class);
     }
 
     public function loanCategories(): BelongsToMany

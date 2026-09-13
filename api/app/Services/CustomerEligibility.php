@@ -4,35 +4,31 @@ namespace App\Services;
 
 use App\Models\Customer;
 use App\Models\LoanCategory;
-use App\Services\Customers\KycService;
+use App\Services\Customers\KycStatusCalculator;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Loan eligibility of a customer from the category rule engine ("Category = Rule Engine": loan type,
- * loan limits, required documents, risk level) and KYC completion. Used by the Loans module.
+ * Loan eligibility of a customer from the customer type (allowed loan products, loan limits, risk level)
+ * and KYC completion (`kyc_status` = completed). Used by the Loans module.
  */
 class CustomerEligibility
 {
-    public function __construct(private KycService $kyc) {}
+    public function __construct(private KycStatusCalculator $kyc) {}
 
     /**
-     * Inferred: customers registered before NIDA KYC existed (no customer_kyc row) keep the live
-     * behaviour — KYC complete when manually approved, every company loan product allowed, no limits.
+     * A customer without a customer type may take every loan product of the company, without limits.
      *
-     * @return array{customer_id: int, kyc_status: string, kyc_complete: bool, eligible: bool, category: array{id: int, key: string, name: string}|null, risk_level: string|null, min_amount: float|null, max_amount: float|null, loan_category_ids: list<int>, checklist: list<array{key: string, label: string, done: bool}>, reasons: list<string>}
+     * @return array{customer_id: int, kyc_status: string, kyc_complete: bool, eligible: bool, category: array{id: int, key: string|null, code: string|null, name: string}|null, risk_level: string|null, min_amount: float|null, max_amount: float|null, loan_category_ids: list<int>, checklist: list<array{key: string, label: string, required: bool, complete: bool}>, reasons: list<string>}
      */
     public function for(Customer $customer): array
     {
-        $customer->loadMissing(['customerCategory.loanCategories', 'kyc']);
-        $status = $this->kyc->status($customer);
+        $customer->loadMissing('customerCategory.loanCategories');
         $category = $customer->customerCategory;
-        $isLegacy = $status === 'legacy';
-
-        $kycComplete = $isLegacy ? $customer->kyc_status === 'approved' : $status === 'completed';
+        $kycComplete = $customer->kyc_status === KycStatusCalculator::COMPLETED;
 
         $loanCategoryIds = $category !== null
             ? $category->loanCategories->pluck('id')->map(fn ($id): int => (int) $id)->values()->all()
-            : ($isLegacy ? LoanCategory::where('company_id', $customer->company_id)->pluck('id')->map(fn ($id): int => (int) $id)->values()->all() : []);
+            : LoanCategory::where('company_id', $customer->company_id)->pluck('id')->map(fn ($id): int => (int) $id)->values()->all();
 
         $reasons = [];
         if (! $kycComplete) {
@@ -41,21 +37,18 @@ class CustomerEligibility
         if ($category !== null && ! $category->is_active) {
             $reasons[] = 'Customer category is inactive';
         }
-        if (! $isLegacy && $category === null) {
-            $reasons[] = 'Customer category is not assigned';
-        }
 
         return [
             'customer_id' => $customer->id,
-            'kyc_status' => $status,
+            'kyc_status' => (string) $customer->kyc_status,
             'kyc_complete' => $kycComplete,
             'eligible' => $reasons === [],
-            'category' => $category ? ['id' => $category->id, 'key' => $category->key, 'name' => $category->name] : null,
+            'category' => $category ? ['id' => $category->id, 'key' => $category->key, 'code' => $category->code, 'name' => $category->name] : null,
             'risk_level' => $category?->risk_level,
-            'min_amount' => $category ? (float) $category->min_loan_amount : null,
+            'min_amount' => $category && $category->min_loan_amount !== null ? (float) $category->min_loan_amount : null,
             'max_amount' => $category && (float) $category->max_loan_amount > 0 ? (float) $category->max_loan_amount : null,
             'loan_category_ids' => $loanCategoryIds,
-            'checklist' => $isLegacy ? [] : $this->kyc->checklist($customer),
+            'checklist' => $this->kyc->checklist($customer),
             'reasons' => $reasons,
         ];
     }

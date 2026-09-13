@@ -1,53 +1,76 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Customers\CustomerApprovalController;
 use App\Http\Controllers\Api\V1\Customers\CustomerController;
+use App\Http\Controllers\Api\V1\Customers\CustomerNoteController;
 use App\Http\Controllers\Api\V1\Customers\DocumentController;
+use App\Http\Controllers\Api\V1\Customers\FaceScanController;
 use App\Http\Controllers\Api\V1\Customers\GuarantorController;
-use App\Http\Controllers\Api\V1\Customers\LookupController;
-use App\Http\Controllers\Api\V1\Customers\RegistrationController;
+use App\Http\Controllers\Api\V1\Customers\NextOfKinController;
+use App\Http\Controllers\Api\V1\Customers\RegistrationDraftController;
 use Illuminate\Support\Facades\Route;
 
+Route::prefix('customer-drafts')->name('customer-drafts.')->controller(RegistrationDraftController::class)->group(function (): void {
+    Route::get('/', 'index')->name('index');
+    Route::post('/', 'store')->name('store');
+    Route::get('{draft}', 'show')->whereNumber('draft')->name('show');
+    Route::post('{draft}/submitted', 'submitted')->whereNumber('draft')->name('submitted');
+    Route::delete('{draft}', 'destroy')->whereNumber('draft')->name('destroy');
+});
+
 Route::prefix('customers')->name('customers.')->group(function (): void {
-    Route::controller(LookupController::class)->group(function (): void {
-        Route::get('locations/regions', 'regions')->name('locations.regions');
-        Route::get('locations/districts', 'districts')->name('locations.districts');
-        Route::get('locations/wards', 'wards')->name('locations.wards');
-        Route::get('locations/streets', 'streets')->name('locations.streets');
-        Route::get('categories', 'categories')->name('categories');
-        Route::get('categories/option-trees', 'optionTrees')->name('categories.option-trees');
-    });
+    Route::get('registration-options', [CustomerController::class, 'registrationOptions'])->name('registration-options');
 
-    Route::controller(RegistrationController::class)->group(function (): void {
-        Route::post('nida/lookup', 'lookup')->middleware('throttle:30,1')->name('nida.lookup');
-        Route::post('nida/resend-otp', 'resendOtp')->middleware('throttle:10,1')->name('nida.resend');
-        Route::post('nida/verify', 'verifyOtp')->middleware('throttle:30,1')->name('nida.verify');
-        Route::post('register', 'register')->name('register');
-        Route::post('{customer}/face', 'face')->whereNumber('customer')->name('face');
-        Route::put('{customer}/additional', 'additional')->whereNumber('customer')->name('additional');
-        Route::put('{customer}/category', 'category')->whereNumber('customer')->name('category');
-    });
-
-    Route::controller(GuarantorController::class)->group(function (): void {
-        Route::post('{customer}/guarantors', 'store')->whereNumber('customer')->name('guarantors.store');
-        Route::put('guarantors/{guarantor}', 'update')->name('guarantors.update');
-        Route::delete('guarantors/{guarantor}', 'destroy')->name('guarantors.destroy');
+    Route::controller(CustomerApprovalController::class)->group(function (): void {
+        Route::get('pending-approval', 'pending')->name('pending-approval');
+        Route::post('{customer}/approve', 'approve')->whereNumber('customer')->name('approve');
+        Route::post('{customer}/reject', 'reject')->whereNumber('customer')->name('reject');
+        Route::post('{customer}/resubmit', 'resubmit')->whereNumber('customer')->name('resubmit');
     });
 
     Route::controller(DocumentController::class)->group(function (): void {
+        Route::get('{customer}/documents', 'index')->whereNumber('customer')->name('documents.index');
         Route::post('{customer}/documents', 'store')->whereNumber('customer')->name('documents.store');
-        Route::get('{customer}/documents/{document}/file', 'file')->whereNumber('customer')->name('documents.file');
-        Route::delete('{customer}/documents/{document}', 'destroy')->whereNumber('customer')->name('documents.destroy');
+        Route::get('{customer}/documents/{document}/download', 'download')->whereNumber(['customer', 'document'])->name('documents.download');
+        Route::delete('{customer}/documents/{document}', 'destroy')->whereNumber(['customer', 'document'])->name('documents.destroy');
+    });
+
+    Route::controller(FaceScanController::class)->group(function (): void {
+        Route::post('{customer}/face-verify', 'verify')->whereNumber('customer')->name('face-verify');
+        Route::get('{customer}/face-scans', 'index')->whereNumber('customer')->name('face-scans.index');
+        Route::get('{customer}/face-scans/{scan}/image', 'image')->whereNumber(['customer', 'scan'])->name('face-scans.image');
+    });
+
+    Route::controller(NextOfKinController::class)->group(function (): void {
+        Route::get('{customer}/next-of-kin', 'index')->whereNumber('customer')->name('next-of-kin.index');
+        Route::post('{customer}/next-of-kin', 'store')->whereNumber('customer')->name('next-of-kin.store');
+        Route::delete('{customer}/next-of-kin/{nextOfKin}', 'destroy')->whereNumber(['customer', 'nextOfKin'])->name('next-of-kin.destroy');
+    });
+
+    Route::controller(GuarantorController::class)->group(function (): void {
+        Route::get('{customer}/guarantors', 'index')->whereNumber('customer')->name('guarantors.index');
+        Route::post('{customer}/guarantors', 'store')->whereNumber('customer')->name('guarantors.store');
+        Route::delete('{customer}/guarantors/{guarantor}', 'destroy')->whereNumber(['customer', 'guarantor'])->name('guarantors.destroy');
+    });
+
+    Route::controller(CustomerNoteController::class)->group(function (): void {
+        Route::get('{customer}/notes', 'index')->whereNumber('customer')->name('notes.index');
+        Route::post('{customer}/notes', 'store')->whereNumber('customer')->name('notes.store');
     });
 
     Route::controller(CustomerController::class)->group(function (): void {
         Route::get('/', 'index')->name('index');
+        Route::post('/', 'store')->name('store');
         Route::get('{customer}', 'show')->whereNumber('customer')->name('show');
         Route::put('{customer}', 'update')->whereNumber('customer')->name('update');
         Route::delete('{customer}', 'destroy')->whereNumber('customer')->name('destroy');
+        Route::get('{customer}/kyc-status', 'kycStatus')->whereNumber('customer')->name('kyc-status');
+        Route::get('{customer}/overview', 'overview')->whereNumber('customer')->name('overview');
+        Route::get('{customer}/timeline', 'timeline')->whereNumber('customer')->name('timeline');
+        Route::get('{customer}/audit-trail', 'auditTrail')->whereNumber('customer')->name('audit-trail');
         Route::get('{customer}/eligibility', 'eligibility')->whereNumber('customer')->name('eligibility');
         Route::get('{customer}/balance', 'balance')->whereNumber('customer')->name('balance');
         Route::get('{customer}/photo', 'photo')->whereNumber('customer')->name('photo');
-        Route::post('{customer}/kyc/approve', 'approveKyc')->whereNumber('customer')->name('kyc.approve');
         Route::post('{customer}/mark', 'mark')->whereNumber('customer')->name('mark');
         Route::post('{customer}/sms', 'sendSms')->whereNumber('customer')->name('sms');
     });

@@ -74,7 +74,7 @@ export default function CustomerDevelopmentShowPage() {
       <div className="card">
         <div className="body">
           <div className="text-right mb-2">
-            {data?.customer.is_marked && can("customers.update") && (
+            {data?.customer.is_marked && can("customers.manage") && (
               <button type="button" className="btn btn-success mr-1" onClick={async () => (await confirmAction("Are you sure to Un mark?")) && unmark.mutate({}, { onSuccess: () => router.push("/reports/development") })}>
                 <i className="icon-trash" /> Un- mark
               </button>

@@ -39,6 +39,8 @@ export const menu: MenuTab[] = [
           { label: "Main Loan Category", href: "/settings/main-categories", permission: "settings.manage" },
           { label: "Loan Category", href: "/settings/loan-categories", permission: "settings.manage" },
           { label: "Customer Categories", href: "/settings/customer-categories", permission: "settings.manage" },
+          { label: "Master Data", href: "/settings/master-data", permission: "settings.manage" },
+          { label: "Geography", href: "/settings/geography", permission: "settings.manage" },
           { label: "Loan Fee", href: "/settings/loan-fees", permission: "settings.manage" },
           { label: "Penalty", href: "/settings/penalty", permission: "settings.manage" },
           { label: "Reserve Setting", href: "/settings/reserve", permission: "settings.manage" },
@@ -129,9 +131,9 @@ export const menu: MenuTab[] = [
         label: "Customer",
         icon: "icon-user",
         children: [
-          { label: "Register Customer", href: "/customers/register", permission: "customers.register" },
+          { label: "Register Customer", href: "/customers/register", permission: "customers.manage" },
           { label: "All Customer", href: "/customers", permission: "customers.view" },
-          { label: "Customer profile", href: "/customers/search", permission: "customers.view" },
+          { label: "Customer Profile", href: "/customers/search", permission: "customers.view" },
         ],
       },
       {

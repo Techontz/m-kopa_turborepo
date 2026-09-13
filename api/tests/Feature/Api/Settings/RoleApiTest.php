@@ -39,7 +39,7 @@ class RoleApiTest extends TestCase
 
         $employee->refresh()->load('role.permissions');
         $this->assertTrue(app(AccessControl::class)->can($employee, 'reports.view'));
-        $this->assertFalse(app(AccessControl::class)->can($employee, 'customers.register'));
+        $this->assertFalse(app(AccessControl::class)->can($employee, 'customers.manage'));
         $this->assertTrue(AuditLog::where('action', 'Role.permissions_updated')->exists());
 
         $this->putJson("/api/v1/settings/roles/{$teller->id}/permissions", ['permissions' => ['not.a.permission']])

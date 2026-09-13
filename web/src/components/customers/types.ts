@@ -1,165 +1,308 @@
-/** Shared types for the Customers / KYC module (API: api/routes/api/customers.php). */
+/**
+ * Shared types for the Customer module (API contract: CUSTOMER_MODULE_IMPLEMENTATION §3 and §6, camelCase).
+ */
 
-export interface ChecklistItem {
+export type FieldType = "text" | "textarea" | "number" | "currency" | "date" | "select" | "boolean";
+
+/** One Step 2 question: a customer type's configured field or a standard field. */
+export interface FieldDef {
   key: string;
   label: string;
-  done: boolean;
-}
-
-export interface NidaIdentity {
-  nida_number: string;
-  first_name: string;
-  middle_name: string;
-  last_name: string;
-  date_of_birth: string;
-  gender: string;
-  phone: string;
-  phone_masked?: string;
-  photo?: string | null;
-}
-
-export interface OptionSource {
-  kind: "tree" | "flat" | "fixed";
-  tree?: string;
-  path?: Array<{ field?: string; property?: string }>;
-  take?: "keys" | "values";
-  extraOptions?: string[];
+  type: FieldType;
+  required?: boolean;
   options?: string[];
+  dataSource?: string;
+  dependsOn?: string;
+  requiredWhen?: { field: string; equals: string[] };
+  storesIn?: string;
+  fullWidth?: boolean;
+  placeholder?: string;
+  helpText?: string;
+  origin?: "configured" | "standard";
 }
 
-export interface FormField {
-  key: string;
-  label: string;
-  control: "select" | "input";
-  inputType: string | null;
-  required: boolean;
-  fullWidth: boolean;
-  dependsOn: string | null;
-  requiredWhen: { field: string; equals: string[] } | null;
-  optionSource?: OptionSource;
-  group?: string;
-}
+export type Sector = "employment" | "business" | "other";
 
-export interface CustomerCategory {
+/** Customer category resource ("customer type" in the UI). */
+export interface CustomerType {
   id: number;
-  key: string;
   name: string;
-  icon: string | null;
-  section_title: string | null;
-  risk_level: string;
-  min_loan_amount: number;
-  max_loan_amount: number;
-  required_documents: string[];
-  form_schema: FormField[];
-  loan_categories: Array<{ id: number; name: string }>;
+  code: string;
+  description?: string | null;
+  formTitle?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  riskTier?: string | null;
+  sector: Sector | null;
+  requiredDocuments?: string[];
+  optionalDocuments?: string[];
+  requiresSector?: boolean;
+  requiresEmployer?: boolean;
+  requiresContract?: boolean;
+  requiresSalary?: boolean;
+  dynamicFormSchema: FieldDef[] | null;
+  omittedStandardFields: string[] | null;
+  requiresExtraApproval?: boolean;
+  customerCount?: number;
 }
 
-export type OptionTrees = Record<string, unknown>;
-
-export interface CustomerDocumentRow {
-  id: number;
-  document_type: string;
-  original_name: string;
-  size: number;
-  uploaded_at: string;
-  url: string;
+/** Requirement profile as returned by GET /registration/requirements. */
+export interface RequirementProfile {
+  accountTypeId: number | null;
+  accountTypeName?: string | null;
+  customerCategoryId?: number | null;
+  isDefault?: boolean;
+  requiresEmploymentDetails: boolean;
+  requiresBusinessDetails: boolean;
+  requiresBankAccount: boolean;
+  requiresCardDetails: boolean;
+  minGuarantors: number;
+  minNextOfKin: number;
+  requiresCustomerCategory: boolean;
+  requiresMaritalStatus: boolean;
+  requiresAddress: boolean;
+  requiresIdentityDocument: boolean;
+  requiresCategoryDocuments: boolean;
+  categoryDocumentsEnforcedFrom?: string | null;
+  requiresFaceVerification: boolean;
+  requiresNidaVerification: boolean;
+  requiresOtpVerification: boolean;
+  guidance: string | null;
 }
 
-export interface GuarantorRow {
+export interface MasterRow {
   id: number;
-  first_name: string;
-  middle_name: string | null;
-  last_name: string;
-  phone: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  sortOrder?: number;
+  isActive?: boolean;
+  parentId?: number | null;
+}
+
+export type MasterData = Record<string, MasterRow[]>;
+
+export interface GeoRow {
+  id: number;
+  name: string;
+}
+
+export interface RegistrationOptions {
+  branches: Array<{ id: number; name: string }>;
+  lockedBranchId: number | null;
+  officers: Array<{ id: number; name: string; branchId: number | null }>;
+  currentEmployeeId: number;
+  canAssignOfficer: boolean;
+}
+
+export interface DraftResource {
+  id: number;
+  label: string;
+  phone: string | null;
+  step: number;
+  branchId: number;
+  createdById: number;
+  createdByName: string | null;
+  branchName?: string | null;
+  isOwn?: boolean;
+  customerId: number | null;
+  submittedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  payload?: unknown;
+}
+
+export interface NextOfKinResource {
+  id: number;
+  name: string;
+  relationship: string | null;
+  phone: string | null;
+  address: string | null;
+}
+
+export interface GuarantorResource {
+  id: number;
+  name: string;
+  phone: string | null;
+  nidaNumber: string | null;
+  relationship: string | null;
+  address: string | null;
+  occupation: string | null;
+}
+
+export interface DocumentResource {
+  id: number;
+  customerId: number;
+  documentType: string;
+  filePath?: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  uploadedBy: number | string | null;
+  uploadedByName?: string | null;
+  createdAt: string | null;
+  downloadUrl?: string;
+}
+
+export type ScanCheckName =
+  | "oneFaceDetected"
+  | "eyesOpen"
+  | "centered"
+  | "correctDistance"
+  | "goodLighting"
+  | "sharpImage"
+  | "poseStraight"
+  | "poseLeft"
+  | "poseRight"
+  | "poseUp"
+  | "poseDown";
+
+export interface FaceScanResource {
+  id: number;
+  customerId: number;
+  status: "passed" | "failed";
+  qualityScore: number;
+  brightnessScore: number;
+  blurScore: number;
+  distanceScore: number;
+  centeringScore: number;
+  eyesOpenScore: number;
+  scannerVersion: string;
+  livenessPassed: boolean;
+  poseSequenceCompleted: boolean;
+  checks: Partial<Record<ScanCheckName, boolean>>;
+  captureDevice: string | null;
+  captureResolution: string | null;
+  captureDurationMs: number | null;
+  reason: string | null;
+  scannedById: number | null;
+  scannedByName: string | null;
+  scannedAt: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  isActive: boolean;
+  imageUrl: string | null;
+}
+
+/** Customer resource (§6). Every captured value round-trips. */
+export interface Customer {
+  id: number;
+  customerNumber: string | null;
+  customerCode?: string | null;
+  age?: number | null;
+  nidaNumber: string | null;
+  idTypeId: number | null;
+  idTypeName: string | null;
+  idNumber: string | null;
+  firstName: string;
+  middleName: string | null;
+  lastName: string;
+  fullName: string;
+  dob: string | null;
   gender: string | null;
-  marital_status: string | null;
-  id_number: string | null;
-  relationship: string;
-  region_id: number | null;
-  region: string | null;
-  district: string | null;
-  ward: string | null;
-  street: string | null;
-}
-
-export interface CustomerLoanRow {
-  id: number;
-  loan_number: string;
-  product: string | null;
-  interest_rate: number;
-  amount_withdrawn: number;
-  total_payable: number;
-  duration: string | null;
-  sessions: number;
-  restoration: number;
-  status: string | null;
-  status_badge: string | null;
-  withdrawn_at: string | null;
-  end_date: string | null;
-}
-
-export interface CustomerProfile {
-  id: number;
-  customer_code: string;
-  first_name: string;
-  middle_name: string;
-  last_name: string;
-  full_name: string;
-  short_name: string;
-  gender: string;
-  date_of_birth: string | null;
-  age: number | null;
   phone: string;
-  branch_id: number;
-  branch: string | null;
-  employee_id: number | null;
-  employee: string | null;
-  work_status: string;
-  customer_type: string | null;
-  region_id: number | null;
-  region: string | null;
-  district: string;
-  ward: string;
-  street: string;
-  nickname: string | null;
-  marital_status: string | null;
-  business_type: string | null;
-  place_of_business: string | null;
-  dependents: number | null;
-  monthly_income: number | null;
-  id_number: string | null;
-  check_number: string | null;
-  account_number: string | null;
-  status: string;
-  status_label: string;
-  kyc_status: string;
-  is_marked: boolean;
-  registration_step: number;
-  created_at: string | null;
-  photo_url: string | null;
-  legacy_attachment: string | null;
-  category: { id: number; key: string; name: string; icon: string | null; risk_level: string; required_documents: string[] } | null;
-  kyc: {
-    state: "completed" | "pending" | "legacy";
-    checklist: ChecklistItem[];
-    nida: NidaIdentity | null;
-    nida_verified_at: string | null;
-    otp_verified_at: string | null;
-    face_verified_at: string | null;
-    face_liveness_score: number | null;
-    face_match_score: number | null;
-    category_answers: Record<string, string | number> | null;
-    completed_at: string | null;
-  };
-  residence: { region_code: string; region_name: string; district_code: string; district_name: string; ward_code: string; ward_name: string; street_name: string; ownership: string } | null;
-  bank: { bank_name: string; account_number: string; account_name: string; check_number: string | null; phone: string | null } | null;
-  next_of_kin: { first_name: string; middle_name: string | null; last_name: string; phone: string; relationship: string | null } | null;
-  documents: CustomerDocumentRow[];
-  guarantors: GuarantorRow[];
-  loans: CustomerLoanRow[];
+  photoPath: string | null;
+  photoUrl?: string | null;
+  nidaVerifiedAt: string | null;
+  otpVerifiedAt: string | null;
+  faceVerifiedAt: string | null;
+  faceScanId: number | null;
+  faceScanStatus: string | null;
+  faceScanQuality: number | null;
+  faceScanVersion: string | null;
+  faceScannedAt: string | null;
+  faceScannedById: number | null;
+  faceScannedByName: string | null;
+  maritalStatus: string | null;
+  maritalStatusId: number | null;
+  maritalStatusName?: string | null;
+  regionId: number | null;
+  regionName?: string | null;
+  districtId: number | null;
+  districtName?: string | null;
+  wardId: number | null;
+  streetId: number | null;
+  wardName: string | null;
+  streetName: string | null;
+  residenceType: string | null;
+  alternativePhone: string | null;
+  email: string | null;
+  nationality: string | null;
+  nationalIdNumber: string | null;
+  tinNumber: string | null;
+  passportNumber: string | null;
+  voterIdNumber: string | null;
+  driverLicenceNumber: string | null;
+  workIdNumber: string | null;
+  village: string | null;
+  houseNumber: string | null;
+  postalCode: string | null;
+  landmark: string | null;
+  occupation: string | null;
+  employer: string | null;
+  monthlyIncome: number | null;
+  employmentType: string | null;
+  workType: string | null;
+  placeOfEmployment: string | null;
+  retirementDate: string | null;
+  dependentsCount: number | null;
+  basicSalary: number | null;
+  takeHome: number | null;
+  checkNumber: string | null;
+  department: string | null;
+  councilNumber: string | null;
+  businessName: string | null;
+  businessType: string | null;
+  businessAddress: string | null;
+  bankName: string | null;
+  bankBranch: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  bankId: number | null;
+  mobileMoneyProvider: string | null;
+  mobileMoneyProviderId: number | null;
+  walletNumber: string | null;
+  paymentMethod: "mno" | "bank" | null;
+  cardLastFour: string | null;
+  customerCategoryId: number | null;
+  categoryName: string | null;
+  dynamicFormData: Record<string, unknown>;
+  branchId: number;
+  branchName: string | null;
+  employeeId: number | null;
+  employeeName?: string | null;
+  registrationSource: string | null;
+  kycStatus: "incomplete" | "completed" | string;
+  status: string | null;
+  loanStatus?: string | null;
+  statusReason: string | null;
+  statusRemarks: string | null;
+  statusChangedAt: string | null;
+  approvalStatus: "not_required" | "pending" | "approved" | "rejected" | string;
+  approvedBy: number | string | null;
+  approvedByName?: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  createdBy: number | string | null;
+  createdByName?: string | null;
+  createdAt: string | null;
+  deletedAt: string | null;
+  isMarked?: boolean;
+  documents?: DocumentResource[];
+  bankDetails?: { bankName: string | null; accountNumber: string | null; accountName: string | null; phoneNumber: string | null; checkNumber: string | null } | null;
+  nextOfKin?: NextOfKinResource[];
+  guarantors?: GuarantorResource[];
+  documentsCount?: number;
+  notesCount?: number;
+  guarantorsCount?: number;
+  nextOfKinCount?: number;
+  groupId?: number | null;
+  groupName?: string | null;
 }
 
-/** Browser path of an API file endpoint (served through the authenticated /api/backend proxy). */
-export function backendUrl(path: string): string {
-  return `/api/backend/${path.replace(/^\//, "")}`;
+export interface PageMeta {
+  currentPage: number;
+  lastPage: number;
+  perPage: number;
+  total: number;
 }

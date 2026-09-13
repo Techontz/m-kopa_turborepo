@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\Api\V1\Settings\BranchController;
 use App\Http\Controllers\Api\V1\Settings\CompanySettingController;
-use App\Http\Controllers\Api\V1\Settings\CustomerCategoryController;
 use App\Http\Controllers\Api\V1\Settings\FormulaController;
 use App\Http\Controllers\Api\V1\Settings\LoanCategoryController;
 use App\Http\Controllers\Api\V1\Settings\LoanFeeController;
@@ -34,8 +33,6 @@ Route::prefix('settings')->name('settings.')->group(function (): void {
     Route::apiResource('loan-categories', LoanCategoryController::class);
     Route::post('loan-categories/{loanCategory}/branches/{branch}', [LoanCategoryController::class, 'attachBranch'])->name('loan-categories.attach-branch');
     Route::delete('loan-categories/{loanCategory}/branches/{branch}', [LoanCategoryController::class, 'detachBranch'])->name('loan-categories.detach-branch');
-
-    Route::apiResource('customer-categories', CustomerCategoryController::class)->only(['index', 'show', 'update']);
 
     Route::controller(LoanFeeController::class)->group(function (): void {
         Route::get('loan-fees', 'index')->name('loan-fees.index');

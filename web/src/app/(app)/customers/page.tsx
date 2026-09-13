@@ -1,113 +1,182 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
+import { AccessDenied } from "@/components/customers/AccessDenied";
+import { CustomerAvatar, CustomerStatusBadges, Pager, usePaged } from "@/components/customers/common";
+import type { Customer, CustomerType } from "@/components/customers/types";
 import { Card } from "@/components/ui/Card";
-import { DataTable } from "@/components/ui/DataTable";
-import { Field } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox } from "@/components/ui/SelectBox";
 import { confirmAction } from "@/components/ui/notify";
 import { useAuth } from "@/lib/auth";
 import { useAction, useApi } from "@/lib/hooks";
 
-interface CustomerRow {
-  id: number;
-  customer_code: string;
-  full_name: string;
-  date_of_birth: string | null;
-  age: number | null;
-  gender: string;
-  phone: string;
-  branch: string | null;
-  status: string;
-  status_label: string;
+interface Filters {
+  search: string;
   kyc_status: string;
-  category: string | null;
-  registration_step: number;
+  status: string;
+  approval_status: string;
+  loan_eligible: string;
+  branch_id: string;
+  customer_category_id: string;
+  include_deleted: boolean;
 }
 
-const STATUS_TONE: Record<string, "success" | "danger" | "info" | "warning"> = { open: "success", out: "danger", close: "info", pending: "warning" };
+const EMPTY: Filters = { search: "", kyc_status: "", status: "", approval_status: "", loan_eligible: "", branch_id: "", customer_category_id: "", include_deleted: false };
 
+/** Customer → All Customer: server-paginated, searchable, branch-scoped list (CUSTOMER_MODULE_SPEC §1.2). */
 export default function AllCustomersPage() {
   const { can } = useAuth();
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [draft, setDraft] = useState({ branch_id: "", customer_status: "" });
-  const [filters, setFilters] = useState({ branch_id: "", customer_status: "" });
-  const { data: customers, isLoading } = useApi<CustomerRow[]>("customers", filters);
+  const [filters, setFilters] = useState<Filters>(EMPTY);
+  const [searchText, setSearchText] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(20);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const allowed = can("customers.view");
+
+  const { data, isLoading, isFetching } = usePaged<Customer>(allowed ? "customers" : null, { ...filters, include_deleted: filters.include_deleted ? 1 : undefined, page, per_page: perPage });
+  const { data: types } = useApi<CustomerType[]>(allowed ? "customer-categories" : null, { activeOnly: 1 });
   const remove = useAction<{ id: number }>("delete", (body) => `customers/${body.id}`);
+
+  if (!allowed) {
+    return (
+      <>
+        <PageHeader crumbs={["Customer", "All Customer"]} />
+        <AccessDenied />
+      </>
+    );
+  }
+
+  const setFilter = (patch: Partial<Filters>) => {
+    setFilters((current) => ({ ...current, ...patch }));
+    setPage(1);
+  };
+
+  const onSearch = (value: string) => {
+    setSearchText(value);
+    if (timer.current) {
+      clearTimeout(timer.current);
+    }
+    timer.current = setTimeout(() => setFilter({ search: value.trim() }), 350);
+  };
+
+  const rows = data?.data ?? [];
 
   return (
     <>
-      <PageHeader crumbs={["All Customer"]} />
+      <PageHeader crumbs={["Customer", "All Customer"]} />
 
       <Card
         title="All Customer"
         actions={
-          <button type="button" className="btn btn-primary" onClick={() => setFilterOpen(true)} title="Filter">
-            <i className="icon-magnifier" />
-          </button>
+          <span className="d-inline-flex flex-wrap" style={{ gap: 6 }}>
+            {can("customers.approve") && (
+              <Link href="/customers/approvals" className="btn btn-sm btn-outline-primary">
+                <i className="icon-check" /> Registration approvals
+              </Link>
+            )}
+            {can("customers.manage") && (
+              <Link href="/customers/register" className="btn btn-sm btn-primary">
+                <i className="icon-user-follow" /> Register Customer
+              </Link>
+            )}
+          </span>
         }
       >
-        <DataTable
-          rows={customers}
-          loading={isLoading}
-          rowKey={(row) => row.id}
-          columns={[
-            { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
-            { key: "customer_code", header: "Customer ID" },
-            { key: "full_name", header: "customer name", render: (row) => <Link href={`/customers/${row.id}`}>{row.full_name}</Link> },
-            { key: "date_of_birth", header: "Date of Birth" },
-            { key: "age", header: "Age" },
-            { key: "gender", header: "Gender" },
-            { key: "phone", header: "Phone number" },
-            { key: "branch", header: "Branch" },
-            { key: "status", header: "Status", value: (row) => row.status_label, render: (row) => <Badge tone={STATUS_TONE[row.status] ?? "default"}>{row.status_label}</Badge> },
-            { key: "kyc_status", header: "KYC", render: (row) => (row.kyc_status === "approved" ? <Badge tone="success">Aproved</Badge> : <Badge tone="danger">Pending</Badge>) },
-            {
-              key: "action",
-              header: "Action",
-              sortable: false,
-              className: "text-nowrap",
-              render: (row) => (
-                <>
-                  <Link href={`/customers/${row.id}`} className="btn btn-sm btn-icon btn-primary mr-1" title="View"><i className="icon-eye" /></Link>
-                  {can("customers.update") && (
-                    <button type="button" className="btn btn-sm btn-icon btn-danger" title="Delete" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}>
-                      <i className="icon-trash" />
-                    </button>
-                  )}
-                </>
-              ),
-            },
-          ]}
-        />
-      </Card>
-
-      <Modal
-        open={filterOpen}
-        onClose={() => setFilterOpen(false)}
-        title="Filter"
-        submitLabel="Filter"
-        onSubmit={() => { setFilters(draft); setFilterOpen(false); }}
-      >
-        <div className="row">
-          <Field label="Branch" className="col-md-12">
-            <SelectBox inputId="filter-branch" placeholder="--Select Branch--" optionsUrl="options/branches" query={{ with_all: 1 }} value={draft.branch_id} onChange={(value) => setDraft({ ...draft, branch_id: value ?? "" })} />
-          </Field>
-          <Field label="Status" className="col-md-12">
-            <select className="form-control" value={draft.customer_status} onChange={(e) => setDraft({ ...draft, customer_status: e.target.value })}>
-              <option value="">--Select status--</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="DEFAULT">DEFAULT</option>
-              <option value="CLOSED">CLOSED</option>
-            </select>
-          </Field>
+        <div className="mf-filters">
+          <input type="search" className="form-control" placeholder="Search by name, customer number or phone…" value={searchText} onChange={(event) => onSearch(event.target.value)} aria-label="Search" />
+          <select className="form-control" value={filters.kyc_status} onChange={(event) => setFilter({ kyc_status: event.target.value })} aria-label="KYC status">
+            <option value="">KYC: all</option>
+            <option value="completed">KYC complete</option>
+            <option value="incomplete">KYC incomplete</option>
+          </select>
+          <select className="form-control" value={filters.status} onChange={(event) => setFilter({ status: event.target.value })} aria-label="Status">
+            <option value="">Status: all</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="frozen">Frozen</option>
+          </select>
+          <select className="form-control" value={filters.approval_status} onChange={(event) => setFilter({ approval_status: event.target.value })} aria-label="Approval status">
+            <option value="">Approval: all</option>
+            <option value="pending">Pending approval</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="not_required">Not required</option>
+          </select>
+          <select className="form-control" value={filters.loan_eligible} onChange={(event) => setFilter({ loan_eligible: event.target.value })} aria-label="Loan eligibility">
+            <option value="">Loan eligibility: all</option>
+            <option value="1">Loan eligible</option>
+            <option value="0">Not loan eligible</option>
+          </select>
+          <SelectBox inputId="filter-branch" placeholder="Branch: all" optionsUrl="options/branches" value={filters.branch_id} isClearable onChange={(value) => setFilter({ branch_id: value ?? "" })} />
+          <SelectBox
+            inputId="filter-type"
+            placeholder="Customer type: all"
+            options={(types ?? []).map((type) => ({ value: String(type.id), label: type.name }))}
+            value={filters.customer_category_id}
+            isClearable
+            onChange={(value) => setFilter({ customer_category_id: value ?? "" })}
+          />
+          <label className="d-flex align-items-center mb-0" style={{ gap: 6 }}>
+            <input type="checkbox" checked={filters.include_deleted} onChange={(event) => setFilter({ include_deleted: event.target.checked })} /> Include deleted
+          </label>
         </div>
-      </Modal>
+
+        <div className="table-responsive">
+          <table className="table table-hover table-custom mf-table">
+            <thead className="thead-info">
+              <tr>
+                <th>Customer</th>
+                <th>Date of Birth</th>
+                <th>Age</th>
+                <th>Gender</th>
+                <th>Phone</th>
+                <th>Branch</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr><td colSpan={8} className="mf-loading">Loading...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={8} className="text-center">No customers match these filters.</td></tr>
+              ) : (
+                rows.map((customer) => (
+                  <tr key={customer.id} style={{ opacity: isFetching ? 0.7 : 1 }}>
+                    <td>
+                      <div className="mf-customer-cell">
+                        <CustomerAvatar customer={customer} />
+                        <div>
+                          <Link href={`/customers/${customer.id}`}>{customer.fullName}</Link>
+                          <small>{customer.customerNumber}{customer.categoryName ? ` · ${customer.categoryName}` : ""}</small>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="text-nowrap">{customer.dob ?? ""}</td>
+                    <td>{customer.age ?? ""}</td>
+                    <td className="text-capitalize">{customer.gender ?? ""}</td>
+                    <td className="text-nowrap">{customer.phone}</td>
+                    <td>{customer.branchName ?? ""}</td>
+                    <td><CustomerStatusBadges customer={customer} /></td>
+                    <td className="text-nowrap">
+                      <Link href={`/customers/${customer.id}`} className="btn btn-sm btn-icon btn-primary mr-1" title="View" aria-label={`View ${customer.fullName}`}><i className="icon-eye" /></Link>
+                      {can("customers.manage") && !customer.deletedAt && (
+                        <button type="button" className="btn btn-sm btn-icon btn-danger" title="Delete" aria-label={`Delete ${customer.fullName}`} onClick={async () => (await confirmAction()) && remove.mutate({ id: customer.id })}>
+                          <i className="icon-trash" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <Pager meta={data?.meta} onPage={setPage} perPage={perPage} onPerPage={(size) => { setPerPage(size); setPage(1); }} />
+      </Card>
     </>
   );
 }

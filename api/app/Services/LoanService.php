@@ -12,6 +12,7 @@ use App\Models\LoanTransaction;
 use App\Models\Penalty;
 use App\Models\SmsLog;
 use App\Models\WriteOff;
+use App\Services\Customers\KycStatusCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -117,7 +118,7 @@ class LoanService
 
     public function approve(Loan $loan, float $approvedAmount): void
     {
-        if ($loan->customer->kyc_status !== 'approved') {
+        if ($loan->customer->kyc_status !== KycStatusCalculator::COMPLETED) {
             throw ValidationException::withMessages(['loan' => 'Please wait for the customer`s KYC to be Verfied!']);
         }
 

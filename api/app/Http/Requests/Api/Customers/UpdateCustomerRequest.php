@@ -3,19 +3,28 @@
 namespace App\Http\Requests\Api\Customers;
 
 use App\Models\Customer;
-use Carbon\CarbonImmutable;
+use App\Models\Employee;
+use App\Services\AccessControl;
+use App\Services\Customers\CustomerRegistrar;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Gate;
 
 /**
- * Profile "Basic" tab (live update_customer_info). For NIDA-verified customers the NIDA fields
- * (names, gender, date of birth, phone, NIDA number) are never editable: only branch and loan officer are.
+ * PUT /customers/{customer} — the registration payload, partially: only the fields sent are validated and changed.
+ * Requirement-profile, payment and customer-type rules evaluate the customer as it would be after the update.
  */
-class UpdateCustomerRequest extends FormRequest
+class UpdateCustomerRequest extends StoreCustomerRequest
 {
     public function authorize(): bool
     {
+        abort_unless(Gate::allows('customers.manage'), 403, 'You do not have permission to perform this action.');
+
+        /** @var Employee $actor */
+        $actor = $this->user();
+        abort_unless(app(AccessControl::class)->scope(Customer::query(), $actor)->whereKey($this->customer()->id)->exists(), 404);
+
+        $this->assertBranchInScope($this->input('branchId'));
+
         return true;
     }
 
@@ -24,66 +33,57 @@ class UpdateCustomerRequest extends FormRequest
      */
     public function rules(): array
     {
-        $companyId = $this->user()->company_id;
-        $rules = [
-            'blanch_id' => ['required', Rule::exists('branches', 'id')->where('company_id', $companyId)],
-            'empl_id' => ['required', Rule::exists('employees', 'id')->where('company_id', $companyId)],
-        ];
+        return collect($this->staticRules())
+            ->map(fn (array $rules): array => ['sometimes', ...array_values(array_filter($rules, fn ($rule): bool => $rule !== 'present'))])
+            ->all();
+    }
 
-        if ($this->isNidaVerified()) {
-            return $rules;
-        }
+    public function customer(): Customer
+    {
+        /** @var Customer */
+        return $this->route('customer');
+    }
 
-        return $rules + [
-            'f_name' => ['required', 'string', 'max:100'],
-            'm_name' => ['required', 'string', 'max:100'],
-            'l_name' => ['required', 'string', 'max:100'],
-            'gender' => ['required', 'in:male,female'],
-            'date_birth' => ['required', 'date', 'before:today'],
-            'phone_no' => ['required', 'numeric', 'digits_between:9,12'],
-            'region_id' => ['required', 'exists:regions,id'],
-            'district' => ['required', 'string', 'max:100'],
-            'ward' => ['required', 'string', 'max:100'],
-            'street' => ['required', 'string', 'max:100'],
-        ];
+    protected function ignoredCustomerId(): ?int
+    {
+        return $this->customer()->id;
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function customerData(): array
+    protected function effectivePayload(): array
     {
-        $data = [
-            'branch_id' => $this->integer('blanch_id'),
-            'employee_id' => $this->integer('empl_id'),
-        ];
-
-        if ($this->isNidaVerified()) {
-            return $data;
-        }
-
-        $dateOfBirth = CarbonImmutable::parse($this->input('date_birth'));
-
-        return $data + [
-            'first_name' => $this->string('f_name')->trim()->toString(),
-            'middle_name' => $this->string('m_name')->trim()->toString(),
-            'last_name' => $this->string('l_name')->trim()->toString(),
-            'gender' => $this->string('gender')->toString(),
-            'date_of_birth' => $dateOfBirth->toDateString(),
-            'age' => now()->year - $dateOfBirth->year,
-            'phone' => AdditionalDetailsRequest::normalisePhone($this->string('phone_no')->toString()),
-            'region_id' => $this->integer('region_id'),
-            'district' => $this->string('district')->trim()->toString(),
-            'ward' => $this->string('ward')->trim()->toString(),
-            'street' => $this->string('street')->trim()->toString(),
-        ];
+        return app(CustomerRegistrar::class)->payloadFor($this->customer(), $this->all());
     }
 
-    private function isNidaVerified(): bool
+    /**
+     * On an update, only errors about what the request changes are reported, so existing records with older data
+     * can still be edited. A changed customer type re-checks all of its answers.
+     */
+    protected function reportsBusinessError(string $key): bool
     {
-        /** @var Customer $customer */
-        $customer = $this->route('customer');
+        $root = explode('.', $key)[0];
+        $related = [
+            'regionId' => ['regionId', 'districtId'], 'districtId' => ['regionId', 'districtId'],
+            'idTypeId' => ['idTypeId', 'idNumber', 'nidaNumber', 'nationalIdNumber', 'voterIdNumber', 'driverLicenceNumber', 'passportNumber', 'workIdNumber'],
+            'employer' => ['employer', 'employerId', 'placeOfEmployment'], 'workType' => ['workType', 'workTypeId', 'employmentType', 'employmentTypeId'],
+            'takeHome' => ['takeHome', 'basicSalary', 'monthlyIncome'], 'bankDetails' => ['bankDetails', 'walletNumber', 'paymentMethod'],
+            'mobileMoneyProviderId' => ['mobileMoneyProviderId', 'paymentMethod'], 'walletNumber' => ['walletNumber', 'paymentMethod'], 'bankId' => ['bankId', 'paymentMethod'],
+        ];
 
-        return $customer->kyc()->exists();
+        if ($this->has('customerCategoryId')) {
+            return true;
+        }
+
+        return collect($related[$root] ?? [$root])->contains(fn (string $field): bool => $this->has($field));
+    }
+
+    /**
+     * @return list<int>
+     */
+    protected function allowedOfficerIds(Employee $actor): array
+    {
+        return array_values(array_filter([(int) $actor->id, $this->customer()->employee_id !== null ? (int) $this->customer()->employee_id : null]));
     }
 }

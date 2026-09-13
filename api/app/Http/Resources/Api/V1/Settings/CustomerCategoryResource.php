@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
+ * Customer type resource (CUSTOMER_MODULE_IMPLEMENTATION.md §3.3), plus the loan rules loans use.
+ *
  * @mixin CustomerCategory
  */
 class CustomerCategoryResource extends JsonResource
@@ -18,18 +20,29 @@ class CustomerCategoryResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'key' => $this->key,
             'name' => $this->name,
-            'icon' => $this->icon,
-            'section_title' => $this->section_title,
-            'risk_level' => $this->risk_level,
-            'min_loan_amount' => (float) $this->min_loan_amount,
-            'max_loan_amount' => (float) $this->max_loan_amount,
-            'required_documents' => $this->required_documents ?? [],
-            'is_active' => $this->is_active,
-            'fields_count' => count($this->form_schema ?? []),
-            'form_schema' => $this->when($request->routeIs('*.customer-categories.show'), fn () => $this->form_schema ?? []),
-            'loan_categories' => $this->whenLoaded('loanCategories', fn () => $this->loanCategories->map(fn ($product): array => ['id' => $product->id, 'name' => $product->name])->values()),
+            'code' => $this->code,
+            'description' => $this->description,
+            'formTitle' => $this->form_title,
+            'isActive' => (bool) $this->is_active,
+            'sortOrder' => (int) $this->sort_order,
+            'riskTier' => $this->risk_tier,
+            'sector' => $this->sector,
+            'requiredDocuments' => $this->required_documents ?? [],
+            'optionalDocuments' => $this->optional_documents ?? [],
+            'requiresSector' => (bool) $this->requires_sector,
+            'requiresEmployer' => (bool) $this->requires_employer,
+            'requiresContract' => (bool) $this->requires_contract,
+            'requiresSalary' => (bool) $this->requires_salary,
+            'dynamicFormSchema' => $this->dynamic_form_schema ?? [],
+            'omittedStandardFields' => $this->omitted_standard_fields ?? [],
+            'requiresExtraApproval' => (bool) $this->requires_extra_approval,
+            'createdBy' => $this->created_by,
+            'deletedAt' => $this->deleted_at?->toIso8601String(),
+            'customerCount' => (int) ($this->customers_count ?? $this->customers()->count()),
+            'minLoanAmount' => (float) $this->min_loan_amount,
+            'maxLoanAmount' => (float) $this->max_loan_amount,
+            'loanCategories' => $this->whenLoaded('loanCategories', fn () => $this->loanCategories->map(fn ($product): array => ['id' => $product->id, 'name' => $product->name])->values()),
         ];
     }
 }

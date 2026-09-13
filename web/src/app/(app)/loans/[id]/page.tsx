@@ -137,7 +137,7 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
               <b>Phone number:</b> {customer.phone}<br />
               <b>Branch:</b> {customer.branch}<br />
               <b>Customer status:</b> {customer.status_label}<br />
-              <b>KYC:</b> {customer.kyc_status}
+              <b>KYC:</b> {customer.kyc_status === "completed" ? "Completed" : "Incomplete"}
             </div>
           </div>
         </div>

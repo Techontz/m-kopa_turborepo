@@ -4,6 +4,7 @@ namespace App\Http\Requests\Settings;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class BranchRequest extends FormRequest
 {
@@ -22,7 +23,7 @@ class BranchRequest extends FormRequest
             'region_id' => ['required', 'exists:regions,id'],
             'blanch_no' => ['required', 'string', 'max:30'],
             'branch_type' => ['required', 'in:main,sub'],
-            'zone_id' => ['nullable', \Illuminate\Validation\Rule::exists('zones', 'id')->where('company_id', $this->user()->company_id)],
+            'zone_id' => ['nullable', Rule::exists('zones', 'id')->where('company_id', $this->user()->company_id)],
         ];
     }
 

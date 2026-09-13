@@ -34,7 +34,7 @@ class GroupController extends ApiController
 
     public function store(Request $request): JsonResponse
     {
-        $this->authorizeAny('customers.register', 'customers.update');
+        $this->authorizeAny('customers.manage');
         $data = $request->validate(['group_name' => ['required', 'string', 'max:255']]);
 
         $group = Group::create(['company_id' => $this->currentEmployee()->company_id, 'name' => $data['group_name']]);
@@ -44,7 +44,7 @@ class GroupController extends ApiController
 
     public function update(Request $request, Group $group): JsonResponse
     {
-        $this->authorizeAny('customers.register', 'customers.update');
+        $this->authorizeAny('customers.manage');
         $data = $request->validate(['group_name' => ['required', 'string', 'max:255']]);
 
         $group->update(['name' => $data['group_name']]);
@@ -54,7 +54,7 @@ class GroupController extends ApiController
 
     public function destroy(Group $group): JsonResponse
     {
-        $this->authorizeAny('customers.update');
+        $this->authorizeAny('customers.manage');
 
         $group->delete();
 

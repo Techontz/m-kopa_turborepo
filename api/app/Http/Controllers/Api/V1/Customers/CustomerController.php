@@ -4,72 +4,258 @@ namespace App\Http\Controllers\Api\V1\Customers;
 
 use App\Enums\LoanStatus;
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Requests\Api\Customers\StoreCustomerRequest;
 use App\Http\Requests\Api\Customers\UpdateCustomerRequest;
-use App\Http\Resources\Api\V1\Customers\CustomerProfileResource;
 use App\Http\Resources\Api\V1\Customers\CustomerResource;
 use App\Integrations\Sms\SmsGateway;
+use App\Models\AuditLog;
 use App\Models\Customer;
+use App\Models\CustomerDocument;
+use App\Models\CustomerNote;
+use App\Models\Employee;
+use App\Models\FaceScan;
+use App\Models\Loan;
 use App\Models\SmsLog;
 use App\Services\CustomerEligibility;
-use App\Services\Customers\KycService;
+use App\Services\Customers\CustomerRegistrar;
+use App\Services\Customers\KycStatusCalculator;
 use App\Services\LoanService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
- * Customer → All Customer (admin/all_customer), Customer profile (admin/customer_profile/{id}) and its actions.
+ * Customer module: All Customer list, registration, Customer Profile and its tabs
+ * (CUSTOMER_MODULE_SPEC.md §1, CUSTOMER_MODULE_IMPLEMENTATION.md §3.1).
  */
 class CustomerController extends ApiController
 {
     /**
-     * Live status filter values (ACTIVE / DEFAULT / CLOSED).
+     * Relations the customer resource shows names from.
      *
-     * @var array<string, string>
+     * @var list<string>
      */
-    private const STATUS_FILTER = ['ACTIVE' => 'open', 'DEFAULT' => 'out', 'CLOSED' => 'close', 'PENDING' => 'pending'];
+    public const RESOURCE_RELATIONS = ['branch:id,name', 'customerCategory:id,name', 'idType:id,name', 'region:id,name', 'employee:id,first_name,middle_name,last_name', 'faceScannedBy:id,first_name,middle_name,last_name', 'group:id,name'];
 
-    public function __construct(private KycService $kyc) {}
+    public function __construct(private CustomerRegistrar $registrar, private KycStatusCalculator $kyc) {}
 
-    public function index(Request $request): AnonymousResourceCollection
+    /**
+     * GET /customers — filters: search, kyc_status, status, approval_status, loan_eligible, branch_id,
+     * customer_category_id, include_deleted, page, per_page.
+     */
+    public function index(Request $request): JsonResponse
     {
         $this->authorizeAny('customers.view');
 
-        $status = $request->string('customer_status')->upper()->toString();
+        $perPage = min(max($request->integer('per_page', 20), 1), 100);
+        $search = trim($request->string('search')->toString());
 
-        $customers = $this->applyFilters($this->scoped(Customer::query()), $request)
-            ->with(['branch:id,name', 'customerCategory:id,name'])
-            ->when(isset(self::STATUS_FILTER[$status]), fn ($query) => $query->where('status', self::STATUS_FILTER[$status]))
-            ->when($request->filled('kyc_status'), fn ($query) => $query->where('kyc_status', $request->string('kyc_status')->toString()))
+        $customers = $this->scoped(Customer::query())
+            ->with(self::RESOURCE_RELATIONS)
+            ->when($request->boolean('include_deleted'), fn (Builder $query) => $query->withTrashed())
+            ->when($search !== '', fn (Builder $query) => $query->where(function (Builder $query) use ($search): void {
+                $like = '%'.$search.'%';
+                $query->where('first_name', 'like', $like)
+                    ->orWhere('middle_name', 'like', $like)
+                    ->orWhere('last_name', 'like', $like)
+                    ->orWhereRaw("CONCAT_WS(' ', first_name, middle_name, last_name) like ?", [$like])
+                    ->orWhereRaw("CONCAT_WS(' ', first_name, last_name) like ?", [$like])
+                    ->orWhere('customer_number', 'like', $like)
+                    ->orWhere('customer_code', 'like', $like)
+                    ->orWhere('phone', 'like', $like)
+                    ->orWhere('nida_number', 'like', $like)
+                    ->orWhere('id_number', 'like', $like);
+            }))
+            ->when($request->filled('kyc_status'), fn (Builder $query) => $query->where('kyc_status', $request->string('kyc_status')->toString()))
+            ->when($request->filled('status'), fn (Builder $query) => $query->where('account_status', $request->string('status')->toString()))
+            ->when($request->filled('approval_status'), fn (Builder $query) => $query->where('approval_status', $request->string('approval_status')->toString()))
+            ->when($request->filled('branch_id') && $request->input('branch_id') !== 'all', fn (Builder $query) => $query->where('branch_id', $request->integer('branch_id')))
+            ->when($request->filled('customer_category_id'), fn (Builder $query) => $query->where('customer_category_id', $request->integer('customer_category_id')))
+            ->when($request->filled('loan_eligible'), function (Builder $query) use ($request): void {
+                $eligible = fn (Builder $query) => $query->where('kyc_status', KycStatusCalculator::COMPLETED)
+                    ->where(fn (Builder $query) => $query->whereNull('customer_category_id')->orWhereHas('customerCategory', fn (Builder $query) => $query->where('is_active', true)));
+
+                $request->boolean('loan_eligible') ? $eligible($query) : $query->whereNot(fn (Builder $query) => $eligible($query));
+            })
             ->latest('id')
-            ->get();
+            ->paginate($perPage);
 
-        return CustomerResource::collection($customers);
+        return response()->json([
+            'data' => CustomerResource::collection($customers->getCollection())->resolve($request),
+            'meta' => ['currentPage' => $customers->currentPage(), 'lastPage' => $customers->lastPage(), 'perPage' => $customers->perPage(), 'total' => $customers->total()],
+        ]);
     }
 
-    public function show(Customer $customer): CustomerProfileResource
+    /**
+     * GET /customers/registration-options — branch, officer and lock state for the wizard's Registration group.
+     */
+    public function registrationOptions(): JsonResponse
+    {
+        $this->authorizeAny('customers.manage');
+
+        $actor = $this->currentEmployee();
+        $viewAll = Gate::allows('branches.view_all');
+        $branches = $this->visibleBranches()
+            ->filter(fn ($branch): bool => ! $branch->is_head_office && $branch->status === 'active')
+            ->when(! $viewAll, fn ($branches) => $branches->where('id', $actor->branch_id))
+            ->values();
+
+        $officers = $this->scoped(Employee::query())
+            ->where('status', 'active')
+            ->orderBy('first_name')
+            ->get()
+            ->push($actor)
+            ->unique('id')
+            ->when(! Gate::allows('customers.assign_officer'), fn ($officers) => $officers->where('id', $actor->id))
+            ->map(fn (Employee $employee): array => ['id' => $employee->id, 'name' => $employee->full_name, 'branchId' => $employee->branch_id === null ? null : (int) $employee->branch_id])
+            ->values();
+
+        return response()->json(['data' => [
+            'branches' => $branches->map(fn ($branch): array => ['id' => $branch->id, 'name' => $branch->name])->all(),
+            'lockedBranchId' => $viewAll ? null : ($actor->branch_id === null ? null : (int) $actor->branch_id),
+            'officers' => $officers->all(),
+            'currentEmployeeId' => $actor->id,
+            'canAssignOfficer' => Gate::allows('customers.assign_officer'),
+        ]]);
+    }
+
+    public function store(StoreCustomerRequest $request): JsonResponse
+    {
+        $customer = $this->registrar->register($request->validated(), $this->currentEmployee());
+
+        return (new CustomerResource($this->loadForResource($customer)))->response()->setStatusCode(201);
+    }
+
+    public function show(int $customer): CustomerResource
+    {
+        $this->authorizeAny('customers.view');
+
+        return new CustomerResource($this->loadForResource($this->findAccessible($customer, withTrashed: true)));
+    }
+
+    public function update(UpdateCustomerRequest $request, Customer $customer): CustomerResource
+    {
+        $this->registrar->update($customer, $request->validated(), $this->currentEmployee());
+
+        return new CustomerResource($this->loadForResource($customer->refresh()));
+    }
+
+    /**
+     * GET /customers/{id}/kyc-status — checklist and outstanding items.
+     */
+    public function kycStatus(Customer $customer): JsonResponse
     {
         $this->authorizeAny('customers.view');
         $this->assertAccessible($customer);
 
-        return new CustomerProfileResource($customer->load([
-            'branch', 'employee', 'region', 'customerCategory', 'kyc', 'residence', 'bankDetail', 'nextOfKin', 'documents',
-            'guarantors.region', 'loans.category',
-        ]));
+        $items = $this->kyc->checklist($customer);
+
+        return response()->json(['data' => [
+            'kycStatus' => $this->kyc->status($customer),
+            'items' => $items,
+            'outstanding' => collect($items)->filter(fn (array $item): bool => $item['required'] && ! $item['complete'])->pluck('label')->values()->all(),
+        ]]);
     }
 
-    public function update(UpdateCustomerRequest $request, Customer $customer): JsonResponse
+    /**
+     * GET /customers/{id}/overview — loans summary and balances for the profile's Overview tab.
+     */
+    public function overview(Customer $customer, LoanService $loans): JsonResponse
     {
-        $this->authorizeAny('customers.update');
+        $this->authorizeAny('customers.view');
         $this->assertAccessible($customer);
-        $this->assertBranchAccessible($request->integer('blanch_id'));
 
-        $customer->update($request->customerData());
+        $customerLoans = $customer->loans()->with('category:id,name')->latest('id')->get();
+        $latestLoan = $customerLoans->first();
+        $repayable = $customerLoans->filter(fn (Loan $loan): bool => in_array($loan->status, LoanStatus::repayable(), true));
 
-        return $this->message('Customer information updated successfully');
+        return response()->json(['data' => [
+            'loans' => [
+                'total' => $customerLoans->count(),
+                'active' => $repayable->count(),
+                'inPipeline' => $customerLoans->filter(fn (Loan $loan): bool => in_array($loan->status, LoanStatus::inPipeline(), true))->count(),
+                'closed' => $customerLoans->where('status', LoanStatus::Closed)->count(),
+                'totalDisbursed' => (float) $customerLoans->filter(fn (Loan $loan): bool => in_array($loan->status, LoanStatus::disbursed(), true))->sum(fn (Loan $loan): float => (float) $loan->amount_approved),
+                'outstanding' => (float) $repayable->sum(fn (Loan $loan): float => (float) $loan->remaining_amount),
+            ],
+            'balance' => $latestLoan ? $loans->deductions($latestLoan) : ['remain_loan' => 0, 'salary_advance' => 0, 'penalty' => 0, 'loan_fee' => 0, 'total' => 0, 'remain_cash' => 0],
+            'recentLoans' => $customerLoans->take(20)->map(fn (Loan $loan): array => [
+                'id' => $loan->id,
+                'loanNumber' => $loan->loan_number,
+                'product' => $loan->category?->name,
+                'amountApplied' => (float) $loan->amount_applied,
+                'amountApproved' => (float) $loan->amount_approved,
+                'totalPayable' => (float) $loan->total_payable,
+                'status' => $loan->status?->value,
+                'statusLabel' => $loan->status?->label(),
+                'statusBadge' => $loan->status?->badge(),
+                'withdrawnAt' => $loan->withdrawn_at?->toDateString(),
+                'endDate' => $loan->end_date?->toDateString(),
+            ])->values()->all(),
+            'counts' => [
+                'documents' => $customer->documents()->count(),
+                'notes' => $customer->notes()->count(),
+                'guarantors' => $customer->guarantors()->count(),
+                'nextOfKin' => $customer->nextOfKins()->count(),
+                'faceScans' => $customer->faceScans()->count(),
+            ],
+        ]]);
+    }
+
+    /**
+     * GET /customers/{id}/timeline — registration, KYC, document, note, face-scan and loan events, newest first.
+     */
+    public function timeline(Customer $customer): JsonResponse
+    {
+        $this->authorizeAny('customers.view');
+        $this->assertAccessible($customer);
+
+        $events = collect()
+            ->push(['type' => 'registered', 'title' => 'Registered', 'description' => $customer->customer_number, 'at' => $customer->created_at, 'byName' => $customer->creator?->full_name])
+            ->merge($customer->documents()->with('uploader')->get()->map(fn (CustomerDocument $document): array => ['type' => 'document', 'title' => 'Document uploaded', 'description' => $document->original_name, 'at' => $document->created_at, 'byName' => $document->uploader?->full_name]))
+            ->merge($customer->faceScans()->with('scanner')->get()->map(fn (FaceScan $scan): array => ['type' => 'face_scan', 'title' => $scan->status === 'passed' ? 'Face verification passed' : 'Face verification failed', 'description' => "Quality {$scan->quality_score}", 'at' => $scan->scanned_at, 'byName' => $scan->scanner?->full_name]))
+            ->merge($customer->notes()->with('author')->get()->map(fn (CustomerNote $note): array => ['type' => 'note', 'title' => 'Note added', 'description' => $note->body, 'at' => $note->created_at, 'byName' => $note->author?->full_name]))
+            ->merge($customer->loans()->with('category:id,name')->get()->map(fn (Loan $loan): array => ['type' => 'loan', 'title' => 'Loan '.$loan->loan_number, 'description' => trim(($loan->category?->name ?? '').' · '.$loan->status?->label(), ' ·'), 'at' => $loan->created_at, 'byName' => null]))
+            ->merge(AuditLog::query()->with('employee')->where('auditable_type', $customer->getMorphClass())->where('auditable_id', $customer->id)->whereIn('action', ['Customer.approved', 'Customer.rejected', 'Customer.resubmitted', 'Customer.details_updated'])->get()
+                ->map(fn (AuditLog $log): array => ['type' => 'approval', 'title' => str($log->action)->after('Customer.')->replace('_', ' ')->ucfirst()->toString(), 'description' => $log->after['reason'] ?? null, 'at' => $log->created_at, 'byName' => $log->employee?->full_name]))
+            ->sortByDesc(fn (array $event) => $event['at']?->getTimestamp() ?? 0)
+            ->values()
+            ->map(fn (array $event): array => ['at' => $event['at']?->toIso8601String()] + $event);
+
+        return response()->json(['data' => $events->all()]);
+    }
+
+    /**
+     * GET /customers/{id}/audit-trail — audit entries of the customer record.
+     */
+    public function auditTrail(Customer $customer): JsonResponse
+    {
+        $this->authorizeAny('customers.view');
+        $this->assertAccessible($customer);
+
+        $logs = AuditLog::query()
+            ->with('employee')
+            ->where('auditable_type', $customer->getMorphClass())
+            ->where('auditable_id', $customer->id)
+            ->latest('id')
+            ->limit(500)
+            ->get()
+            ->map(fn (AuditLog $log): array => [
+                'id' => $log->id,
+                'action' => $log->action,
+                'before' => $log->before,
+                'after' => $log->after,
+                'employeeId' => $log->employee_id,
+                'employeeName' => $log->employee?->full_name,
+                'ipAddress' => $log->ip_address,
+                'createdAt' => $log->created_at?->toIso8601String(),
+            ]);
+
+        return response()->json(['data' => $logs->all()]);
     }
 
     /**
@@ -83,27 +269,9 @@ class CustomerController extends ApiController
         return response()->json(['data' => $eligibility->for($customer)]);
     }
 
-    /**
-     * Live "KYC status" tab. NIDA-registered customers are approved automatically when the checklist completes,
-     * so a manual approval is only accepted for them once the checklist is complete; legacy customers keep the live manual approval.
-     */
-    public function approveKyc(Customer $customer): JsonResponse
-    {
-        $this->authorizeAny('customers.update');
-        $this->assertAccessible($customer);
-
-        if ($this->kyc->status($customer) === 'pending') {
-            return $this->message('KYC checklist is not complete', 422, ['errors' => ['kyc' => ['KYC checklist is not complete']]]);
-        }
-
-        $customer->update(['kyc_status' => 'approved']);
-
-        return $this->message('Customer KYC Aproved successfully');
-    }
-
     public function mark(Customer $customer): JsonResponse
     {
-        $this->authorizeAny('customers.update');
+        $this->authorizeAny('customers.manage');
         $this->assertAccessible($customer);
 
         $customer->update(['is_marked' => ! $customer->is_marked]);
@@ -113,7 +281,7 @@ class CustomerController extends ApiController
 
     public function sendSms(Request $request, Customer $customer, SmsGateway $sms): JsonResponse
     {
-        $this->authorizeAny('customers.update', 'messages.use');
+        $this->authorizeAny('customers.manage', 'messages.use');
         $this->assertAccessible($customer);
         $validated = $request->validate(['message' => ['required', 'string', 'max:480']]);
 
@@ -144,31 +312,42 @@ class CustomerController extends ApiController
         return response()->json(['data' => $latestLoan ? $loans->deductions($latestLoan) : $empty]);
     }
 
+    /**
+     * The customer's photo: the capture of the active face scan.
+     */
     public function photo(Customer $customer): StreamedResponse
     {
         $this->authorizeAny('customers.view');
         $this->assertAccessible($customer);
 
-        $path = $customer->kyc?->face_photo;
-        abort_unless($path && Storage::disk(KycService::DISK)->exists($path), 404);
+        abort_unless($customer->photo_path && Storage::disk(FaceScan::DISK)->exists($customer->photo_path), 404);
 
-        return Storage::disk(KycService::DISK)->response($path, null, ['Content-Type' => 'image/jpeg', 'Cache-Control' => 'private, max-age=300']);
+        return Storage::disk(FaceScan::DISK)->response($customer->photo_path, null, ['Cache-Control' => 'private, max-age=300']);
     }
 
     public function destroy(Customer $customer): JsonResponse
     {
-        $this->authorizeAny('customers.update');
+        $this->authorizeAny('customers.manage');
         $this->assertAccessible($customer);
 
         if ($customer->loans()->whereNotIn('status', [LoanStatus::Rejected->value, LoanStatus::Cancelled->value])->exists()) {
             return $this->message('Customer has loans and cannot be deleted', 422);
         }
 
-        $files = array_filter([$customer->kyc?->face_photo, ...$customer->documents()->pluck('file_path')->all()]);
         $customer->delete();
-        Storage::disk(KycService::DISK)->delete($files);
+        $this->registrar->audit($customer, 'Customer.deleted', ['customer_number' => $customer->customer_number]);
 
         return $this->message('Customer Deleted successfully');
+    }
+
+    private function loadForResource(Customer $customer): Customer
+    {
+        return $customer->load([...self::RESOURCE_RELATIONS, 'bankDetail', 'nextOfKins', 'guarantors', 'documents']);
+    }
+
+    private function findAccessible(int $id, bool $withTrashed = false): Customer
+    {
+        return $this->scoped(Customer::query())->when($withTrashed, fn (Builder $query) => $query->withTrashed())->findOrFail($id);
     }
 
     private function assertAccessible(Customer $customer): void

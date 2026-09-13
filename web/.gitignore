@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 !.env.example
+
+# MediaPipe WASM runtime (copied from node_modules by scripts/copy-mediapipe.mjs)
+/public/mediapipe/wasm/

@@ -31,7 +31,7 @@ class MasterDataSeeder extends Seeder
     /**
      * @var list<string>
      */
-    private const REGIONS = ['Mbeya', 'Mwanza', 'Chato', 'Geita', 'Dar es salaam', 'Ruvuma', 'Unguja South', 'Unguja North', 'Tanga', 'Tabora', 'Songwe', 'Singida', 'Simiyu', 'Shinyanga', 'Rukwa', 'Pwani', 'Pemba South', 'Pemba North', 'Njombe', 'Mtwara', 'Morogoro', 'Mjini Magharibi', 'Mara', 'Manyara', 'Lindi', 'Kilimanjaro', 'Kigoma', 'Katavi', 'Kagera', 'Iringa', 'Dodoma', 'Arusha'];
+    private const REGIONS = ['Mbeya', 'Mwanza', 'Chato', 'Geita', 'Dar es salaam', 'Ruvuma', 'Kusini Unguja', 'Kaskazini Unguja', 'Tanga', 'Tabora', 'Songwe', 'Singida', 'Simiyu', 'Shinyanga', 'Rukwa', 'Pwani', 'Kusini Pemba', 'Kaskazini Pemba', 'Njombe', 'Mtwara', 'Morogoro', 'Mjini Magharibi', 'Mara', 'Manyara', 'Lindi', 'Kilimanjaro', 'Kigoma', 'Katavi', 'Kagera', 'Iringa', 'Dodoma', 'Arusha'];
 
     public function run(): void
     {
@@ -161,11 +161,6 @@ class MasterDataSeeder extends Seeder
     }
 
     /**
-     * The five customer categories and their dynamic forms (Documents/customer-types.json).
-     * Loan limits, allowed products, required documents and risk levels are defaults the
-     * business can change under Settings.
-     */
-    /**
      * One fixed demo login per role (config/demo.php), so every role can be tested with known credentials.
      */
     private function seedDemoAccounts(Company $company): void
@@ -197,30 +192,28 @@ class MasterDataSeeder extends Seeder
         }
     }
 
+    /**
+     * The five customer types (CustomerModuleSeeder) plus this institution's loan rules per type: loan limits,
+     * the legacy risk level and the allowed loan products (loans read these).
+     */
     private function seedCustomerCategories(Company $company): void
     {
-        $definition = json_decode((string) file_get_contents(database_path('data/customer-types.json')), true);
+        $customerModule = new CustomerModuleSeeder;
+        $customerModule->seedReferenceData();
+        $customerModule->seedGeography();
+        $customerModule->seedCompany($company);
+
         $rules = [
-            'mtumishi_umma' => ['risk' => 'low', 'min' => 100000, 'max' => 10000000, 'products' => ['WATUMISHI 2', 'WATUMISHI 3', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'NEW WATUMISHI 3', 'VIP DESK', 'VVIP DESK', 'WATUMISHI LOAN'], 'documents' => ['Salary slip', 'Employment ID', 'NIDA']],
-            'sekta_binafsi' => ['risk' => 'medium', 'min' => 100000, 'max' => 5000000, 'products' => ['WATUMISHI 2', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN'], 'documents' => ['Salary slip', 'Employment contract', 'Employment ID', 'NIDA']],
-            'mjasiriamali' => ['risk' => 'high', 'min' => 20000, 'max' => 2000000, 'products' => ['WAJASILIAMALI', 'GROUP LOAN', 'VIKUNDI 1', 'VIKUNDI 2'], 'documents' => ['Business licence', 'TIN certificate', 'Collateral (Dhamana)', 'NIDA']],
-            'mwanafunzi' => ['risk' => 'high', 'min' => 20000, 'max' => 500000, 'products' => ['WAJASILIAMALI'], 'documents' => ['Student ID', 'Admission letter', 'Guarantor NIDA', 'NIDA']],
-            'mstaafu' => ['risk' => 'medium', 'min' => 100000, 'max' => 3000000, 'products' => ['NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN'], 'documents' => ['Pension statement', 'Retirement letter', 'NIDA']],
+            'WATUMISHI_WA_UMMA' => ['risk' => 'low', 'min' => 100000, 'max' => 10000000, 'products' => ['WATUMISHI 2', 'WATUMISHI 3', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'NEW WATUMISHI 3', 'VIP DESK', 'VVIP DESK', 'WATUMISHI LOAN']],
+            'SEKTA_BINAFSI' => ['risk' => 'medium', 'min' => 100000, 'max' => 5000000, 'products' => ['WATUMISHI 2', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN']],
+            'WAJASIRIAMALI' => ['risk' => 'high', 'min' => 20000, 'max' => 2000000, 'products' => ['WAJASILIAMALI', 'GROUP LOAN', 'VIKUNDI 1', 'VIKUNDI 2']],
+            'MWANAFUNZI_CHUO' => ['risk' => 'high', 'min' => 20000, 'max' => 500000, 'products' => ['WAJASILIAMALI']],
+            'MSTAAFU_UMMA' => ['risk' => 'medium', 'min' => 100000, 'max' => 3000000, 'products' => ['NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN']],
         ];
 
-        foreach ($definition['types'] as $type) {
-            $rule = $rules[$type['key']];
-            $category = CustomerCategory::updateOrCreate(['company_id' => $company->id, 'key' => $type['key']], [
-                'name' => $type['label'],
-                'icon' => $type['icon'] ?? null,
-                'section_title' => $type['sectionTitle'] ?? null,
-                'risk_level' => $rule['risk'],
-                'min_loan_amount' => $rule['min'],
-                'max_loan_amount' => $rule['max'],
-                'required_documents' => $rule['documents'],
-                'form_schema' => $type['fields'],
-            ]);
-
+        foreach ($rules as $code => $rule) {
+            $category = CustomerCategory::where('company_id', $company->id)->where('code', $code)->firstOrFail();
+            $category->update(['risk_level' => $rule['risk'], 'min_loan_amount' => $rule['min'], 'max_loan_amount' => $rule['max']]);
             $category->loanCategories()->sync(LoanCategory::where('company_id', $company->id)->whereIn('name', $rule['products'])->pluck('id'));
         }
     }

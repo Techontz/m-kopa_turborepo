@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Middleware\ApiErrorEnvelope;
 use App\Http\Middleware\EnsureCompanyOwnership;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,10 +20,16 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prependToGroup('api', ApiErrorEnvelope::class);
         $middleware->appendToGroup('api', EnsureCompanyOwnership::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+        );
+
+        // Global API error envelope: { message, error_code, errors? }.
+        $exceptions->respond(
+            fn (Response $response, Throwable $exception, Request $request): Response => $request->is('api/*') ? ApiErrorEnvelope::apply($response) : $response,
         );
     })->create();

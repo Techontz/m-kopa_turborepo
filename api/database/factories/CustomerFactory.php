@@ -41,7 +41,10 @@ class CustomerFactory extends Factory
             'dependents' => fake()->numberBetween(0, 6),
             'monthly_income' => fake()->numberBetween(100, 1500) * 1000,
             'id_number' => fake()->numerify('1990##########'),
-            'kyc_status' => 'approved',
+            'customer_number' => fn (): string => sprintf('CU-%06d', fake()->unique()->numberBetween(1, 999999)),
+            'kyc_status' => 'completed',
+            'account_status' => 'active',
+            'approval_status' => 'not_required',
             'status' => 'pending',
             'registration_step' => Customer::STEP_COMPLETE,
         ];
@@ -49,6 +52,6 @@ class CustomerFactory extends Factory
 
     public function incomplete(int $step = Customer::STEP_ADDITIONAL): static
     {
-        return $this->state(fn (): array => ['registration_step' => $step, 'kyc_status' => 'pending']);
+        return $this->state(fn (): array => ['registration_step' => $step, 'kyc_status' => 'incomplete']);
     }
 }

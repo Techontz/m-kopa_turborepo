@@ -4,133 +4,270 @@ namespace Tests\Feature\Api\Customers;
 
 use App\Models\Branch;
 use App\Models\Customer;
-use App\Models\Employee;
-use App\Models\Guarantor;
+use App\Models\CustomerCategory;
 use App\Models\Loan;
 use App\Models\LoanCategory;
-use App\Models\Region;
 use App\Models\SmsLog;
+use App\Services\AccessControl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Tests\Feature\Api\Customers\Concerns\BuildsCustomerModule;
 use Tests\TestCase;
 
+/**
+ * All Customer list, profile endpoints, update, approvals, permissions and the API error contract (§8.9, §8.10).
+ */
 class CustomerApiTest extends TestCase
 {
-    use RefreshDatabase;
+    use BuildsCustomerModule, RefreshDatabase;
 
-    public function test_all_customer_list_filters_by_branch_and_live_status(): void
+    public function test_role_matrix_for_customer_permissions(): void
+    {
+        $admin = $this->signInAdmin();
+        $access = app(AccessControl::class);
+        $matrix = [
+            'super_admin' => [true, true, true, true],
+            'admin' => [true, true, true, true],
+            'branch_manager' => [true, true, true, true],
+            'loan_officer' => [true, true, false, false],
+            'finance' => [true, false, false, false],
+            'credit_officer' => [true, false, false, false],
+            'zone_manager' => [true, false, false, false],
+            'hr' => [false, false, false, false],
+            'teller' => [false, false, false, false],
+        ];
+
+        foreach ($matrix as $role => $expected) {
+            $employee = $this->employeeWithRole($admin, $role)->load('role.permissions');
+            $actual = array_map(fn (string $permission): bool => $access->can($employee, $permission), ['customers.view', 'customers.manage', 'customers.approve', 'customers.assign_officer']);
+            $this->assertSame($expected, $actual, "Role {$role}");
+        }
+    }
+
+    public function test_list_is_paginated_filtered_searched_and_branch_scoped(): void
     {
         $admin = $this->signInAdmin();
         $other = Branch::factory()->create(['company_id' => $admin->company_id]);
-        $active = Customer::factory()->create(['branch_id' => $admin->branch_id, 'status' => 'open']);
-        $closed = Customer::factory()->create(['branch_id' => $other->id, 'status' => 'close']);
+        $category = CustomerCategory::create(['company_id' => $admin->company_id, 'key' => 'k', 'name' => 'Type', 'is_active' => true, 'required_documents' => [], 'form_schema' => []]);
+        $asha = Customer::factory()->create(['branch_id' => $admin->branch_id, 'first_name' => 'ASHA', 'last_name' => 'HAMISI', 'phone' => '0754123456', 'kyc_status' => 'completed', 'approval_status' => 'pending', 'customer_category_id' => $category->id]);
+        $foreign = Customer::factory()->create(['branch_id' => $other->id, 'kyc_status' => 'incomplete', 'account_status' => 'frozen']);
+        Customer::factory()->count(3)->create(['branch_id' => $admin->branch_id]);
         Customer::factory()->create();
+        $deleted = Customer::factory()->create(['branch_id' => $admin->branch_id]);
+        $deleted->delete();
 
-        $this->getJson('/api/v1/customers')->assertOk()->assertJsonCount(2, 'data');
-        $this->getJson('/api/v1/customers?branch_id=all&customer_status=CLOSED')
+        $this->getJson('/api/v1/customers?per_page=2&page=2')
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $closed->id)
-            ->assertJsonPath('data.0.status_label', 'DONE');
-        $this->getJson("/api/v1/customers?branch_id={$admin->branch_id}")->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.customer_code', $active->customer_code);
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('meta', ['currentPage' => 2, 'lastPage' => 3, 'perPage' => 2, 'total' => 5]);
+
+        $this->getJson('/api/v1/customers?search=asha hamisi')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $asha->id)->assertJsonPath('data.0.branchName', $admin->branch->name);
+        $this->getJson('/api/v1/customers?search=0754123456')->assertOk()->assertJsonPath('data.0.id', $asha->id);
+        $this->getJson("/api/v1/customers?search={$asha->customer_number}")->assertOk()->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/v1/customers?kyc_status=incomplete')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $foreign->id);
+        $this->getJson('/api/v1/customers?status=frozen')->assertOk()->assertJsonPath('data.0.id', $foreign->id)->assertJsonPath('data.0.status', 'frozen');
+        $this->getJson('/api/v1/customers?approval_status=pending')->assertOk()->assertJsonPath('meta.total', 1);
+        $this->getJson("/api/v1/customers?branch_id={$other->id}")->assertOk()->assertJsonPath('meta.total', 1);
+        $this->getJson("/api/v1/customers?customer_category_id={$category->id}")->assertOk()->assertJsonPath('meta.total', 1);
+        $this->getJson('/api/v1/customers?loan_eligible=0')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $foreign->id);
+        $this->getJson('/api/v1/customers?loan_eligible=1')->assertOk()->assertJsonPath('meta.total', 4);
+        $this->getJson('/api/v1/customers?include_deleted=1')->assertOk()->assertJsonPath('meta.total', 6);
+
+        $officer = $this->employeeWithRole($admin, 'loan_officer');
+        $this->actingAs($officer)->getJson('/api/v1/customers')->assertOk()->assertJsonPath('meta.total', 4);
+        $this->actingAs($officer)->getJson("/api/v1/customers/{$foreign->id}")->assertNotFound()->assertJsonPath('error_code', 'RESOURCE_NOT_FOUND');
+        $this->actingAs($officer)->getJson("/api/v1/customers/{$asha->id}")->assertOk()->assertJsonPath('data.customerNumber', $asha->customer_number);
     }
 
-    public function test_branch_roles_only_reach_customers_of_their_branch(): void
+    public function test_error_contract_unauthenticated_forbidden_missing_and_invalid(): void
     {
         $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+
+        $this->app['auth']->forgetGuards();
+        $this->withHeaders(['Authorization' => ''])->getJson('/api/v1/customers', [])->assertJsonPath('error_code', 'UNAUTHENTICATED')->assertUnauthorized();
+
+        $this->actingAs($this->employeeWithRole($admin, 'hr'))->getJson('/api/v1/customers')->assertForbidden()->assertJsonPath('error_code', 'FORBIDDEN');
+        $this->actingAs($admin)->getJson('/api/v1/customers/999999')->assertNotFound()->assertJsonPath('error_code', 'RESOURCE_NOT_FOUND');
+        $this->postJson('/api/v1/customers', [])->assertUnprocessable()->assertJsonPath('error_code', 'VALIDATION_FAILED')->assertJsonStructure(['message', 'error_code', 'errors' => ['firstName']]);
+    }
+
+    public function test_without_customers_manage_every_write_is_forbidden_before_validation(): void
+    {
+        Storage::fake('local');
+        $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+        $customerId = $this->postJson('/api/v1/customers', $this->registrationPayload($admin))->json('data.id');
+
+        $this->actingAs($this->employeeWithRole($admin, 'credit_officer'));
+        $this->postJson('/api/v1/customers', [])->assertForbidden();
+        $this->putJson("/api/v1/customers/{$customerId}", ['firstName' => ''])->assertForbidden();
+        $this->post("/api/v1/customers/{$customerId}/documents", [], ['Accept' => 'application/json'])->assertForbidden();
+        $this->post("/api/v1/customers/{$customerId}/face-verify", [], ['Accept' => 'application/json'])->assertForbidden();
+        $this->postJson("/api/v1/customers/{$customerId}/next-of-kin", [])->assertForbidden();
+        $this->postJson("/api/v1/customers/{$customerId}/guarantors", [])->assertForbidden();
+        $this->postJson("/api/v1/customers/{$customerId}/notes", [])->assertForbidden();
+        $this->postJson('/api/v1/customer-drafts', [])->assertForbidden();
+        $this->getJson('/api/v1/customers/registration-options')->assertForbidden();
+        $this->getJson("/api/v1/customers/{$customerId}")->assertOk();
+    }
+
+    public function test_branch_scope_on_register_documents_and_face(): void
+    {
+        Storage::fake('local');
+        $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+        $otherBranch = Branch::factory()->create(['company_id' => $admin->company_id]);
+        $foreignCustomerId = $this->postJson('/api/v1/customers', $this->registrationPayload($admin, ['branchId' => $otherBranch->id]))->assertCreated()->json('data.id');
+
+        $officer = $this->employeeWithRole($admin, 'loan_officer');
+        $this->actingAs($officer)->postJson('/api/v1/customers', ['branchId' => $otherBranch->id])->assertForbidden()->assertJsonPath('message', 'You do not have access to this branch.');
+        $this->post("/api/v1/customers/{$foreignCustomerId}/documents", ['documentType' => 'kyc_attachment', 'file' => UploadedFile::fake()->create('a.pdf', 5, 'application/pdf')], ['Accept' => 'application/json'])->assertNotFound();
+        $this->post("/api/v1/customers/{$foreignCustomerId}/face-verify", [], ['Accept' => 'application/json'])->assertNotFound();
+        $this->putJson("/api/v1/customers/{$foreignCustomerId}", [])->assertNotFound();
+    }
+
+    public function test_registration_options_lock_the_branch_without_view_all(): void
+    {
+        $admin = $this->signInAdmin();
+        $headOffice = Branch::factory()->create(['company_id' => $admin->company_id, 'is_head_office' => true]);
         $other = Branch::factory()->create(['company_id' => $admin->company_id]);
-        $mine = Customer::factory()->create(['branch_id' => $admin->branch_id]);
-        $foreign = Customer::factory()->create(['branch_id' => $other->id]);
+        $officer = $this->employeeWithRole($admin, 'loan_officer');
+        $colleague = $this->employeeWithRole($admin, 'loan_officer');
 
-        $this->actingAs($this->employeeWithRole($admin, 'loan_officer'));
+        $options = $this->getJson('/api/v1/customers/registration-options')->assertOk()
+            ->assertJsonPath('data.lockedBranchId', null)
+            ->assertJsonPath('data.currentEmployeeId', $admin->id)
+            ->assertJsonPath('data.canAssignOfficer', true)
+            ->json('data');
+        $this->assertEqualsCanonicalizing([$admin->branch_id, $other->id], array_column($options['branches'], 'id'));
+        $this->assertNotContains($headOffice->id, array_column($options['branches'], 'id'));
+        $this->assertContains($colleague->id, array_column($options['officers'], 'id'));
 
-        $this->getJson('/api/v1/customers')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $mine->id);
-        $this->getJson("/api/v1/customers/{$foreign->id}")->assertNotFound();
-        $this->getJson("/api/v1/customers/{$mine->id}")->assertOk()->assertJsonPath('data.kyc.state', 'legacy');
-        $this->deleteJson("/api/v1/customers/{$foreign->id}")->assertNotFound();
-
-        $this->actingAs($this->employeeWithRole($admin, 'hr'));
-        $this->getJson('/api/v1/customers')->assertForbidden();
+        $this->actingAs($officer)->getJson('/api/v1/customers/registration-options')->assertOk()
+            ->assertJsonPath('data.lockedBranchId', $admin->branch_id)
+            ->assertJsonPath('data.branches', [['id' => $admin->branch_id, 'name' => $admin->branch->name]])
+            ->assertJsonPath('data.officers', [['id' => $officer->id, 'name' => $officer->full_name, 'branchId' => $admin->branch_id]])
+            ->assertJsonPath('data.canAssignOfficer', false);
     }
 
-    public function test_legacy_profile_basic_update_mark_sms_and_manual_kyc_approval(): void
+    public function test_update_changes_only_sent_fields_and_rechecks_related_rules(): void
     {
         $admin = $this->signInAdmin();
-        $region = Region::create(['name' => 'Mwanza']);
-        $customer = Customer::factory()->incomplete()->create(['branch_id' => $admin->branch_id]);
+        $this->seedCustomerModule($admin);
+        $type = $this->type($admin, 'WAJASIRIAMALI');
+        $payload = $this->registrationPayload($admin, [
+            'customerCategoryId' => $type->id,
+            'dynamicFormData' => ['sekta' => $this->ids['businessSector'], 'aina' => $this->ids['businessType'], 'jina_biashara' => 'Duka', 'mapato' => 500000, 'mahali_biashara' => 'Soko'],
+        ]);
+        $customerId = $this->postJson('/api/v1/customers', $payload)->assertCreated()->json('data.id');
+        $existing = $this->postJson('/api/v1/customers', $this->registrationPayload($admin, ['phone' => '0754777000']))->json('data.id');
 
-        $this->putJson("/api/v1/customers/{$customer->id}", ['blanch_id' => $admin->branch_id, 'empl_id' => $admin->id])
-            ->assertUnprocessable()->assertJsonValidationErrors(['f_name', 'region_id']);
+        $this->putJson("/api/v1/customers/{$customerId}", ['firstName' => 'Mwanaisha', 'phone' => '0754777000', 'regionId' => null])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone')
+            ->assertJsonPath('errors.regionId.0', 'Region is required.')
+            ->assertJsonMissingValidationErrors(['dynamicFormData.jina_biashara', 'idTypeId']);
 
-        $this->putJson("/api/v1/customers/{$customer->id}", [
-            'f_name' => 'Asha', 'm_name' => 'Juma', 'l_name' => 'Hamisi', 'blanch_id' => $admin->branch_id, 'empl_id' => $admin->id,
-            'gender' => 'female', 'date_birth' => '1995-04-10', 'phone_no' => '0754123456', 'region_id' => $region->id,
-            'district' => 'Ilemela', 'ward' => 'Buswelu', 'street' => 'Mtaa A',
-        ])->assertOk()->assertJsonPath('message', 'Customer information updated successfully');
-        $this->assertSame('255754123456', $customer->fresh()->phone);
+        $this->putJson("/api/v1/customers/{$customerId}", ['firstName' => 'Mwanaisha', 'phone' => $payload['phone'], 'dynamicFormData' => ['sekta' => $this->ids['businessSector'], 'aina' => $this->ids['businessType'], 'jina_biashara' => 'Duka Jipya', 'mapato' => 600000, 'mahali_biashara' => 'Soko'], 'paymentMethod' => 'mno', 'mobileMoneyProviderId' => $this->ids['mpesa'], 'walletNumber' => '0754000000'])
+            ->assertOk()
+            ->assertJsonPath('data.firstName', 'Mwanaisha')
+            ->assertJsonPath('data.lastName', 'Hamisi')
+            ->assertJsonPath('data.dynamicFormData.jina_biashara', 'Duka Jipya')
+            ->assertJsonPath('data.paymentMethod', 'mno')
+            ->assertJsonPath('data.mobileMoneyProvider', 'M-Pesa')
+            ->assertJsonPath('data.regionId', $this->ids['region']);
+
+        $this->putJson("/api/v1/customers/{$customerId}", ['customerCategoryId' => $this->type($admin, 'MSTAAFU_UMMA')->id])
+            ->assertUnprocessable()->assertJsonValidationErrors(['dynamicFormData.makazi']);
+
+        $officer = $this->employeeWithRole($admin, 'loan_officer');
+        $this->actingAs($officer)->putJson("/api/v1/customers/{$customerId}", ['nextOfKin' => [['name' => 'Kin', 'relationship' => 'parent', 'phone' => '0754000123']]])
+            ->assertOk()->assertJsonCount(1, 'data.nextOfKin')->assertJsonPath('data.nextOfKin.0.relationship', 'parent');
+        $this->actingAs($officer)->putJson("/api/v1/customers/{$existing}", ['employeeId' => $admin->id])->assertOk();
+        $this->actingAs($officer)->putJson("/api/v1/customers/{$existing}", ['employeeId' => $this->employeeWithRole($admin, 'loan_officer')->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('employeeId');
+    }
+
+    public function test_approve_reject_and_resubmit(): void
+    {
+        $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+        $customerId = $this->postJson('/api/v1/customers', $this->registrationPayload($admin))->json('data.id');
+        $officer = $this->employeeWithRole($admin, 'loan_officer');
+        $manager = $this->employeeWithRole($admin, 'branch_manager');
+
+        $this->actingAs($officer)->getJson('/api/v1/customers/pending-approval')->assertForbidden();
+        $this->actingAs($officer)->postJson("/api/v1/customers/{$customerId}/approve")->assertForbidden();
+
+        $this->actingAs($manager)->getJson('/api/v1/customers/pending-approval')->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $customerId);
+        $this->postJson("/api/v1/customers/{$customerId}/reject", [])->assertUnprocessable()->assertJsonValidationErrors('reason');
+        $this->postJson("/api/v1/customers/{$customerId}/reject", ['reason' => 'ID photo is unreadable'])
+            ->assertOk()->assertJsonPath('data.approvalStatus', 'rejected')->assertJsonPath('data.rejectionReason', 'ID photo is unreadable');
+        $this->postJson("/api/v1/customers/{$customerId}/approve")->assertStatus(409);
+
+        $this->actingAs($officer)->postJson("/api/v1/customers/{$customerId}/resubmit")->assertOk()->assertJsonPath('data.approvalStatus', 'pending')->assertJsonPath('data.rejectionReason', null);
+
+        $this->actingAs($manager)->postJson("/api/v1/customers/{$customerId}/approve")
+            ->assertOk()->assertJsonPath('data.approvalStatus', 'approved')->assertJsonPath('data.approvedBy', $manager->id);
+        $this->assertNotNull(Customer::findOrFail($customerId)->approved_at);
+
+        $this->getJson("/api/v1/customers/{$customerId}/audit-trail")->assertOk()->assertJsonFragment(['action' => 'Customer.approved'])->assertJsonFragment(['action' => 'Customer.rejected']);
+        $this->getJson("/api/v1/customers/{$customerId}/timeline")->assertOk()->assertJsonFragment(['type' => 'registered'])->assertJsonFragment(['title' => 'Approved']);
+    }
+
+    public function test_profile_next_of_kin_guarantors_notes_overview_and_kyc_status(): void
+    {
+        $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+        $customerId = $this->postJson('/api/v1/customers', $this->registrationPayload($admin))->json('data.id');
+
+        $this->postJson("/api/v1/customers/{$customerId}/next-of-kin", ['name' => '', 'relationship' => 'boss'])->assertUnprocessable()->assertJsonValidationErrors(['name', 'relationship', 'phone']);
+        $kinId = $this->postJson("/api/v1/customers/{$customerId}/next-of-kin", ['name' => 'Mama', 'relationship' => 'parent', 'phone' => '0754000321', 'address' => 'Kigoma'])->assertCreated()->json('data.id');
+        $this->getJson("/api/v1/customers/{$customerId}/next-of-kin")->assertOk()->assertJsonCount(2, 'data');
+        $this->deleteJson("/api/v1/customers/{$customerId}/next-of-kin/{$kinId}")->assertOk();
+
+        $guarantorId = $this->postJson("/api/v1/customers/{$customerId}/guarantors", ['name' => 'Peter', 'phone' => '0754000322', 'relationship' => 'friend', 'nidaNumber' => '1980', 'occupation' => 'Dereva'])
+            ->assertCreated()->assertJsonPath('data.occupation', 'Dereva')->json('data.id');
+        $this->getJson("/api/v1/customers/{$customerId}/guarantors")->assertOk()->assertJsonPath('data.0.nidaNumber', '1980');
+        $this->deleteJson("/api/v1/customers/{$customerId}/guarantors/{$guarantorId}")->assertOk();
+
+        $this->postJson("/api/v1/customers/{$customerId}/notes", ['body' => ''])->assertUnprocessable();
+        $this->postJson("/api/v1/customers/{$customerId}/notes", ['body' => 'Called the customer.'])->assertCreated()->assertJsonPath('data.createdByName', $admin->full_name);
+        $this->getJson("/api/v1/customers/{$customerId}/notes")->assertOk()->assertJsonPath('data.0.body', 'Called the customer.');
+
+        $this->getJson("/api/v1/customers/{$customerId}/overview")->assertOk()
+            ->assertJsonPath('data.loans.total', 0)
+            ->assertJsonPath('data.counts', ['documents' => 0, 'notes' => 1, 'guarantors' => 0, 'nextOfKin' => 1, 'faceScans' => 0]);
+
+        $this->getJson("/api/v1/customers/{$customerId}/kyc-status")->assertOk()
+            ->assertJsonPath('data.items.0', ['key' => 'identity_document', 'label' => 'Identity document', 'required' => true, 'complete' => true])
+            ->assertJsonPath('data.items.3.key', 'face_verification');
+    }
+
+    public function test_legacy_actions_eligibility_mark_sms_balance_and_delete(): void
+    {
+        $admin = $this->signInAdmin();
+        $customer = Customer::factory()->create(['branch_id' => $admin->branch_id]);
+        LoanCategory::factory()->create(['company_id' => $admin->company_id]);
+
+        $this->getJson("/api/v1/customers/{$customer->id}/eligibility")->assertOk()->assertJsonPath('data.kyc_complete', true)->assertJsonPath('data.eligible', true);
+        $customer->update(['kyc_status' => 'incomplete']);
+        $this->getJson("/api/v1/customers/{$customer->id}/eligibility")->assertOk()->assertJsonPath('data.eligible', false);
 
         $this->postJson("/api/v1/customers/{$customer->id}/mark")->assertOk()->assertJsonPath('message', 'Customer Marked successfully');
-        $this->assertTrue($customer->fresh()->is_marked);
-
         $this->postJson("/api/v1/customers/{$customer->id}/sms", ['message' => 'Habari'])->assertOk();
         $this->assertSame(1, SmsLog::where('customer_id', $customer->id)->count());
 
-        $this->getJson("/api/v1/customers/{$customer->id}/eligibility")->assertOk()->assertJsonPath('data.kyc_complete', false);
-        $this->postJson("/api/v1/customers/{$customer->id}/kyc/approve")->assertOk()->assertJsonPath('message', 'Customer KYC Aproved successfully');
-        $this->getJson("/api/v1/customers/{$customer->id}/eligibility")->assertOk()->assertJsonPath('data.kyc_complete', true)->assertJsonPath('data.eligible', true);
-    }
-
-    public function test_manual_kyc_approval_is_refused_while_the_nida_checklist_is_incomplete(): void
-    {
-        $admin = $this->signInAdmin();
-        $customer = Customer::factory()->incomplete()->create(['branch_id' => $admin->branch_id]);
-        $customer->kyc()->create(['nida_number' => '19900415123450000113', 'nida_data' => [], 'nida_verified_at' => now(), 'otp_verified_at' => now()]);
-
-        $this->postJson("/api/v1/customers/{$customer->id}/kyc/approve")->assertUnprocessable();
-        $this->assertSame('pending', $customer->fresh()->kyc_status);
-        $this->getJson("/api/v1/customers/{$customer->id}/eligibility")->assertOk()->assertJsonPath('data.eligible', false)->assertJsonPath('data.checklist.0.done', true)->assertJsonPath('data.checklist.2.done', false);
-    }
-
-    public function test_guarantors_can_be_managed_from_the_profile(): void
-    {
-        $admin = $this->signInAdmin();
-        $customer = Customer::factory()->create(['branch_id' => $admin->branch_id]);
-
-        $this->postJson("/api/v1/customers/{$customer->id}/guarantors", ['first_name' => 'john', 'last_name' => 'kisibo', 'phone' => '0714099498'])
-            ->assertUnprocessable()->assertJsonValidationErrors('relationship');
-        $this->postJson("/api/v1/customers/{$customer->id}/guarantors", ['first_name' => 'john', 'last_name' => 'kisibo', 'phone' => '0714099498', 'relationship' => 'rafiki'])
-            ->assertCreated()->assertJsonPath('message', 'Guarantor Registered successfully');
-        $guarantor = Guarantor::firstOrFail();
-
-        $this->putJson("/api/v1/customers/guarantors/{$guarantor->id}", ['first_name' => 'john', 'last_name' => 'kisibo', 'phone' => '0714099498', 'relationship' => 'ndugu'])->assertOk();
-        $this->assertSame('ndugu', $guarantor->fresh()->relationship);
-        $this->getJson("/api/v1/customers/{$customer->id}")->assertJsonPath('data.guarantors.0.relationship', 'ndugu');
-
-        $this->deleteJson("/api/v1/customers/guarantors/{$guarantor->id}")->assertOk();
-        $this->assertModelMissing($guarantor);
-    }
-
-    public function test_customer_with_loans_cannot_be_deleted_and_profile_lists_loans(): void
-    {
-        $admin = $this->signInAdmin();
-        $customer = Customer::factory()->create(['branch_id' => $admin->branch_id]);
-        $loan = Loan::factory()->create(['customer_id' => $customer->id, 'loan_category_id' => LoanCategory::factory()->create(['company_id' => $admin->company_id, 'name' => 'WAJASILIAMALI'])->id]);
-
-        $this->getJson("/api/v1/customers/{$customer->id}")->assertOk()->assertJsonPath('data.loans.0.loan_number', $loan->loan_number)->assertJsonPath('data.loans.0.product', 'WAJASILIAMALI');
+        Loan::factory()->create(['customer_id' => $customer->id]);
         $this->getJson("/api/v1/customers/{$customer->id}/balance")->assertOk()->assertJsonStructure(['data' => ['remain_loan', 'salary_advance', 'penalty', 'loan_fee', 'total', 'remain_cash']]);
-
-        $this->deleteJson("/api/v1/customers/{$customer->id}")->assertUnprocessable()->assertJsonPath('message', 'Customer has loans and cannot be deleted');
+        $this->getJson("/api/v1/customers/{$customer->id}/overview")->assertOk()->assertJsonPath('data.loans.total', 1);
+        $this->deleteJson("/api/v1/customers/{$customer->id}")->assertUnprocessable();
 
         $free = Customer::factory()->create(['branch_id' => $admin->branch_id]);
-        $this->deleteJson("/api/v1/customers/{$free->id}")->assertOk()->assertJsonPath('message', 'Customer Deleted successfully');
-        $this->assertModelMissing($free);
-    }
-
-    private function employeeWithRole(Employee $admin, string $role): Employee
-    {
-        return Employee::factory()->create([
-            'company_id' => $admin->company_id,
-            'branch_id' => $admin->branch_id,
-            'role_id' => $admin->company->roles()->where('key', $role)->value('id'),
-        ]);
+        $this->deleteJson("/api/v1/customers/{$free->id}")->assertOk();
+        $this->assertSoftDeleted($free);
+        $this->getJson("/api/v1/customers/{$free->id}")->assertOk()->assertJsonPath('data.deletedAt', fn ($value) => $value !== null);
     }
 }

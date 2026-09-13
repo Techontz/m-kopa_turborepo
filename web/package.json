@@ -4,13 +4,18 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "predev": "node scripts/copy-mediapipe.mjs",
     "build": "next build",
+    "prebuild": "node scripts/copy-mediapipe.mjs",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "postinstall": "node scripts/copy-mediapipe.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@tanstack/react-query": "^5.102.8",
     "bootstrap": "^4.6.2",
     "clsx": "^2.1.1",
@@ -32,6 +37,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }

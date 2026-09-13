@@ -1,0 +1,169 @@
+<?php
+
+namespace App\Enums;
+
+/**
+ * Chart of accounts (Documents: ACCOUNT OVERVIEW).
+ *
+ * Fund accounts that the live system shows as balances (Principal, Interest, Loan fee, Penarty,
+ * Reserve, Agent, Insurance, HQ accounts, banks) are modelled as asset accounts holding money.
+ * Income, liability, equity and expense accounts record where that money came from or went.
+ * Branch-scoped accounts carry a branch_id; HQ accounts have none.
+ */
+enum Account: string
+{
+    // Assets — money and receivables
+    case Company = 'company_cash';
+    case Bank = 'bank';
+    case Principal = 'principal';
+    case Interest = 'interest';
+    case LoanFee = 'loan_fee';
+    case Penalty = 'penalty';
+    case Reserve = 'reserve';
+    case Agent = 'agent';
+    case Insurance = 'insurance';
+    case TellerCash = 'teller_cash';
+    case HqSalaryAdvance = 'hq_salary_advance';
+    case HqDisbursement = 'hq_disbursement';
+    case HqPenalty = 'hq_penalty';
+    case HqInterest = 'hq_interest';
+    case HqReserve = 'hq_reserve';
+    case HqLoanFee = 'hq_loan_fee';
+    case HqSaving = 'hq_saving';
+    case LoanReceivable = 'loan_receivable';
+    case LoanArrears = 'loan_arrears';
+    case LoanDefault = 'loan_default';
+    case SalaryAdvanceReceivable = 'salary_advance_receivable';
+    case StaffLoanReceivable = 'staff_loan_receivable';
+    case StaffAdvanceReceivable = 'staff_advance_receivable';
+
+    // Liabilities
+    case Suspense = 'suspense';
+    case SavingsDeposits = 'savings_deposits';
+    case StaffPayable = 'staff_payable';
+    case StaffFund = 'staff_fund';
+    case DividendPayable = 'dividend_payable';
+
+    // Equity
+    case Capital = 'capital';
+    case RetainedProfit = 'retained_profit';
+
+    // Income
+    case InterestIncome = 'interest_income';
+    case FeeIncome = 'fee_income';
+    case PenaltyIncome = 'penalty_income';
+    case InsuranceIncome = 'insurance_income';
+    case RecoveryIncome = 'recovery_income';
+
+    // Expenses
+    case OperatingExpense = 'operating_expense';
+    case SalaryExpense = 'salary_expense';
+    case CommissionExpense = 'commission_expense';
+    case AllowanceExpense = 'allowance_expense';
+    case WriteOffExpense = 'write_off_expense';
+    case BankCharges = 'bank_charges';
+
+    public function type(): string
+    {
+        return match ($this) {
+            self::Suspense, self::SavingsDeposits, self::StaffPayable, self::StaffFund, self::DividendPayable => 'liability',
+            self::Capital, self::RetainedProfit => 'equity',
+            self::InterestIncome, self::FeeIncome, self::PenaltyIncome, self::InsuranceIncome, self::RecoveryIncome => 'income',
+            self::OperatingExpense, self::SalaryExpense, self::CommissionExpense, self::AllowanceExpense, self::WriteOffExpense, self::BankCharges => 'expense',
+            default => 'asset',
+        };
+    }
+
+    /**
+     * Assets and expenses increase with debits; liabilities, equity and income with credits.
+     */
+    public function isDebitNormal(): bool
+    {
+        return in_array($this->type(), ['asset', 'expense'], true);
+    }
+
+    public function code(): string
+    {
+        return match ($this) {
+            self::Company => '1000', self::Bank => '1010', self::Principal => '1100', self::Interest => '1110',
+            self::LoanFee => '1120', self::Penalty => '1130', self::Reserve => '1140', self::Agent => '1150',
+            self::Insurance => '1160', self::TellerCash => '1170', self::HqSalaryAdvance => '1200',
+            self::HqDisbursement => '1210', self::HqPenalty => '1220', self::HqInterest => '1230',
+            self::HqReserve => '1240', self::HqLoanFee => '1250', self::HqSaving => '1260',
+            self::LoanReceivable => '1300', self::LoanArrears => '1310', self::LoanDefault => '1320',
+            self::SalaryAdvanceReceivable => '1330', self::StaffLoanReceivable => '1340', self::StaffAdvanceReceivable => '1350',
+            self::Suspense => '2000', self::SavingsDeposits => '2010', self::StaffPayable => '2020',
+            self::StaffFund => '2030', self::DividendPayable => '2040',
+            self::Capital => '3000', self::RetainedProfit => '3100',
+            self::InterestIncome => '4000', self::FeeIncome => '4010', self::PenaltyIncome => '4020',
+            self::InsuranceIncome => '4030', self::RecoveryIncome => '4040',
+            self::OperatingExpense => '5000', self::SalaryExpense => '5100', self::CommissionExpense => '5110',
+            self::AllowanceExpense => '5120', self::WriteOffExpense => '5200', self::BankCharges => '5300',
+        };
+    }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Principal => 'PRINCIPAL A/C',
+            self::Interest => 'INTEREST A/C',
+            self::Reserve => 'RESERVE A/C',
+            self::LoanFee => 'LOAN FEE A/C',
+            self::Penalty => 'PENARTY A/C',
+            self::Agent => 'AGENT A/C',
+            self::Insurance => 'INSURANCE A/C',
+            self::TellerCash => 'TELLER CASH A/C',
+            self::Bank => 'BANK',
+            self::HqSalaryAdvance => 'SALARY ADVANCE ACCOUNT',
+            self::HqDisbursement => 'DISBURSEMENT ACCOUNT',
+            self::HqPenalty => 'PENALTY ACCOUNT',
+            self::HqInterest => 'INTEREST ACCOUNT',
+            self::HqReserve => 'RESERVE ACCOUNT',
+            self::HqLoanFee => 'LOAN FEE ACCOUNT',
+            self::HqSaving => 'SAVING ACCOUNT',
+            self::Company => 'COMPANY ACCOUNT',
+            self::LoanReceivable => 'LOAN RECEIVABLE',
+            self::LoanArrears => 'LOAN ARREARS',
+            self::LoanDefault => 'DEFAULT LOANS',
+            self::SalaryAdvanceReceivable => 'SALARY ADVANCE RECEIVABLE',
+            self::StaffLoanReceivable => 'STAFF LOAN RECEIVABLE',
+            self::StaffAdvanceReceivable => 'STAFF ADVANCE RECEIVABLE',
+            self::Suspense => 'SUSPENSE ACCOUNT',
+            self::SavingsDeposits => 'CUSTOMER SAVINGS',
+            self::StaffPayable => 'STAFF PAYABLE',
+            self::StaffFund => 'STAFF FUND',
+            self::DividendPayable => 'DIVIDEND ACCOUNT',
+            self::Capital => 'CAPITAL ACCOUNT',
+            self::RetainedProfit => 'PROFIT ACCOUNT',
+            self::InterestIncome => 'INTEREST INCOME',
+            self::FeeIncome => 'FEE INCOME',
+            self::PenaltyIncome => 'PENALTY INCOME',
+            self::InsuranceIncome => 'INSURANCE INCOME',
+            self::RecoveryIncome => 'RECOVERED LOANS',
+            self::OperatingExpense => 'EXPENSES',
+            self::SalaryExpense => 'SALARY EXPENSE',
+            self::CommissionExpense => 'COMMISSION EXPENSE',
+            self::AllowanceExpense => 'ALLOWANCE EXPENSE',
+            self::WriteOffExpense => 'WRITE-OFF EXPENSE',
+            self::BankCharges => 'BANK CHARGES',
+        };
+    }
+
+    /**
+     * Branch accounts that can send money to a bank ("Bank Transaction" modal).
+     *
+     * @return array<int, self>
+     */
+    public static function transferableBranchAccounts(): array
+    {
+        return [self::Principal, self::Interest, self::Reserve, self::LoanFee, self::Penalty];
+    }
+
+    /**
+     * @return array<int, self>
+     */
+    public static function hqAccounts(): array
+    {
+        return [self::HqSalaryAdvance, self::HqDisbursement, self::HqPenalty, self::HqInterest, self::HqReserve, self::HqLoanFee, self::HqSaving];
+    }
+}

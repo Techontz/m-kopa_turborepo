@@ -18,9 +18,6 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->redirectGuestsTo(fn () => route('login'));
-        $middleware->redirectUsersTo(fn () => route('dashboard'));
-        $middleware->appendToGroup('web', EnsureCompanyOwnership::class);
         $middleware->appendToGroup('api', EnsureCompanyOwnership::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -4,8 +4,6 @@ namespace App\Http\Controllers\Api\V1\Bank;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\SalaryPayment;
-use App\Services\Ledger;
-use App\Services\Payroll;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 
@@ -16,8 +14,6 @@ use Illuminate\Support\Carbon;
  */
 class PayrollController extends ApiController
 {
-    public function __construct(private readonly Payroll $payroll, private readonly Ledger $ledger) {}
-
     public function index(): JsonResponse
     {
         $this->authorizeAny('bank.manage', 'payroll.pay');

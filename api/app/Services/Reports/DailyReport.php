@@ -14,87 +14,132 @@ use App\Models\PenaltyPayment;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvancePayment;
 use App\Models\Saving;
-use App\Services\Ledger;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * "Daily Report" cash book.
  *
  * The live formulas are server-side only; they are inferred as follows:
  * - OPENING / CLOSING: the cash position from the ledger — the sum of every ledger entry in scope
- *   (a branch's accounts, or all branch and HQ accounts for ALL) excluding money held in bank accounts,
- *   up to the day before "from" (opening) and up to "to" (closing). Opening therefore always equals
- *   the previous day's closing.
+ *   (the selected branches' accounts, or all branch and HQ accounts for ALL) on money accounts, excluding money
+ *   held in bank accounts, receivables and the non-cash Offset / Outstanding Interest assets, up to the day before
+ *   "from" (opening) and up to "to" (closing). Opening therefore always equals the previous day's closing.
  * - Money in: CAPITAL (share capital, HQ only), TRANSFER (approved float received), DEPOSIT (loan
- *   repayments), AGENT (agent transactions), SAVING DEPOSIT, DEBT PENDING (salary advance repayments),
- *   LOAN FEE (loan fee ledger inflow), PENARTY (penalty payments).
+ *   repayments less their penalty portion, which is reported under PENARTY), AGENT (agent transactions), SAVING DEPOSIT,
+ *   DEBT PENDING (salary advance repayments), LOAN FEE (loan fee ledger inflow), PENARTY (penalty payments).
  * - Money out: LOAN WITHDRAWAL, SAVING WITHDRAWAL, DEBT PENDING (salary advances issued), EXPENSES
  *   (accepted expense requests), BANK (branch → bank transfers), TRANSFER (approved float sent).
+ * Reversed records (reversal markers) are excluded.
  */
 class DailyReport
 {
-    public function __construct(private readonly Ledger $ledger) {}
+    /**
+     * Asset accounts that are not cash in hand.
+     *
+     * @var list<Account>
+     */
+    public const NON_CASH_ASSETS = [
+        Account::Bank, Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::SalaryAdvanceReceivable,
+        Account::StaffLoanReceivable, Account::StaffAdvanceReceivable, Account::Offset, Account::OutstandingInterest,
+    ];
 
     /**
      * @return array{in: array<string, float>, out: array<string, float>, total_in: float, total_out: float, opening: float, closing: float}
      */
     public function build(ReportFilter $filter): array
     {
-        $companyId = $filter->company->id;
-        $branchId = $filter->branchId;
-        $range = $filter->range();
+        return $this->forScope(new ReportScope($filter->company->id, $filter->branchId ? [$filter->branchId] : null), $filter->from, $filter->to);
+    }
 
-        $scoped = fn (Builder $query, string $column = 'branch_id'): Builder => $query->where('company_id', $companyId)
-            ->when($branchId, fn (Builder $inner, int $id) => $inner->where($column, $id));
+    /**
+     * @return array{in: array<string, float>, out: array<string, float>, total_in: float, total_out: float, opening: float, closing: float}
+     */
+    public function forScope(ReportScope $scope, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $companyId = $scope->companyId;
+        $branchIds = $scope->branchIds;
+        $allBranches = $branchIds === null;
+        $range = [$from->toDateString(), $to->toDateString().' 23:59:59'];
+        $timestamps = [$from->startOfDay(), $to->endOfDay()];
+
+        $scoped = function (Builder $query, string $column = 'branch_id') use ($companyId, $branchIds): Builder {
+            $query->where($query->getModel()->qualifyColumn('company_id'), $companyId);
+            if ($branchIds !== null) {
+                $query->whereIn($query->getModel()->qualifyColumn($column), $branchIds ?: [0]);
+            }
+
+            return $query;
+        };
+        $notReversed = fn (Builder $query): Builder => $query->whereNull($query->getModel()->qualifyColumn('reversed_at'));
+        $floats = fn (string $column): Builder => FloatTransfer::where('company_id', $companyId)->where('status', 'approved')
+            ->when($branchIds !== null, fn (Builder $query) => $query->whereIn($column, $branchIds ?: [0]), fn (Builder $query) => $query->whereNotNull($column))
+            ->whereBetween('transfer_date', $range);
 
         $in = [
-            'CAPITAL' => $branchId ? 0.0 : (float) Capital::where('company_id', $companyId)->whereBetween('created_at', [$filter->from->startOfDay(), $filter->to->endOfDay()])->sum('amount'),
-            'TRANSFER' => (float) FloatTransfer::where('company_id', $companyId)->where('status', 'approved')
-                ->when($branchId, fn (Builder $query, int $id) => $query->where('to_branch_id', $id), fn (Builder $query) => $query->whereNotNull('to_branch_id'))
-                ->whereBetween('transfer_date', $range)->sum('amount'),
-            'DEPOSIT' => (float) $scoped(LoanTransaction::query())->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
-            'AGENT' => (float) $scoped(AgentTransaction::query())->whereBetween('transaction_date', $range)->sum('amount'),
-            'SAVING DEPOSIT' => (float) $scoped(Saving::query())->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
-            'DEBT PENDING' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->sum('amount'),
-            'LOAN FEE' => $this->ledger->movement($filter->company, Account::LoanFee, $filter->from, $filter->to, true, $branchId),
+            'CAPITAL' => $allBranches ? (float) Capital::where('company_id', $companyId)->whereBetween('created_at', $timestamps)->sum('amount') : 0.0,
+            'TRANSFER' => (float) $floats('to_branch_id')->sum('amount'),
+            'DEPOSIT' => (float) $scoped(LoanTransaction::query())->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum(DB::raw('amount - penalty')),
+            'AGENT' => (float) $notReversed($scoped(AgentTransaction::query()))->whereBetween('transaction_date', $range)->sum('amount'),
+            'SAVING DEPOSIT' => (float) $notReversed($scoped(Saving::query()))->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
+            'DEBT PENDING' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn (Builder $query) => $notReversed($scoped($query)))->whereBetween('paid_on', $range)->sum('amount'),
+            'LOAN FEE' => $this->movement($companyId, $branchIds, Account::LoanFee, $from, $to),
             'PENARTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->sum('amount'),
         ];
 
         $out = [
             'LOAN WITHDRAWAL' => (float) $scoped(LoanTransaction::query())->where('type', 'withdrawal')->whereBetween('transaction_date', $range)->sum('amount'),
-            'SAVING WITHDRAWAL' => (float) $scoped(Saving::query())->where('type', 'withdrawal')->whereBetween('transaction_date', $range)->sum('amount'),
-            'DEBT PENDING' => (float) $scoped(SalaryAdvance::query())->whereNotNull('approved_at')->whereBetween('approved_at', [$filter->from->startOfDay(), $filter->to->endOfDay()])->sum('amount'),
+            'SAVING WITHDRAWAL' => (float) $notReversed($scoped(Saving::query()))->where('type', 'withdrawal')->whereBetween('transaction_date', $range)->sum('amount'),
+            'DEBT PENDING' => (float) $notReversed($scoped(SalaryAdvance::query()))->whereNotNull('approved_at')->whereBetween('approved_at', $timestamps)->sum('amount'),
             'EXPENSES' => (float) $scoped(ExpenseRequest::query())->where('status', 'accepted')->whereBetween('request_date', $range)->sum('amount'),
             'BANK' => (float) $scoped(BankTransfer::query())->where('type', 'branch_to_bank')->where('status', 'approved')->whereBetween('transfer_date', $range)->sum('amount'),
-            'TRANSFER' => (float) FloatTransfer::where('company_id', $companyId)->where('status', 'approved')
-                ->when($branchId, fn (Builder $query, int $id) => $query->where('from_branch_id', $id), fn (Builder $query) => $query->whereNotNull('from_branch_id'))
-                ->whereBetween('transfer_date', $range)->sum('amount'),
+            'TRANSFER' => (float) $floats('from_branch_id')->sum('amount'),
         ];
 
         return [
-            'in' => $in,
-            'out' => $out,
-            'total_in' => array_sum($in),
-            'total_out' => array_sum($out),
-            'opening' => $this->cashPosition($companyId, $branchId, $filter->from->subDay()),
-            'closing' => $this->cashPosition($companyId, $branchId, $filter->to),
+            'in' => array_map(fn (float $value): float => round($value, 2), $in),
+            'out' => array_map(fn (float $value): float => round($value, 2), $out),
+            'total_in' => round(array_sum($in), 2),
+            'total_out' => round(array_sum($out), 2),
+            'opening' => $this->cashPosition($companyId, $branchIds, $from->subDay()),
+            'closing' => $this->cashPosition($companyId, $branchIds, $to),
         ];
     }
 
-    private function cashPosition(int $companyId, ?int $branchId, CarbonImmutable $until): float
+    /**
+     * Inflow (debit) movement of an account across the scoped branches.
+     *
+     * @param  list<int>|null  $branchIds
+     */
+    private function movement(int $companyId, ?array $branchIds, Account $account, CarbonImmutable $from, CarbonImmutable $to): float
     {
-        $moneyAccounts = array_map(fn (Account $account): string => $account->value, array_filter(
+        return round((float) JournalLine::query()
+            ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
+            ->where('accounts.company_id', $companyId)
+            ->where('accounts.key', $account->value)
+            ->when($branchIds !== null, fn ($query) => $query->whereIn('accounts.branch_id', $branchIds ?: [0]))
+            ->whereBetween('journal_entries.entry_date', [$from->toDateString(), $to->toDateString()])
+            ->sum('journal_lines.'.($account->isDebitNormal() ? 'debit' : 'credit')), 2);
+    }
+
+    /**
+     * @param  list<int>|null  $branchIds
+     */
+    private function cashPosition(int $companyId, ?array $branchIds, CarbonImmutable $until): float
+    {
+        $moneyAccounts = array_map(fn (Account $account): string => $account->value, array_values(array_filter(
             Account::cases(),
-            fn (Account $account): bool => $account->type() === 'asset' && ! in_array($account, [Account::Bank, Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::SalaryAdvanceReceivable, Account::StaffLoanReceivable, Account::StaffAdvanceReceivable], true),
-        ));
+            fn (Account $account): bool => $account->type() === 'asset' && ! in_array($account, self::NON_CASH_ASSETS, true),
+        )));
 
         $totals = JournalLine::query()
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('accounts.company_id', $companyId)
             ->whereIn('accounts.key', $moneyAccounts)
-            ->when($branchId, fn ($query, int $id) => $query->where('accounts.branch_id', $id))
+            ->when($branchIds !== null, fn ($query) => $query->whereIn('accounts.branch_id', $branchIds ?: [0]))
             ->whereDate('journal_entries.entry_date', '<=', $until->toDateString())
             ->selectRaw('COALESCE(SUM(journal_lines.debit),0) d, COALESCE(SUM(journal_lines.credit),0) c')
             ->first();

@@ -20,7 +20,7 @@ class ReportController extends Controller
     {
         return view('reports.cash', [
             'transactions' => $this->reports->cashTransactions($this->filter($request)),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -28,7 +28,7 @@ class ReportController extends Controller
     {
         return view('reports.branchwise', [
             'rows' => $this->reports->branchSummary($this->filter($request, defaultToToday: false)),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -37,10 +37,10 @@ class ReportController extends Controller
         $year = $this->year($request);
         $status = $request->string('loan_status')->toString() ?: null;
 
-        return view('reports.file', $this->reports->fileReport($this->company(), $year, $this->filter($request)->branchId, $status) + [
+        return view('reports.file', $this->reports->fileReport($this->currentCompany(), $year, $this->filter($request)->branchId, $status) + [
             'year' => $year,
             'years' => $this->years(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -49,63 +49,63 @@ class ReportController extends Controller
         $year = $this->year($request);
 
         return view('reports.new-loans', [
-            'loans' => $this->reports->newLoans($this->company(), $year, $this->filter($request)->branchId),
+            'loans' => $this->reports->newLoans($this->currentCompany(), $year, $this->filter($request)->branchId),
             'year' => $year,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function pending(Request $request): View
     {
         return view('reports.pending', [
-            'rows' => $this->reports->pendingLoans($this->company(), $this->filter($request)->branchId, CarbonImmutable::today()),
-            'branches' => $this->branches(),
+            'rows' => $this->reports->pendingLoans($this->currentCompany(), $this->filter($request)->branchId, CarbonImmutable::today()),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function repayment(Request $request): View
     {
         return view('reports.repayment', [
-            'loans' => $this->reports->repayments($this->company(), $this->filter($request)->branchId),
-            'branches' => $this->branches(),
+            'loans' => $this->reports->repayments($this->currentCompany(), $this->filter($request)->branchId),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function default(Request $request): View
     {
         return view('reports.default', [
-            'loans' => $this->reports->defaultLoans($this->company(), $this->filter($request)->branchId, CarbonImmutable::today()),
-            'branches' => $this->branches(),
+            'loans' => $this->reports->defaultLoans($this->currentCompany(), $this->filter($request)->branchId, CarbonImmutable::today()),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function writeOff(Request $request): View
     {
         return view('reports.write-off', [
-            'writeOffs' => $this->reports->writeOffs($this->company(), $this->filter($request)->branchId),
-            'branches' => $this->branches(),
+            'writeOffs' => $this->reports->writeOffs($this->currentCompany(), $this->filter($request)->branchId),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function writeOffDone(Request $request): View
     {
         return view('reports.write-off-done', [
-            'writeOffs' => $this->reports->writeOffs($this->company(), $this->filter($request)->branchId, recovered: true),
-            'branches' => $this->branches(),
+            'writeOffs' => $this->reports->writeOffs($this->currentCompany(), $this->filter($request)->branchId, recovered: true),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function collection(Request $request): View
     {
         return view('reports.collection', [
-            'loans' => $this->reports->collection($this->company(), $this->filter($request)->branchId, $request->string('loan_status')->toString() ?: null),
-            'branches' => $this->branches(),
+            'loans' => $this->reports->collection($this->currentCompany(), $this->filter($request)->branchId, $request->string('loan_status')->toString() ?: null),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function statement(Request $request): View
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
         $customer = null;
         $loan = null;
 
@@ -132,7 +132,7 @@ class ReportController extends Controller
 
         return view('reports.receivable', [
             'schedules' => $this->reports->receivable($this->filter($request), in_array($paidStatus, ['paid', 'not paid'], true) ? $paidStatus : null),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -140,7 +140,7 @@ class ReportController extends Controller
     {
         return view('reports.received', [
             'transactions' => $this->reports->received($this->filter($request)),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -151,14 +151,14 @@ class ReportController extends Controller
         return view('reports.daily', [
             'report' => $dailyReport->build($filter),
             'filter' => $filter,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function development(): View
     {
         return view('reports.development', [
-            'customers' => Customer::where('company_id', $this->employee()->company_id)
+            'customers' => Customer::where('company_id', $this->currentEmployee()->company_id)
                 ->where('is_marked', true)
                 ->with('branch')
                 ->orderBy('id')
@@ -175,7 +175,7 @@ class ReportController extends Controller
 
     private function filter(Request $request, bool $defaultToToday = true): ReportFilter
     {
-        return ReportFilter::fromRequest($request, $this->company(), $defaultToToday);
+        return ReportFilter::fromRequest($request, $this->currentCompany(), $defaultToToday);
     }
 
     private function year(Request $request): int
@@ -192,7 +192,7 @@ class ReportController extends Controller
      */
     private function years(): array
     {
-        $first = Loan::where('company_id', $this->employee()->company_id)->whereNotNull('withdrawn_at')->min('withdrawn_at');
+        $first = Loan::where('company_id', $this->currentEmployee()->company_id)->whereNotNull('withdrawn_at')->min('withdrawn_at');
         $current = (int) now()->format('Y');
         $start = $first ? min($current, (int) substr((string) $first, 0, 4)) : $current;
 

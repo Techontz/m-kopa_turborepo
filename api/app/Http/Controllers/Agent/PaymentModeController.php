@@ -14,7 +14,7 @@ class PaymentModeController extends Controller
     public function index(): View
     {
         return view('agent.payment-modes', [
-            'modes' => PaymentMode::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'modes' => PaymentMode::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
@@ -22,7 +22,7 @@ class PaymentModeController extends Controller
     {
         $data = $request->validate(['pay_mode' => ['required', 'string', 'max:255']]);
 
-        PaymentMode::create(['company_id' => $this->employee()->company_id, 'name' => $data['pay_mode']]);
+        PaymentMode::create(['company_id' => $this->currentEmployee()->company_id, 'name' => $data['pay_mode']]);
 
         return back()->with('success', 'Mode of payment Registered successfully');
     }

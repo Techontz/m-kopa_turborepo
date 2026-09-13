@@ -35,11 +35,11 @@ class ExpenseRequestController extends Controller
             $query->where('branch_id', $request->integer('blanch_id'));
         }
 
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         return view($isApproveSection ? 'expenses.approve-section' : 'expenses.requests', [
             'expenseRequests' => $query->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'expenseTypes' => $this->expenseTypes('branch'),
             'pendingFloats' => $isApproveSection ? FloatTransfer::where('company_id', $companyId)->where('status', 'pending')->count() : 0,
             'pendingBank' => $isApproveSection ? BankTransfer::where('company_id', $companyId)->where('status', 'pending')->count() : 0,
@@ -58,7 +58,7 @@ class ExpenseRequestController extends Controller
 
         return view('expenses.accepted', [
             'expenseRequests' => $query->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -85,7 +85,7 @@ class ExpenseRequestController extends Controller
 
     public function bankRequests(): View
     {
-        $bankAccounts = BankAccount::where('company_id', $this->employee()->company_id)->orderBy('id')->get();
+        $bankAccounts = BankAccount::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get();
 
         return view('expenses.bank-requests', [
             'expenseRequests' => $this->requests('bank')->get(),
@@ -97,8 +97,8 @@ class ExpenseRequestController extends Controller
     public function store(ExpenseRequestRequest $request): RedirectResponse
     {
         ExpenseRequest::create($request->requestData() + [
-            'company_id' => $this->employee()->company_id,
-            'employee_id' => $this->employee()->id,
+            'company_id' => $this->currentEmployee()->company_id,
+            'employee_id' => $this->currentEmployee()->id,
             'status' => 'pending',
             'request_date' => today(),
         ]);
@@ -167,7 +167,7 @@ class ExpenseRequestController extends Controller
      */
     private function requests(string $scope): Builder
     {
-        return ExpenseRequest::where('company_id', $this->employee()->company_id)
+        return ExpenseRequest::where('company_id', $this->currentEmployee()->company_id)
             ->where('scope', $scope)
             ->with(['branch', 'expenseType', 'bankAccount', 'employee'])
             ->latest('id');
@@ -178,7 +178,7 @@ class ExpenseRequestController extends Controller
      */
     private function expenseTypes(string $scope): Collection
     {
-        return ExpenseType::where('company_id', $this->employee()->company_id)->where('scope', $scope)->orderBy('id')->get();
+        return ExpenseType::where('company_id', $this->currentEmployee()->company_id)->where('scope', $scope)->orderBy('id')->get();
     }
 
     /**

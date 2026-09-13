@@ -13,13 +13,13 @@ class StaffLoanCategoryController extends Controller
     public function index(): View
     {
         return view('hrm.staff-loan-categories', [
-            'categories' => StaffLoanCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'categories' => StaffLoanCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
     public function store(StaffLoanCategoryRequest $request): RedirectResponse
     {
-        StaffLoanCategory::create($request->categoryData() + ['company_id' => $this->employee()->company_id]);
+        StaffLoanCategory::create($request->categoryData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Loan Category Saved successfully');
     }

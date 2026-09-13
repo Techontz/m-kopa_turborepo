@@ -17,6 +17,8 @@ use App\Models\Region;
 use App\Models\SalaryAdvanceCategory;
 use App\Models\StaffLoanCategory;
 use App\Models\StaffSalaryAdvanceCategory;
+use App\Models\Zone;
+use App\Services\AccessControl;
 use Illuminate\Database\Seeder;
 
 /**
@@ -48,6 +50,11 @@ class MasterDataSeeder extends Seeder
             'reserve_percent' => 20,
         ]);
 
+        app(AccessControl::class)->seedRoles($company);
+        $lakeZone = Zone::firstOrCreate(['company_id' => $company->id, 'name' => 'KANDA YA ZIWA']);
+        $southZone = Zone::firstOrCreate(['company_id' => $company->id, 'name' => 'KANDA YA KUSINI']);
+        $zoneFor = ['Head office' => $lakeZone, 'Kakonko' => $lakeZone, 'Missenyi' => $lakeZone, 'Lindi' => $southZone, 'NEW KALENGE' => $southZone, 'TEST' => $southZone];
+
         $branches = collect([
             ['Head office', '0666', 'Mwanza', 'main'],
             ['Kakonko', '0555', 'Kigoma', 'main'],
@@ -57,7 +64,7 @@ class MasterDataSeeder extends Seeder
             ['TEST', '09989789879', 'Mbeya', 'sub'],
         ])->map(fn (array $row): Branch => Branch::updateOrCreate(
             ['company_id' => $company->id, 'name' => $row[0]],
-            ['phone' => $row[1], 'region_id' => $this->region($row[2]), 'type' => $row[3], 'status' => 'active'],
+            ['phone' => $row[1], 'region_id' => $this->region($row[2]), 'type' => $row[3], 'status' => 'active', 'zone_id' => $zoneFor[$row[0]]->id],
         ));
 
         $admin = Employee::updateOrCreate(['phone' => config('demo.admin_phone')], [
@@ -70,6 +77,7 @@ class MasterDataSeeder extends Seeder
             'username' => 'admin',
             'gender' => 'male',
             'position' => 'admin',
+            'role_id' => $company->roles()->where('key', 'super_admin')->value('id'),
             'status' => 'active',
             'password' => config('demo.admin_password'),
         ]);

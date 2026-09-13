@@ -9,22 +9,22 @@ use Illuminate\Database\Eloquent\Collection;
 
 abstract class Controller
 {
-    protected function employee(): Employee
+    protected function currentEmployee(): Employee
     {
         /** @var Employee */
         return auth()->user();
     }
 
-    protected function company(): Company
+    protected function currentCompany(): Company
     {
-        return $this->employee()->company;
+        return $this->currentEmployee()->company;
     }
 
     /**
      * @return Collection<int, Branch>
      */
-    protected function branches(): Collection
+    protected function companyBranches(): Collection
     {
-        return Branch::where('company_id', $this->employee()->company_id)->orderBy('id')->get();
+        return Branch::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get();
     }
 }

@@ -17,7 +17,7 @@ class CapitalController extends Controller
 {
     public function index(Ledger $ledger): View
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $shareHolders = ShareHolder::where('company_id', $companyId)
             ->with(['capitals' => fn ($query) => $query->orderBy('id')])
@@ -33,7 +33,7 @@ class CapitalController extends Controller
 
     public function store(Request $request, Ledger $ledger): RedirectResponse
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $validated = $request->validate([
             'share_id' => ['required', Rule::exists('share_holders', 'id')->where('company_id', $companyId)],

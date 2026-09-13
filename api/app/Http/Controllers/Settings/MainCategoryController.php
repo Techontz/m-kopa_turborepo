@@ -12,7 +12,7 @@ class MainCategoryController extends Controller
 {
     public function index(): View
     {
-        $categories = MainCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get();
+        $categories = MainCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get();
 
         return view('settings.main-categories', [
             'categories' => $categories,

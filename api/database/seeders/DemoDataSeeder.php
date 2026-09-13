@@ -49,8 +49,22 @@ class DemoDataSeeder extends Seeder
             $float = FloatTransfer::create(['company_id' => $company->id, 'type' => 'company_to_branch', 'to_branch_id' => $branch->id, 'amount' => 6000000, 'status' => 'approved', 'transfer_date' => $today->subMonths(4)]);
             $ledger->transfer($company, ['account' => Account::Company], ['account' => Account::Principal, 'branch' => $branch], 6000000, 'FLOAT', $float);
 
-            Employee::factory()->count(2)->create(['company_id' => $company->id, 'branch_id' => $branch->id]);
+            foreach (['branch_manager', 'loan_officer', 'teller'] as $roleKey) {
+                Employee::factory()->create([
+                    'company_id' => $company->id,
+                    'branch_id' => $branch->id,
+                    'zone_id' => $branch->zone_id,
+                    'role_id' => $company->roles()->where('key', $roleKey)->value('id'),
+                ]);
+            }
         });
+
+        foreach (['admin', 'finance', 'hr', 'credit_officer'] as $roleKey) {
+            Employee::factory()->create(['company_id' => $company->id, 'branch_id' => $branches->first()->id, 'position' => 'hq', 'role_id' => $company->roles()->where('key', $roleKey)->value('id')]);
+        }
+        foreach ($company->zones()->get() as $zone) {
+            Employee::factory()->create(['company_id' => $company->id, 'branch_id' => $zone->branches()->value('id'), 'zone_id' => $zone->id, 'position' => 'zone', 'role_id' => $company->roles()->where('key', 'zone_manager')->value('id')]);
+        }
 
         $categories = LoanCategory::where('company_id', $company->id)->get()->keyBy('name');
         $scenarios = [

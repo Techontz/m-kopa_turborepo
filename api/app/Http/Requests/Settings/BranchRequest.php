@@ -22,11 +22,12 @@ class BranchRequest extends FormRequest
             'region_id' => ['required', 'exists:regions,id'],
             'blanch_no' => ['required', 'string', 'max:30'],
             'branch_type' => ['required', 'in:main,sub'],
+            'zone_id' => ['nullable', \Illuminate\Validation\Rule::exists('zones', 'id')->where('company_id', $this->user()->company_id)],
         ];
     }
 
     /**
-     * @return array{name: string, region_id: int, phone: string, type: string}
+     * @return array{name: string, region_id: int, phone: string, type: string, zone_id: int|null}
      */
     public function branchData(): array
     {
@@ -35,6 +36,7 @@ class BranchRequest extends FormRequest
             'region_id' => $this->integer('region_id'),
             'phone' => $this->string('blanch_no')->toString(),
             'type' => $this->string('branch_type')->toString(),
+            'zone_id' => $this->filled('zone_id') ? $this->integer('zone_id') : null,
         ];
     }
 }

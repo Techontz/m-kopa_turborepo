@@ -26,8 +26,8 @@ class SalaryAdvanceController extends Controller
     {
         return view('salary-advance.requested', [
             'advances' => $this->advances($request, ['pending']),
-            'branches' => $this->branches(),
-            'categories' => SalaryAdvanceCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'branches' => $this->companyBranches(),
+            'categories' => SalaryAdvanceCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
@@ -42,7 +42,7 @@ class SalaryAdvanceController extends Controller
         }
 
         SalaryAdvance::create([
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'branch_id' => $customer->branch_id,
             'customer_id' => $customer->id,
             'salary_advance_category_id' => $category->id,
@@ -112,7 +112,7 @@ class SalaryAdvanceController extends Controller
 
         return view('salary-advance.approved', [
             'advances' => $advances,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -120,7 +120,7 @@ class SalaryAdvanceController extends Controller
     {
         return view('salary-advance.active', [
             'advances' => $this->advances($request, ['active'], dates: true),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -170,7 +170,7 @@ class SalaryAdvanceController extends Controller
     {
         $payments = SalaryAdvancePayment::query()
             ->whereHas('salaryAdvance', function (Builder $query) use ($request): void {
-                $query->where('company_id', $this->employee()->company_id);
+                $query->where('company_id', $this->currentEmployee()->company_id);
                 if ($request->filled('blanch_id') && $request->input('blanch_id') !== 'all') {
                     $query->where('branch_id', $request->integer('blanch_id'));
                 }
@@ -186,7 +186,7 @@ class SalaryAdvanceController extends Controller
 
         return view('salary-advance.paid', [
             'payments' => $payments,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -211,7 +211,7 @@ class SalaryAdvanceController extends Controller
     private function query(Request $request): Builder
     {
         return SalaryAdvance::query()
-            ->where('company_id', $this->employee()->company_id)
+            ->where('company_id', $this->currentEmployee()->company_id)
             ->when($request->filled('blanch_id') && $request->input('blanch_id') !== 'all', fn (Builder $query) => $query->where('branch_id', $request->integer('blanch_id')))
             ->with(['customer', 'branch', 'payments'])
             ->withSum('payments', 'amount')

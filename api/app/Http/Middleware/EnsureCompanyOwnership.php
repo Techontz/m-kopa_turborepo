@@ -23,7 +23,7 @@ class EnsureCompanyOwnership
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
+        $user = $request->user('sanctum') ?? $request->user();
 
         if ($user !== null && $request->route() !== null) {
             foreach ($request->route()->parameters() as $parameter) {

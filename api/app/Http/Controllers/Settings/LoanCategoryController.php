@@ -16,7 +16,7 @@ class LoanCategoryController extends Controller
 {
     public function index(): View
     {
-        $categories = LoanCategory::where('company_id', $this->employee()->company_id)
+        $categories = LoanCategory::where('company_id', $this->currentEmployee()->company_id)
             ->with(['mainCategory', 'branches' => fn ($query) => $query->orderBy('branches.id')])
             ->orderBy('id')
             ->get();
@@ -26,7 +26,7 @@ class LoanCategoryController extends Controller
 
     public function store(LoanCategoryRequest $request): RedirectResponse
     {
-        LoanCategory::create($request->categoryData() + ['company_id' => $this->employee()->company_id]);
+        LoanCategory::create($request->categoryData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Loan Category Registered successfully');
     }
@@ -58,7 +58,7 @@ class LoanCategoryController extends Controller
     {
         return view('settings.loan-categories.branches', [
             'category' => $loanCategory,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'assignedBranches' => $loanCategory->branches()->orderBy('branches.id')->get(),
         ]);
     }
@@ -86,7 +86,7 @@ class LoanCategoryController extends Controller
             'formulas' => InterestFormula::where('is_enabled', true)->orderBy('id')->get(),
             'durations' => Duration::cases(),
             'approveLevels' => LoanCategoryRequest::APPROVE_LEVELS,
-            'mainCategories' => MainCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'mainCategories' => MainCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ];
     }
 }

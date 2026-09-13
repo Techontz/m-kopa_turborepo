@@ -14,7 +14,7 @@ class PayrollController extends Controller
 {
     public function index(): View
     {
-        $payrolls = SalaryPayment::where('company_id', $this->employee()->company_id)
+        $payrolls = SalaryPayment::where('company_id', $this->currentEmployee()->company_id)
             ->selectRaw('paid_on, MAX(paid_from_account) as paid_from_account, SUM(take_home) as total')
             ->groupBy('paid_on')
             ->orderByDesc('paid_on')
@@ -29,7 +29,7 @@ class PayrollController extends Controller
 
         $paidOn = Carbon::parse($date);
 
-        $payments = SalaryPayment::where('company_id', $this->employee()->company_id)
+        $payments = SalaryPayment::where('company_id', $this->currentEmployee()->company_id)
             ->whereDate('paid_on', $paidOn->toDateString())
             ->with('employee')
             ->orderBy('id')

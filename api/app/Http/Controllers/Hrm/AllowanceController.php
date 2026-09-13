@@ -16,17 +16,17 @@ class AllowanceController extends Controller
 
     public function index(Request $request): View
     {
-        $query = StaffAllowance::where('company_id', $this->employee()->company_id)->with(['branch', 'employee']);
+        $query = StaffAllowance::where('company_id', $this->currentEmployee()->company_id)->with(['branch', 'employee']);
 
         return view('hrm.allowances', [
             'allowances' => $this->applyBranchDateFilter($query, $request)->latest('id')->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function store(StaffAllowanceRequest $request): RedirectResponse
     {
-        StaffAllowance::create($request->allowanceData() + ['company_id' => $this->employee()->company_id]);
+        StaffAllowance::create($request->allowanceData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Allowance Saved successfully');
     }

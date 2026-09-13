@@ -20,14 +20,14 @@ class StaffSalaryAdvanceController extends Controller
 
     public function index(Request $request): View
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
         $base = fn () => StaffSalaryAdvance::where('company_id', $companyId)->with(['branch', 'employee']);
 
         return view('hrm.salary-advances', [
             'advances' => $this->applyBranchDateFilter($base()->where('status', 'pending'), $request)->orderBy('id')->get(),
             'approved' => $this->applyBranchDateFilter($base()->whereIn('status', ['approved', 'done']), $request)->latest('id')->get(),
             'categories' => StaffSalaryAdvanceCategory::where('company_id', $companyId)->orderBy('id')->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -36,7 +36,7 @@ class StaffSalaryAdvanceController extends Controller
         $category = $request->category();
 
         StaffSalaryAdvance::create([
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'branch_id' => $request->integer('blanch_id'),
             'employee_id' => $request->integer('empl_id'),
             'staff_salary_advance_category_id' => $category->id,

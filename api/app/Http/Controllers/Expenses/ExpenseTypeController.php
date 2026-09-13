@@ -31,7 +31,7 @@ class ExpenseTypeController extends Controller
     public function store(ExpenseTypeRequest $request): RedirectResponse
     {
         ExpenseType::create([
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'scope' => $request->scope(),
             'name' => $request->expenseName(),
         ]);
@@ -62,7 +62,7 @@ class ExpenseTypeController extends Controller
         return view('expenses.types', [
             'scope' => $scope,
             'field' => ExpenseTypeRequest::NAME_FIELDS[$scope],
-            'types' => ExpenseType::where('company_id', $this->employee()->company_id)
+            'types' => ExpenseType::where('company_id', $this->currentEmployee()->company_id)
                 ->where('scope', $scope)
                 ->orderBy('id')
                 ->get(),

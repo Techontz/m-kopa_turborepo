@@ -21,7 +21,7 @@ class SavingController extends Controller
     public function search(): View
     {
         return view('savings.search', [
-            'customers' => Customer::where('company_id', $this->employee()->company_id)->orderBy('first_name')->get(),
+            'customers' => Customer::where('company_id', $this->currentEmployee()->company_id)->orderBy('first_name')->get(),
         ]);
     }
 
@@ -80,7 +80,7 @@ class SavingController extends Controller
     {
         return view('savings.deposits', [
             'savings' => $this->transactions($request, 'deposit')->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -92,13 +92,13 @@ class SavingController extends Controller
             'withdrawals' => $withdrawals,
             'taken' => $withdrawals->reject(fn (Saving $saving): bool => $this->clearsLoan($saving)),
             'clearLoan' => $withdrawals->filter(fn (Saving $saving): bool => $this->clearsLoan($saving)),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function balance(Request $request): View
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
         $branchId = $this->branchFilter($request);
 
         $balances = Saving::query()
@@ -110,7 +110,7 @@ class SavingController extends Controller
             ->get();
 
         /** @var Collection<int, array{branch: Branch, amount: float}> $branchBalances */
-        $branchBalances = $this->branches()->map(fn (Branch $branch): array => [
+        $branchBalances = $this->companyBranches()->map(fn (Branch $branch): array => [
             'branch' => $branch,
             'amount' => $this->ledger->balance($companyId, Account::HqSaving, $branch),
         ])->toBase();
@@ -118,7 +118,7 @@ class SavingController extends Controller
         return view('savings.balance', [
             'balances' => $balances,
             'branchBalances' => $branchBalances,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -142,7 +142,7 @@ class SavingController extends Controller
     private function transactions(Request $request, string $type): Builder
     {
         return Saving::query()
-            ->where('company_id', $this->employee()->company_id)
+            ->where('company_id', $this->currentEmployee()->company_id)
             ->where('type', $type)
             ->when($this->branchFilter($request), fn (Builder $query, int $id) => $query->where('branch_id', $id))
             ->when(

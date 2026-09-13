@@ -20,7 +20,7 @@ class LookupController extends Controller
 {
     public function employees(Request $request): Response
     {
-        $employees = Employee::where('company_id', $this->employee()->company_id)
+        $employees = Employee::where('company_id', $this->currentEmployee()->company_id)
             ->where('branch_id', $request->integer('branch_id'))
             ->where('status', 'active')
             ->get();
@@ -30,7 +30,7 @@ class LookupController extends Controller
 
     public function customerTypes(Request $request): Response
     {
-        $main = MainCategory::where('company_id', $this->employee()->company_id)->where('code', $request->string('work_status'))->first();
+        $main = MainCategory::where('company_id', $this->currentEmployee()->company_id)->where('code', $request->string('work_status'))->first();
         $types = $main?->customerTypes()->where('is_enabled', true)->get() ?? collect();
 
         return $this->options('Select type of customer', $types->mapWithKeys(fn (CustomerType $type): array => [$type->code => $type->name])->all());
@@ -59,7 +59,7 @@ class LookupController extends Controller
 
     public function customers(Request $request): Response
     {
-        $customers = Customer::where('company_id', $this->employee()->company_id)
+        $customers = Customer::where('company_id', $this->currentEmployee()->company_id)
             ->where('branch_id', $request->integer('branch_id'))
             ->orderBy('first_name')
             ->get();
@@ -69,7 +69,7 @@ class LookupController extends Controller
 
     public function customerLoans(Request $request): Response
     {
-        $loans = Loan::where('company_id', $this->employee()->company_id)
+        $loans = Loan::where('company_id', $this->currentEmployee()->company_id)
             ->where('customer_id', $request->integer('customer_id'))
             ->with('category')
             ->latest('id')
@@ -80,14 +80,14 @@ class LookupController extends Controller
 
     public function staffLoanDurations(Request $request): Response
     {
-        $category = StaffLoanCategory::where('company_id', $this->employee()->company_id)->find($request->integer('category_id'));
+        $category = StaffLoanCategory::where('company_id', $this->currentEmployee()->company_id)->find($request->integer('category_id'));
 
         return $this->options('Select Loan Duration', $category ? [$category->duration => ucfirst($category->duration)." / {$category->repayment_from} - {$category->repayment_to}"] : []);
     }
 
     private function category(Request $request): ?LoanCategory
     {
-        return LoanCategory::where('company_id', $this->employee()->company_id)->find($request->integer('category_id'));
+        return LoanCategory::where('company_id', $this->currentEmployee()->company_id)->find($request->integer('category_id'));
     }
 
     /**

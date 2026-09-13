@@ -14,13 +14,13 @@ class StaffSalaryAdvanceCategoryController extends Controller
     public function index(): View
     {
         return view('hrm.staff-salary-advance-categories', [
-            'categories' => StaffSalaryAdvanceCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'categories' => StaffSalaryAdvanceCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
     public function store(StaffSalaryAdvanceCategoryRequest $request): RedirectResponse
     {
-        StaffSalaryAdvanceCategory::create($request->categoryData() + ['company_id' => $this->employee()->company_id]);
+        StaffSalaryAdvanceCategory::create($request->categoryData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Category Saved successfully');
     }

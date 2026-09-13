@@ -16,17 +16,17 @@ class DeductionController extends Controller
 
     public function index(Request $request): View
     {
-        $query = StaffDeduction::where('company_id', $this->employee()->company_id)->with(['branch', 'employee']);
+        $query = StaffDeduction::where('company_id', $this->currentEmployee()->company_id)->with(['branch', 'employee']);
 
         return view('hrm.deductions', [
             'deductions' => $this->applyBranchDateFilter($query, $request)->latest('id')->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function store(StaffDeductionRequest $request): RedirectResponse
     {
-        StaffDeduction::create($request->deductionData() + ['company_id' => $this->employee()->company_id]);
+        StaffDeduction::create($request->deductionData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Deduction Saved successfully');
     }

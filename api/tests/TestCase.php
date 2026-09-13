@@ -16,7 +16,12 @@ abstract class TestCase extends BaseTestCase
     {
         $company = Company::factory()->create();
         $branch = Branch::factory()->create(['company_id' => $company->id]);
-        $admin = Employee::factory()->admin()->create(['company_id' => $company->id, 'branch_id' => $branch->id]);
+        app(\App\Services\AccessControl::class)->seedRoles($company);
+        $admin = Employee::factory()->admin()->create([
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'role_id' => $company->roles()->where('key', 'super_admin')->value('id'),
+        ]);
 
         $this->actingAs($admin);
 

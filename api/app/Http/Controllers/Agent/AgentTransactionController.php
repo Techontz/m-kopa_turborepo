@@ -30,8 +30,8 @@ class AgentTransactionController extends Controller
 
         return view('agent.record', [
             'transactions' => $transactions,
-            'branches' => $this->branches(),
-            'modes' => PaymentMode::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'branches' => $this->companyBranches(),
+            'modes' => PaymentMode::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
             'balances' => $this->branchBalances(),
         ]);
     }
@@ -50,14 +50,14 @@ class AgentTransactionController extends Controller
 
         return view('agent.deposits', [
             'transactions' => $transactions,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'balances' => $this->branchBalances(),
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $data = $request->validate([
             'blanch_id' => ['required', Rule::exists('branches', 'id')->where('company_id', $companyId)],
@@ -73,7 +73,7 @@ class AgentTransactionController extends Controller
                 'company_id' => $companyId,
                 'branch_id' => $data['blanch_id'],
                 'payment_mode_id' => $data['mode_id'],
-                'employee_id' => $this->employee()->id,
+                'employee_id' => $this->currentEmployee()->id,
                 'agent' => $data['agent'],
                 'amount' => $data['amount'],
                 'transaction_date' => $data['date'],
@@ -92,7 +92,7 @@ class AgentTransactionController extends Controller
     private function query(Request $request): Builder
     {
         return AgentTransaction::query()
-            ->where('company_id', $this->employee()->company_id)
+            ->where('company_id', $this->currentEmployee()->company_id)
             ->when($request->filled('blanch_id') && $request->input('blanch_id') !== 'all', fn (Builder $query) => $query->where('branch_id', $request->integer('blanch_id')))
             ->with(['branch', 'paymentMode'])
             ->latest('transaction_date')
@@ -106,9 +106,9 @@ class AgentTransactionController extends Controller
      */
     private function branchBalances(): Collection
     {
-        $company = $this->employee()->company_id;
+        $company = $this->currentEmployee()->company_id;
 
-        return $this->branches()->map(fn (Branch $branch): array => [
+        return $this->companyBranches()->map(fn (Branch $branch): array => [
             'branch' => $branch,
             'amount' => $this->ledger->balance($company, Account::Agent, $branch),
         ])->toBase();

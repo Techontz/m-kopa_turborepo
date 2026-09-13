@@ -13,7 +13,7 @@ class VisaController extends Controller
     public function index(Request $request): View
     {
         $customers = Customer::query()
-            ->where('company_id', $this->employee()->company_id)
+            ->where('company_id', $this->currentEmployee()->company_id)
             ->where(fn (Builder $query) => $query->where('work_status', 'ent')->orWhereNotNull('bank_account_name'))
             ->when(
                 $request->filled('blanch_id') && $request->input('blanch_id') !== 'all',
@@ -25,7 +25,7 @@ class VisaController extends Controller
 
         return view('visa.index', [
             'customers' => $customers,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 

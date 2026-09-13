@@ -19,20 +19,20 @@ class CustomerController extends Controller
 {
     public function index(Request $request): View
     {
-        $customers = Customer::where('company_id', $this->employee()->company_id)
+        $customers = Customer::where('company_id', $this->currentEmployee()->company_id)
             ->with('branch')
             ->when($request->filled('blanch_id') && $request->input('blanch_id') !== 'all', fn ($query) => $query->where('branch_id', $request->integer('blanch_id')))
             ->when($request->filled('customer_status'), fn ($query) => $query->where('status', $request->string('customer_status')))
             ->latest('id')
             ->get();
 
-        return view('customers.index', ['customers' => $customers, 'branches' => $this->branches()]);
+        return view('customers.index', ['customers' => $customers, 'branches' => $this->companyBranches()]);
     }
 
     public function search(): View
     {
         return view('customers.search', [
-            'customers' => Customer::where('company_id', $this->employee()->company_id)->latest('id')->get(),
+            'customers' => Customer::where('company_id', $this->currentEmployee()->company_id)->latest('id')->get(),
         ]);
     }
 
@@ -43,7 +43,7 @@ class CustomerController extends Controller
 
         return view('customers.show', [
             'customer' => $customer,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'regions' => Region::orderBy('id')->get(),
             'balance' => $latestLoan ? $loans->deductions($latestLoan) : null,
         ]);
@@ -127,7 +127,7 @@ class CustomerController extends Controller
     {
         $durationCase = Duration::from($duration);
 
-        $customers = Customer::where('company_id', $this->employee()->company_id)
+        $customers = Customer::where('company_id', $this->currentEmployee()->company_id)
             ->whereHas('loans', fn ($query) => $query->where('duration', $durationCase->value)->whereNotIn('status', [LoanStatus::Pending->value, LoanStatus::Rejected->value]))
             ->when($request->filled('customer_status'), fn ($query) => $query->where('status', $request->string('customer_status')))
             ->latest('id')

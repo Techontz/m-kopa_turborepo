@@ -21,7 +21,7 @@ class EmployeeController extends Controller
 {
     public function index(): View
     {
-        $employees = Employee::where('company_id', $this->employee()->company_id)
+        $employees = Employee::where('company_id', $this->currentEmployee()->company_id)
             ->where('status', '!=', 'rejected')
             ->with('branch')
             ->orderByDesc('id')
@@ -29,13 +29,13 @@ class EmployeeController extends Controller
 
         return view('hrm.employees.index', [
             'employees' => $employees,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function rejected(): View
     {
-        $employees = Employee::where('company_id', $this->employee()->company_id)
+        $employees = Employee::where('company_id', $this->currentEmployee()->company_id)
             ->where('status', 'rejected')
             ->with('branch')
             ->orderByDesc('id')
@@ -46,7 +46,7 @@ class EmployeeController extends Controller
 
     public function byBranch(): View
     {
-        $branches = Branch::where('company_id', $this->employee()->company_id)
+        $branches = Branch::where('company_id', $this->currentEmployee()->company_id)
             ->with(['region', 'employees' => fn ($query) => $query->orderBy('id')])
             ->orderBy('id')
             ->get();
@@ -60,7 +60,7 @@ class EmployeeController extends Controller
      */
     public function store(EmployeeRequest $request): RedirectResponse
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
         $data = $request->employeeData();
         $sequence = Employee::where('company_id', $companyId)->count() + 1;
 
@@ -88,7 +88,7 @@ class EmployeeController extends Controller
 
         return view('hrm.employees.show', [
             'employee' => $employee,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -235,6 +235,6 @@ class EmployeeController extends Controller
 
     private function isSignedIn(Employee $employee): bool
     {
-        return $employee->is($this->employee());
+        return $employee->is($this->currentEmployee());
     }
 }

@@ -28,7 +28,7 @@ class RegistrationController extends Controller
     public function store(BasicInformationRequest $request): RedirectResponse
     {
         $customer = Customer::create($request->customerData() + [
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'status' => 'pending',
             'registration_step' => Customer::STEP_ADDITIONAL,
         ]);
@@ -117,7 +117,7 @@ class RegistrationController extends Controller
     private function basicFormData(): array
     {
         return [
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'regions' => Region::orderBy('id')->get(),
         ];
     }

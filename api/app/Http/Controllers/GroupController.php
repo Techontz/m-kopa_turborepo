@@ -14,7 +14,7 @@ class GroupController extends Controller
     public function index(): View
     {
         return view('groups.index', [
-            'groups' => Group::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'groups' => Group::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
@@ -22,7 +22,7 @@ class GroupController extends Controller
     {
         $data = $request->validate(['group_name' => ['required', 'string', 'max:255']]);
 
-        Group::create(['company_id' => $this->employee()->company_id, 'name' => $data['group_name']]);
+        Group::create(['company_id' => $this->currentEmployee()->company_id, 'name' => $data['group_name']]);
 
         return back()->with('success', 'Group Registered successfully');
     }
@@ -48,7 +48,7 @@ class GroupController extends Controller
         $branchId = $request->filled('blanch_id') && $request->input('blanch_id') !== 'all' ? $request->integer('blanch_id') : null;
 
         $loans = Loan::query()
-            ->where('company_id', $this->employee()->company_id)
+            ->where('company_id', $this->currentEmployee()->company_id)
             ->where(fn (Builder $query) => $query
                 ->where('group_id', $group->id)
                 ->orWhereHas('customer', fn (Builder $customers) => $customers->where('group_id', $group->id)))
@@ -61,7 +61,7 @@ class GroupController extends Controller
         return view('groups.show', [
             'group' => $group,
             'loans' => $loans,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 }

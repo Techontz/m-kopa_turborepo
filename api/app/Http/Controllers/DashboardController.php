@@ -10,7 +10,7 @@ class DashboardController extends Controller
 {
     public function index(DashboardStatistics $statistics): View
     {
-        $company = $this->company();
+        $company = $this->currentCompany();
         $today = CarbonImmutable::today();
 
         return view('dashboard.index', [

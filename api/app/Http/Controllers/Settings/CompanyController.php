@@ -16,14 +16,14 @@ class CompanyController extends Controller
     public function edit(): View
     {
         return view('settings.company', [
-            'company' => $this->company(),
+            'company' => $this->currentCompany(),
             'regions' => Region::orderBy('id')->get(),
         ]);
     }
 
     public function update(CompanyRequest $request): RedirectResponse
     {
-        $this->company()->update($request->companyData());
+        $this->currentCompany()->update($request->companyData());
 
         return back()->with('success', 'Company Profile Updated successfully');
     }
@@ -38,7 +38,7 @@ class CompanyController extends Controller
             'passconf.same' => 'New Password and Confirm Password do not match',
         ]);
 
-        $employee = $this->employee();
+        $employee = $this->currentEmployee();
 
         if (! Hash::check($validated['oldpass'], $employee->password)) {
             return back()->with('error', 'Old Password is incorrect');
@@ -55,7 +55,7 @@ class CompanyController extends Controller
             'comp_logo' => ['required', 'image', 'max:2048'],
         ]);
 
-        $company = $this->company();
+        $company = $this->currentCompany();
         $previousLogo = $company->logo;
 
         $company->update(['logo' => $request->file('comp_logo')->store('logos', 'public')]);

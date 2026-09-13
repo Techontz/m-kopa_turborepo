@@ -13,13 +13,13 @@ class SalaryAdvanceCategoryController extends Controller
     public function index(): View
     {
         return view('salary-advance.categories', [
-            'categories' => SalaryAdvanceCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'categories' => SalaryAdvanceCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
     public function store(SalaryAdvanceCategoryRequest $request): RedirectResponse
     {
-        SalaryAdvanceCategory::create($request->categoryData() + ['company_id' => $this->employee()->company_id]);
+        SalaryAdvanceCategory::create($request->categoryData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Salary advance Category Registered successfully');
     }

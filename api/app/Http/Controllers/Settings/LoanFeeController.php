@@ -25,8 +25,8 @@ class LoanFeeController extends Controller
     public function index(): View
     {
         return view('settings.loan-fees.index', [
-            'company' => $this->company(),
-            'categories' => LoanCategory::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'company' => $this->currentCompany(),
+            'categories' => LoanCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
@@ -36,7 +36,7 @@ class LoanFeeController extends Controller
             'fee_category' => ['required', 'in:'.implode(',', array_keys(self::MODES))],
         ]);
 
-        $this->company()->update(['loan_fee_mode' => self::MODES[$validated['fee_category']]]);
+        $this->currentCompany()->update(['loan_fee_mode' => self::MODES[$validated['fee_category']]]);
 
         return back()->with('success', 'Loan Fee Category Updated successfully');
     }
@@ -68,7 +68,7 @@ class LoanFeeController extends Controller
             ->select('journal_lines.*')
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
-            ->where('accounts.company_id', $this->employee()->company_id)
+            ->where('accounts.company_id', $this->currentEmployee()->company_id)
             ->where('accounts.key', Account::LoanFee->value)
             ->where('journal_lines.debit', '>', 0)
             ->where('journal_entries.source_type', (new Loan)->getMorphClass())
@@ -89,7 +89,7 @@ class LoanFeeController extends Controller
         return view('settings.loan-fees.income', [
             'entries' => $entries,
             'total' => (float) $entries->sum('amount'),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 }

@@ -13,14 +13,14 @@ class BankAccountController extends Controller
     public function index(): View
     {
         return view('bank.accounts', [
-            'accounts' => BankAccount::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'accounts' => BankAccount::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
     public function store(BankAccountRequest $request): RedirectResponse
     {
         BankAccount::create([
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'name' => $request->string('ac_name')->toString(),
         ]);
 
@@ -47,7 +47,7 @@ class BankAccountController extends Controller
 
     public function balance(): View
     {
-        $accounts = BankAccount::where('company_id', $this->employee()->company_id)->orderBy('id')->get();
+        $accounts = BankAccount::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get();
 
         return view('bank.balance', [
             'accounts' => $accounts,

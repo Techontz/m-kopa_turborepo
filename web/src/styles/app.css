@@ -1,0 +1,127 @@
+/*
+ * React-specific additions on top of theme.css (the live-system look).
+ */
+
+body {
+  font-family: var(--font-source-sans), "Source Sans Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+body.font-ubuntu,
+.font-ubuntu {
+  font-family: var(--font-ubuntu), "Ubuntu", sans-serif;
+}
+
+/* Modals rendered by React (no jQuery) */
+.mf-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1040;
+}
+.mf-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  overflow-y: auto;
+  display: block;
+}
+.mf-modal .modal-dialog {
+  margin-top: 60px;
+}
+
+/* react-select styled like the live Select2 boxes */
+.mf-select .mf-select__control {
+  min-height: 36px;
+  border: 2px solid #ccc;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.mf-select .mf-select__control--is-focused {
+  border-color: #aaa;
+}
+.mf-select .mf-select__value-container {
+  padding: 0 10px;
+}
+.mf-select .mf-select__placeholder,
+.mf-select .mf-select__single-value {
+  color: #5a5a5a;
+}
+.mf-select .mf-select__menu {
+  z-index: 60;
+}
+
+/* DataTable controls */
+.mf-table-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mf-table-controls select {
+  width: 70px;
+  display: inline-block;
+  height: 35px;
+  margin: 0 4px;
+}
+.mf-table-controls input {
+  display: inline-block;
+  width: 180px;
+  height: 35px;
+  margin-left: 6px;
+}
+.mf-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.mf-table-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.mf-table-footer .pagination {
+  margin: 0;
+}
+
+.field-error {
+  color: #de4848;
+  font-size: 12px;
+}
+
+.mf-loading {
+  padding: 30px;
+  text-align: center;
+  color: #999;
+}
+
+/* Status tracker used by loan workflow screens */
+.mf-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mf-steps .step {
+  padding: 4px 10px;
+  border-radius: 30px;
+  border: 1px solid #eee;
+  color: #777;
+  font-size: 12px;
+}
+.mf-steps .step.done {
+  background: #01b2c6;
+  border-color: #01b2c6;
+  color: #fff;
+}
+.mf-steps .step.current {
+  border-color: #01b2c6;
+  color: #01b2c6;
+  font-weight: 600;
+}
+
+/* Live login footer scrolls left-to-right like <marquee direction="right"> */
+.mf-marquee { overflow: hidden; white-space: nowrap; position: relative; z-index: 1; }
+.mf-marquee h5 { display: inline-block; color: #fff; animation: mf-marquee 14s linear infinite; }
+@keyframes mf-marquee { from { transform: translateX(-100%); } to { transform: translateX(100vw); } }

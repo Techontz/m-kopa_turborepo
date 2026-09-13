@@ -10,11 +10,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class Employee extends Authenticatable
 {
     /** @use HasFactory<EmployeeFactory> */
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
 
     /**
      * Privileges an employee can be granted (HRM → privillage page).
@@ -84,6 +85,24 @@ class Employee extends Authenticatable
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function role(): BelongsTo
+    {
+        return $this->belongsTo(Role::class);
+    }
+
+    public function zone(): BelongsTo
+    {
+        return $this->belongsTo(Zone::class);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function permissionKeys(): array
+    {
+        return app(\App\Services\AccessControl::class)->permissionsFor($this);
     }
 
     public function privileges(): HasMany

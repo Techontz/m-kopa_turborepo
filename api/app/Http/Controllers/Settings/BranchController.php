@@ -13,7 +13,7 @@ class BranchController extends Controller
 {
     public function index(): View
     {
-        $branches = Branch::where('company_id', $this->employee()->company_id)
+        $branches = Branch::where('company_id', $this->currentEmployee()->company_id)
             ->with('region')
             ->withCount([
                 'customers as active_count' => fn ($query) => $query->where('status', 'open'),
@@ -33,7 +33,7 @@ class BranchController extends Controller
 
     public function store(BranchRequest $request): RedirectResponse
     {
-        Branch::create($request->branchData() + ['company_id' => $this->employee()->company_id]);
+        Branch::create($request->branchData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Branch Registered successfully');
     }

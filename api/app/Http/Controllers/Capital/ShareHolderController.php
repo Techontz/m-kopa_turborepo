@@ -13,13 +13,13 @@ class ShareHolderController extends Controller
     public function index(): View
     {
         return view('capital.share-holders', [
-            'shareHolders' => ShareHolder::where('company_id', $this->employee()->company_id)->orderBy('id')->get(),
+            'shareHolders' => ShareHolder::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get(),
         ]);
     }
 
     public function store(ShareHolderRequest $request): RedirectResponse
     {
-        ShareHolder::create($request->shareHolderData() + ['company_id' => $this->employee()->company_id]);
+        ShareHolder::create($request->shareHolderData() + ['company_id' => $this->currentEmployee()->company_id]);
 
         return back()->with('success', 'Share Holder Registered successfully');
     }

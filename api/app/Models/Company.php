@@ -31,6 +31,16 @@ class Company extends Model
         return $this->belongsTo(Region::class);
     }
 
+    public function roles(): HasMany
+    {
+        return $this->hasMany(Role::class);
+    }
+
+    public function zones(): HasMany
+    {
+        return $this->hasMany(Zone::class);
+    }
+
     public function branches(): HasMany
     {
         return $this->hasMany(Branch::class);

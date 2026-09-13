@@ -58,7 +58,7 @@ class TellerController extends Controller
         ]);
 
         try {
-            $loans->deposit($loan, (float) $validated['depost'], CarbonImmutable::today(), $validated['p_method'], $this->employee());
+            $loans->deposit($loan, (float) $validated['depost'], CarbonImmutable::today(), $validated['p_method'], $this->currentEmployee());
         } catch (ValidationException $exception) {
             return back()->with('error', collect($exception->errors())->flatten()->first());
         }
@@ -78,7 +78,7 @@ class TellerController extends Controller
         }
 
         try {
-            $loans->withdraw($loan, CarbonImmutable::today(), $this->employee());
+            $loans->withdraw($loan, CarbonImmutable::today(), $this->currentEmployee());
         } catch (ValidationException $exception) {
             return back()->with('error', collect($exception->errors())->flatten()->first());
         }
@@ -124,6 +124,6 @@ class TellerController extends Controller
      */
     private function customers(): \Illuminate\Database\Eloquent\Collection
     {
-        return Customer::where('company_id', $this->employee()->company_id)->latest('id')->get(['id', 'first_name', 'middle_name', 'last_name', 'customer_code']);
+        return Customer::where('company_id', $this->currentEmployee()->company_id)->latest('id')->get(['id', 'first_name', 'middle_name', 'last_name', 'customer_code']);
     }
 }

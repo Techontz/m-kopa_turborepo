@@ -23,7 +23,7 @@ class HqTransactionController extends Controller
     public function balance(Request $request): View
     {
         $until = $request->filled('to') ? $request->date('to') : null;
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $balances = collect(Account::hqAccounts())->mapWithKeys(fn (Account $account): array => [
             $account->label() => $this->ledger->balance($companyId, $account, until: $until),
@@ -44,8 +44,8 @@ class HqTransactionController extends Controller
     public function store(HqTransactionRequest $request): RedirectResponse
     {
         HqTransaction::create([
-            'company_id' => $this->employee()->company_id,
-            'employee_id' => $this->employee()->id,
+            'company_id' => $this->currentEmployee()->company_id,
+            'employee_id' => $this->currentEmployee()->id,
             'from_account' => $request->string('from_account')->toString(),
             'to_account' => $request->string('to_account')->toString(),
             'amount' => $request->float('amount'),
@@ -111,6 +111,6 @@ class HqTransactionController extends Controller
      */
     private function transactions(): Builder
     {
-        return HqTransaction::where('company_id', $this->employee()->company_id)->with('employee')->latest('id');
+        return HqTransaction::where('company_id', $this->currentEmployee()->company_id)->with('employee')->latest('id');
     }
 }

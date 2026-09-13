@@ -18,7 +18,7 @@ class PenaltySettingController extends Controller
 
     public function edit(): View
     {
-        return view('settings.penalty', ['company' => $this->company()]);
+        return view('settings.penalty', ['company' => $this->currentCompany()]);
     }
 
     /**
@@ -31,7 +31,7 @@ class PenaltySettingController extends Controller
             'penart' => ['required', 'numeric', 'min:0'],
         ]);
 
-        $this->company()->update([
+        $this->currentCompany()->update([
             'penalty_type' => self::TYPES[$validated['action_penart']],
             'penalty_value' => $validated['penart'],
         ]);

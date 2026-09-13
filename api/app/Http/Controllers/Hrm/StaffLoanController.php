@@ -21,21 +21,21 @@ class StaffLoanController extends Controller
 
     public function index(Request $request): View
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
         $base = fn () => StaffLoan::where('company_id', $companyId)->with(['branch', 'employee']);
 
         return view('hrm.staff-loans.index', [
             'loans' => $this->applyBranchDateFilter($base()->where('status', 'pending'), $request)->orderBy('id')->get(),
             'approved' => $this->applyBranchDateFilter($base()->whereIn('status', ['active', 'done']), $request)->latest('id')->get(),
             'categories' => StaffLoanCategory::where('company_id', $companyId)->orderBy('id')->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
     public function store(StaffLoanRequest $request): RedirectResponse
     {
         StaffLoan::create($request->loanData() + [
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'status' => 'pending',
         ]);
 
@@ -74,7 +74,7 @@ class StaffLoanController extends Controller
 
     public function active(): View
     {
-        $loans = StaffLoan::where('company_id', $this->employee()->company_id)
+        $loans = StaffLoan::where('company_id', $this->currentEmployee()->company_id)
             ->where('status', 'active')
             ->with(['branch', 'employee', 'payments' => fn ($query) => $query->orderBy('id')])
             ->withSum('payments', 'amount')

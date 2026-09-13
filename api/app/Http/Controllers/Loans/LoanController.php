@@ -163,7 +163,7 @@ class LoanController extends Controller
                 collect([Duration::Monthly, Duration::Weekly, Duration::Daily])
                     ->mapWithKeys(fn (Duration $duration): array => [$duration->label() => $loans->where('duration', $duration)])
             ),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -175,7 +175,7 @@ class LoanController extends Controller
     public function writeOff(Loan $loan, LoanService $loans): RedirectResponse
     {
         abort_unless(in_array($loan->status, [LoanStatus::Default, LoanStatus::Active], true), 403);
-        $loans->writeOff($loan, $this->employee());
+        $loans->writeOff($loan, $this->currentEmployee());
 
         return back()->with('success', 'Loan moved to Wright-off successfully');
     }
@@ -185,6 +185,6 @@ class LoanController extends Controller
      */
     private function loans(): Builder
     {
-        return Loan::where('company_id', $this->employee()->company_id)->with(['customer', 'branch', 'category']);
+        return Loan::where('company_id', $this->currentEmployee()->company_id)->with(['customer', 'branch', 'category']);
     }
 }

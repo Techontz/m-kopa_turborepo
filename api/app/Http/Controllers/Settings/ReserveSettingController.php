@@ -11,7 +11,7 @@ class ReserveSettingController extends Controller
 {
     public function edit(): View
     {
-        return view('settings.reserve', ['company' => $this->company()]);
+        return view('settings.reserve', ['company' => $this->currentCompany()]);
     }
 
     public function update(Request $request): RedirectResponse
@@ -20,7 +20,7 @@ class ReserveSettingController extends Controller
             'reserve' => ['required', 'numeric', 'min:0', 'max:100'],
         ]);
 
-        $this->company()->update(['reserve_percent' => $validated['reserve']]);
+        $this->currentCompany()->update(['reserve_percent' => $validated['reserve']]);
 
         return back()->with('success', 'Reserve Setting Updated successfully');
     }

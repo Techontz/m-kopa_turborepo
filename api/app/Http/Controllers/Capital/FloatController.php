@@ -40,7 +40,7 @@ class FloatController extends Controller
         [$from, $to] = $this->dateRange($validated);
         $branchId = $validated['blanch_id'] ?? null;
 
-        $transfers = FloatTransfer::where('company_id', $this->employee()->company_id)
+        $transfers = FloatTransfer::where('company_id', $this->currentEmployee()->company_id)
             ->where('type', 'company_to_branch')
             ->whereDate('transfer_date', '>=', $from->toDateString())
             ->whereDate('transfer_date', '<=', $to->toDateString())
@@ -51,7 +51,7 @@ class FloatController extends Controller
 
         return view('capital.floats.company', [
             'transfers' => $transfers,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -60,7 +60,7 @@ class FloatController extends Controller
      */
     public function storeCompany(Request $request): RedirectResponse
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $validated = $request->validate([
             'blanch_amount' => ['required', 'numeric', 'min:1'],
@@ -99,13 +99,13 @@ class FloatController extends Controller
     public function branch(): View
     {
         return view('capital.floats.branch', [
-            'transfers' => FloatTransfer::where('company_id', $this->employee()->company_id)
+            'transfers' => FloatTransfer::where('company_id', $this->currentEmployee()->company_id)
                 ->where('type', 'branch_to_branch')
                 ->where('status', 'pending')
                 ->with(['fromBranch', 'toBranch'])
                 ->orderBy('id')
                 ->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -120,7 +120,7 @@ class FloatController extends Controller
         ]);
 
         FloatTransfer::create([
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'type' => 'branch_to_branch',
             'from_branch_id' => $validated['from_blanch_id'],
             'to_branch_id' => $validated['to_blanch_id'],
@@ -187,7 +187,7 @@ class FloatController extends Controller
 
         [$from, $to] = $this->dateRange($validated);
 
-        $transfers = FloatTransfer::where('company_id', $this->employee()->company_id)
+        $transfers = FloatTransfer::where('company_id', $this->currentEmployee()->company_id)
             ->where('type', 'branch_to_branch')
             ->where('status', 'approved')
             ->whereDate('transfer_date', '>=', $from->toDateString())
@@ -201,7 +201,7 @@ class FloatController extends Controller
 
     public function accounts(): View
     {
-        return view('capital.floats.accounts', ['branches' => $this->branches()]);
+        return view('capital.floats.accounts', ['branches' => $this->companyBranches()]);
     }
 
     /**
@@ -209,7 +209,7 @@ class FloatController extends Controller
      */
     public function storeAccounts(Request $request): RedirectResponse
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $validated = $request->validate([
             'blanch_id' => ['required', $this->branchRule()],
@@ -242,7 +242,7 @@ class FloatController extends Controller
 
     private function branchRule(): Exists
     {
-        return Rule::exists((new Branch)->getTable(), 'id')->where('company_id', $this->employee()->company_id);
+        return Rule::exists((new Branch)->getTable(), 'id')->where('company_id', $this->currentEmployee()->company_id);
     }
 
     /**

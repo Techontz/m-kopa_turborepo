@@ -31,7 +31,7 @@ class BankTransferController extends Controller
     {
         return view('bank.transfers', [
             'transfers' => $this->transfers(self::BRANCH_TO_BANK)->where('status', 'pending')->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'bankAccounts' => $this->bankAccounts(),
             'branchAccounts' => Account::transferableBranchAccounts(),
         ]);
@@ -40,7 +40,7 @@ class BankTransferController extends Controller
     public function store(BranchToBankRequest $request): RedirectResponse
     {
         BankTransfer::create([
-            'company_id' => $this->employee()->company_id,
+            'company_id' => $this->currentEmployee()->company_id,
             'type' => self::BRANCH_TO_BANK,
             'branch_id' => $request->integer('from_blanch_id'),
             'branch_account' => $request->string('ac_type')->toString(),
@@ -104,7 +104,7 @@ class BankTransferController extends Controller
 
         return view('bank.transfers-approved', [
             'transfers' => $query->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -115,7 +115,7 @@ class BankTransferController extends Controller
 
         return view('bank.to-branch', [
             'transfers' => $query->get(),
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
             'bankAccounts' => $this->bankAccounts(),
         ]);
     }
@@ -135,7 +135,7 @@ class BankTransferController extends Controller
 
         DB::transaction(function () use ($request, $bankAccount, $amount, $charge): void {
             $transfer = BankTransfer::create([
-                'company_id' => $this->employee()->company_id,
+                'company_id' => $this->currentEmployee()->company_id,
                 'type' => self::BANK_TO_BRANCH,
                 'branch_id' => $request->integer('to_blanch'),
                 'branch_account' => Account::Principal->value,
@@ -187,7 +187,7 @@ class BankTransferController extends Controller
 
         DB::transaction(function () use ($bankAccount, $amount, $charge, $hqAccount): void {
             $transfer = BankTransfer::create([
-                'company_id' => $this->employee()->company_id,
+                'company_id' => $this->currentEmployee()->company_id,
                 'type' => self::BANK_TO_HQ,
                 'bank_account_id' => $bankAccount->id,
                 'hq_account' => $hqAccount->value,
@@ -216,7 +216,7 @@ class BankTransferController extends Controller
      */
     private function transfers(string $type): Builder
     {
-        return BankTransfer::where('company_id', $this->employee()->company_id)
+        return BankTransfer::where('company_id', $this->currentEmployee()->company_id)
             ->where('type', $type)
             ->with(['branch', 'bankAccount'])
             ->latest('id');
@@ -241,6 +241,6 @@ class BankTransferController extends Controller
      */
     private function bankAccounts(): Collection
     {
-        return BankAccount::where('company_id', $this->employee()->company_id)->orderBy('id')->get();
+        return BankAccount::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get();
     }
 }

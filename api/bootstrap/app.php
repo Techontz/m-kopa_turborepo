@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo(fn () => route('login'));
         $middleware->redirectUsersTo(fn () => route('dashboard'));
         $middleware->appendToGroup('web', \App\Http\Middleware\EnsureCompanyOwnership::class);
+        $middleware->appendToGroup('api', \App\Http\Middleware\EnsureCompanyOwnership::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

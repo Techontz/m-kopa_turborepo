@@ -21,6 +21,11 @@ class Branch extends Model
         return $this->belongsTo(Company::class);
     }
 
+    public function zone(): BelongsTo
+    {
+        return $this->belongsTo(Zone::class);
+    }
+
     public function region(): BelongsTo
     {
         return $this->belongsTo(Region::class);

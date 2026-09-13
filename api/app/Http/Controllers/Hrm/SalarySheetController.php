@@ -22,7 +22,7 @@ class SalarySheetController extends Controller
      */
     public function index(Request $request, Payroll $payroll): View
     {
-        $companyId = $this->employee()->company_id;
+        $companyId = $this->currentEmployee()->company_id;
 
         $payments = SalaryPayment::where('company_id', $companyId)
             ->with('employee')
@@ -45,7 +45,7 @@ class SalarySheetController extends Controller
     {
         $request->validate(['ac_id' => ['required', Rule::in([Account::Interest->value])]]);
 
-        $paid = $payroll->pay($this->employee()->company_id, Account::Interest);
+        $paid = $payroll->pay($this->currentEmployee()->company_id, Account::Interest);
 
         if ($paid === 0) {
             return back()->with('error', 'No staff with salary information to pay');

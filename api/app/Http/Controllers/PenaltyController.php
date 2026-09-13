@@ -16,7 +16,7 @@ class PenaltyController extends Controller
     public function index(Request $request): View
     {
         $penalties = Penalty::query()
-            ->where('company_id', $this->employee()->company_id)
+            ->where('company_id', $this->currentEmployee()->company_id)
             ->where('is_waived', false)
             ->whereColumn('paid_amount', '<', 'amount')
             ->when($this->branchFilter($request), fn (Builder $query, int $branchId) => $query->where('branch_id', $branchId))
@@ -26,7 +26,7 @@ class PenaltyController extends Controller
 
         return view('penalties.index', [
             'penalties' => $penalties,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 
@@ -61,7 +61,7 @@ class PenaltyController extends Controller
     {
         $payments = PenaltyPayment::query()
             ->whereHas('penalty', function (Builder $query) use ($request): void {
-                $query->where('company_id', $this->employee()->company_id);
+                $query->where('company_id', $this->currentEmployee()->company_id);
                 if ($branchId = $this->branchFilter($request)) {
                     $query->where('branch_id', $branchId);
                 }
@@ -74,7 +74,7 @@ class PenaltyController extends Controller
 
         return view('penalties.paid', [
             'payments' => $payments,
-            'branches' => $this->branches(),
+            'branches' => $this->companyBranches(),
         ]);
     }
 

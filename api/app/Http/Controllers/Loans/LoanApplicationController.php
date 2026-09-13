@@ -24,7 +24,7 @@ class LoanApplicationController extends Controller
     public function index(): View
     {
         return view('customers.search', [
-            'customers' => Customer::where('company_id', $this->employee()->company_id)->latest('id')->get(),
+            'customers' => Customer::where('company_id', $this->currentEmployee()->company_id)->latest('id')->get(),
             'targetRoute' => 'loans.start',
             'showCode' => true,
             'placeholder' => 'Sarch Customer',
@@ -64,7 +64,7 @@ class LoanApplicationController extends Controller
             return back()->withInput()->with('error', 'Customer already has a loan waiting for approval or withdrawal');
         }
 
-        $loan = $loans->apply($customer, $request->loanData(), $this->employee());
+        $loan = $loans->apply($customer, $request->loanData(), $this->currentEmployee());
 
         return redirect()->route('loans.securities', $loan);
     }

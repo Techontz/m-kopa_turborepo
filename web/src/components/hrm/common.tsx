@@ -44,7 +44,7 @@ export function HeaderButton({ icon = "icon-magnifier", onClick, title, tone = "
   );
 }
 
-/** Branch select + dependent staff select (live "Brach:" / "Staff:" pair). */
+/** Branch select + dependent staff select (live "Branch:" / "Staff:" pair). */
 export function BranchStaffFields({ branchId, employeeId, onChange, errors, className = "col-lg-6 col-6", branchPlaceholder = "Select Branch" }: {
   branchId: string;
   employeeId: string;

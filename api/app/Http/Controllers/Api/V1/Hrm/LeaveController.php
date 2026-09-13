@@ -73,6 +73,6 @@ class LeaveController extends HrmController
 
         $leave->update(['status' => $validated['status'], 'approved_by' => $this->currentEmployee()->id]);
 
-        return $this->message($validated['status'] === 'approved' ? 'Leave Aproved successfully' : 'Leave Rejected successfully');
+        return $this->message($validated['status'] === 'approved' ? 'Leave Approved successfully' : 'Leave Rejected successfully');
     }
 }

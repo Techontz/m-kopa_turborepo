@@ -242,7 +242,7 @@ class LoanReports
     }
 
     /**
-     * Wright-off Loan / Bad Debit Done. "Done" = written-off debt that has been fully recovered (inferred).
+     * Write-off Loan / Bad Debt Done. "Done" = written-off debt that has been fully recovered (inferred).
      *
      * @return Collection<int, WriteOff>
      */
@@ -287,7 +287,7 @@ class LoanReports
 
     /**
      * Customer statement for one loan: transactions and penalties in date order with running balances.
-     * Balance = cumulative deposits (amount paid to date); Remain Debit = principal + interest less deposits;
+     * Balance = cumulative deposits (amount paid to date); Remaining Debt = principal + interest less deposits;
      * Penalty = unpaid penalty to date (column definitions inferred).
      *
      * @return Collection<int, array{date: CarbonImmutable, description: string, deposit: float, withdrawal: float, balance: float, remain: float, penalty: float}>
@@ -312,7 +312,7 @@ class LoanReports
             $events->push([
                 'date' => $penalty->penalty_date->toImmutable(),
                 'order' => 1,
-                'description' => 'PENARTY',
+                'description' => 'PENALTY',
                 'deposit' => 0.0,
                 'withdrawal' => 0.0,
                 'penalty' => (float) $penalty->amount,
@@ -323,7 +323,7 @@ class LoanReports
                 $events->push([
                     'date' => $payment->paid_on->toImmutable(),
                     'order' => 2,
-                    'description' => 'PENARTY PAYMENT',
+                    'description' => 'PENALTY PAYMENT',
                     'deposit' => 0.0,
                     'withdrawal' => 0.0,
                     'penalty' => 0.0,

@@ -76,9 +76,9 @@ export default function PayslipPage() {
                   <thead className="thead-info"><tr><th>Deductions</th><th className="text-right">Amount</th></tr></thead>
                   <tbody>
                     <Line label="Staff Fund" value={slip.staff_fund} />
-                    <Line label="Sallary Advance" value={slip.salary_advance} />
+                    <Line label="Salary Advance" value={slip.salary_advance} />
                     <Line label="Deduction" value={slip.deduction} />
-                    <Line label="Loan Restration" value={slip.loan_restoration} />
+                    <Line label="Loan Restoration" value={slip.loan_restoration} />
                     <Line label="Total Deductions" value={slip.total_deductions} bold />
                   </tbody>
                 </table>

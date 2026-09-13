@@ -119,8 +119,8 @@ export function LoanCategoryFields({ form, setForm, fieldError, creating = false
       <Field label="Loan Interest(%)" required className="col-lg-3" error={fieldError("interest_formular")}>
         <input className="form-control input-sm" placeholder="Loan Interest(%)" value={form.interest_formular} onChange={set("interest_formular")} required />
       </Field>
-      <Field label="Interest Formular" required className="col-lg-3" error={fieldError("formular")}>
-        {select("formular", "---Select Interest Formular---", formulas)}
+      <Field label="Interest Formula" required className="col-lg-3" error={fieldError("formular")}>
+        {select("formular", "---Select Interest Formula---", formulas)}
       </Field>
       <Field label="Select Loan Duration" required className="col-lg-3" error={fieldError("duration")}>
         {select("duration", "---Select Loan Duration---", durations)}
@@ -134,14 +134,14 @@ export function LoanCategoryFields({ form, setForm, fieldError, creating = false
       <Field label="You Allow Deduction?" className="col-lg-4 col-6" error={fieldError("fee_deduct")}>
         {select("fee_deduct", "Select", yesNoOptions)}
       </Field>
-      <Field label="You Allow Penarty?" className="col-lg-4 col-6" error={fieldError("penart")}>
+      <Field label="You Allow Penalty?" className="col-lg-4 col-6" error={fieldError("penart")}>
         {select("penart", "Select", yesNoOptions)}
       </Field>
-      <Field label="Aprove status" className="col-lg-4 col-6" error={fieldError("aprove_status")}>
+      <Field label="Approve status" className="col-lg-4 col-6" error={fieldError("aprove_status")}>
         {select("aprove_status", "Select", levels)}
       </Field>
-      <Field label="Topup percent(%)" className="col-lg-4 col-6" error={fieldError("topup_percent")}>
-        <input className="form-control" placeholder="topup percent" value={form.topup_percent} onChange={set("topup_percent")} required />
+      <Field label="Top-up percent(%)" className="col-lg-4 col-6" error={fieldError("topup_percent")}>
+        <input className="form-control" placeholder="top-up percent" value={form.topup_percent} onChange={set("topup_percent")} required />
       </Field>
       <Field label="Take home Percent(%)" className="col-lg-4 col-6" error={fieldError("take_home_percent")}>
         <input className="form-control" placeholder="Take home percent" value={form.take_home_percent} onChange={set("take_home_percent")} required />

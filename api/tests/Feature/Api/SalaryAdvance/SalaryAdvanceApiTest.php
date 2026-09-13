@@ -103,7 +103,7 @@ class SalaryAdvanceApiTest extends TestCase
         $company = $this->admin->company_id;
         $branch = $this->admin->branch_id;
 
-        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertOk()->assertJsonPath('message', 'Salary Advance Aproved successfully');
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertOk()->assertJsonPath('message', 'Salary Advance Approved successfully');
         $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertUnprocessable();
 
         $this->assertSame('active', $advance->fresh()->status);

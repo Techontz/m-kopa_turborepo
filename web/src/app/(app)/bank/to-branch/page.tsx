@@ -31,7 +31,7 @@ export default function BankToBranchPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Bank", "Transfor Balance"]} />
+      <PageHeader crumbs={["Bank", "Transfer Balance"]} />
       <Card
         title="Transaction list"
         actions={
@@ -50,7 +50,7 @@ export default function BankToBranchPage() {
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "charge", header: "Chargers Fee", render: (row) => money(row.charge) },
             { key: "bank_account", header: "From Account" },
-            { key: "branch", header: "To Brach" },
+            { key: "branch", header: "To Branch" },
             { key: "transfer_date", header: "Date" },
             { key: "action", header: "Action", sortable: false, render: () => null },
           ]}
@@ -67,7 +67,7 @@ export default function BankToBranchPage() {
 
       <FilterModal open={modal === "filter"} onClose={() => setModal(null)} onApply={setFilters} withBranch />
 
-      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Transfor Balance" submitLabel="Submit" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
+      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Transfer Balance" submitLabel="Submit" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
         <div className="row clearfix">
           <Field label="From Account:" className="col-lg-6" error={create.fieldError("from_account")}>
             <SelectBox placeholder="Select Account" optionsUrl="bank/options/accounts" value={form.from_account} onChange={(value) => setForm({ ...form, from_account: value ?? "" })} />

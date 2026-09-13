@@ -20,18 +20,18 @@ class Employee extends Authenticatable
     use Auditable, HasApiTokens, HasFactory, Notifiable;
 
     /**
-     * Privileges an employee can be granted (HRM → privillage page).
+     * Privileges an employee can be granted (HRM → privilege page).
      *
      * @var array<string, string>
      */
     public const PRIVILEGES = [
         'apply' => 'APPLY LOAN',
-        'aprove' => 'APROVE',
+        'aprove' => 'APPROVE',
         'bank' => 'BANK',
         'bank_password' => 'BANK PASSWORD',
         'clientless' => 'CLIENTLESS',
         'customer' => 'CUSTOMER',
-        'debit' => 'DEBIT PENDING',
+        'debit' => 'DEBT PENDING',
         'expenses' => 'EXPENSES',
         'float' => 'FLOAT',
         'group' => 'GROUP',

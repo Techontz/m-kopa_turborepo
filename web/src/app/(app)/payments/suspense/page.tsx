@@ -152,7 +152,7 @@ export default function SuspensePage() {
           {selectedLoan && (
             <div className="col-md-12">
               <table className="table table-custom mb-0">
-                <thead className="thead-info"><tr><th>Principal</th><th>Penarty</th><th>Interest</th><th>Insurelance</th><th>Total</th></tr></thead>
+                <thead className="thead-info"><tr><th>Principal</th><th>Penalty</th><th>Interest</th><th>Insurance</th><th>Total</th></tr></thead>
                 <tbody>
                   <tr>
                     <td>{money(selectedLoan.outstanding.principal)}</td>

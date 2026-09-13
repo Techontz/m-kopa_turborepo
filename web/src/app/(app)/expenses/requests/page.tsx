@@ -34,7 +34,7 @@ export default function ExpenseRequestsPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Recomended Expenses"]} />
+      <PageHeader crumbs={["Recommended Expenses"]} />
       <Card
         title="Request Expenses"
         actions={

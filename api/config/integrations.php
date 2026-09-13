@@ -44,7 +44,7 @@ return [
     ],
     'sms' => [
         'driver' => env('SMS_DRIVER', 'log'),
-        'sender_id' => env('SMS_SENDER_ID', 'MIKOPOFASTA'),
+        'sender_id' => env('SMS_SENDER_ID', 'M-KOPA'),
         'api_key' => env('SMS_API_KEY'),
     ],
 ];

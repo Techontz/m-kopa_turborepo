@@ -8,7 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Headquater Transaction → Requested Transaction (move money between HQ accounts).
+ * Headquarters Transaction → Requested Transaction (move money between HQ accounts).
  */
 class HqTransactionRequest extends FormRequest
 {

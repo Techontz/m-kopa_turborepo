@@ -11,7 +11,7 @@ use Illuminate\Validation\Rule;
 class LoanCategoryRequest extends FormRequest
 {
     /**
-     * Approval levels offered by the live "Aprove status" dropdown.
+     * Approval levels offered by the live "Approve status" dropdown.
      *
      * @var array<string, string>
      */

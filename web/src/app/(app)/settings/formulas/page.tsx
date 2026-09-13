@@ -20,17 +20,17 @@ export default function FormulasPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Setting", "Interest Formular"]} />
+      <PageHeader crumbs={["Setting", "Interest Formula"]} />
       <div className="row clearfix">
         <div className="col-lg-6">
-          <Card title="Interest Formular">
+          <Card title="Interest Formula">
             <DataTable
               rows={formulas}
               loading={isLoading}
               rowKey={(row) => row.id}
               columns={[
                 { key: "sn", header: "S/no", render: (_, index) => `${index + 1}.`, sortable: false },
-                { key: "name", header: "Formular Name" },
+                { key: "name", header: "Formula Name" },
                 {
                   key: "action",
                   header: "Action",
@@ -42,14 +42,14 @@ export default function FormulasPage() {
           </Card>
         </div>
         <div className="col-lg-6">
-          <Card title="Interest Formular">
+          <Card title="Interest Formula">
             <DataTable
               rows={formulas?.filter((formula) => formula.is_enabled)}
               loading={isLoading}
               rowKey={(row) => row.id}
               columns={[
                 { key: "sn", header: "S/no", render: (_, index) => `${index + 1}.`, sortable: false },
-                { key: "name", header: "Formular Name" },
+                { key: "name", header: "Formula Name" },
                 {
                   key: "action",
                   header: "Action",

@@ -16,13 +16,13 @@ const sourceSans = Source_Sans_3({ subsets: ["latin"], weight: ["400", "600", "7
 const ubuntu = Ubuntu({ subsets: ["latin"], weight: ["400", "500", "700"], variable: "--font-ubuntu" });
 
 export const metadata: Metadata = {
-  title: "MIKOPOFASTA | Admin",
-  description: "MikopoFasta microfinance management system",
+  title: "M-KOPA | Admin",
+  description: "M-KOPA microfinance management system",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" data-theme="light" className={`${sourceSans.variable} ${ubuntu.variable}`} suppressHydrationWarning>
+    <html lang="en" data-theme="dark" className={`${sourceSans.variable} ${ubuntu.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

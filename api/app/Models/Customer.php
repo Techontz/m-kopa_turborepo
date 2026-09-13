@@ -44,7 +44,7 @@ class Customer extends Model
     /**
      * @var list<string>
      */
-    public const MARITAL_STATUSES = ['Married', 'Single', 'Widow', 'Separated', 'Devorced'];
+    public const MARITAL_STATUSES = ['Married', 'Single', 'Widow', 'Separated', 'Divorced'];
 
     /** Registration wizard steps. */
     public const STEP_BASIC = 1;

@@ -12,7 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * HRM → Salary Advanced (live admin/sallry_advance). Documents §13: request → approval (HR) →
+ * HRM → Salary Advance (live admin/sallry_advance). Documents §13: request → approval (HR) →
  * disbursement (Finance, from Staff Fund or HQ cash) → recovery from the next salary.
  */
 class SalaryAdvanceController extends HrmController
@@ -59,7 +59,7 @@ class SalaryAdvanceController extends HrmController
 
         $this->credit->approveAdvance($advance, $this->currentEmployee());
 
-        return $this->message('Salary Advance Aproved successfully');
+        return $this->message('Salary Advance Approved successfully');
     }
 
     public function reject(StaffSalaryAdvance $advance): JsonResponse

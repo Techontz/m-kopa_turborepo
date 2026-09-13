@@ -23,7 +23,7 @@ use Illuminate\Validation\ValidationException;
  * Monthly payroll engine (STAFF COMMISSION §4, §10–11, §16).
  *
  *   Gross     = Base Salary + Commission + Allowance
- *   Take Home = Gross − (Staff Fund + Salary Advance + Deduction + Loan Restration)
+ *   Take Home = Gross − (Staff Fund + Salary Advance + Deduction + Loan Restoration)
  *
  * Workflow: HR generates and approves (payroll.approve) → Finance pays (payroll.pay).
  *

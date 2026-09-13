@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api\Capital;
 
 use App\Enums\Account;
+use App\Models\BankAccount;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\ShareHolder;
@@ -32,7 +33,7 @@ class ShareHolderCapitalApiTest extends TestCase
 
         $this->post('/api/v1/capital/share-holders', $this->holderPayload(['passport_photo' => UploadedFile::fake()->image('john.jpg', 300, 350)]), ['Accept' => 'application/json'])
             ->assertCreated()
-            ->assertJsonPath('message', 'Share Holder Registered successfully')
+            ->assertJsonPath('message', 'Shareholder Registered successfully')
             ->assertJsonPath('data.name', 'JOHN MICHAEL MWAKALUKA');
 
         $holder = ShareHolder::firstWhere('first_name', 'JOHN');
@@ -90,22 +91,30 @@ class ShareHolderCapitalApiTest extends TestCase
         $this->assertSame(['first_name' => 'JOHN', 'middle_name' => 'MICHAEL', 'last_name' => 'MWAKALUKA'], $migration::splitName('JOHN MICHAEL MWAKALUKA'));
     }
 
-    public function test_adding_capital_posts_to_company_account_and_blocks_holder_deletion(): void
+    public function test_adding_bank_capital_posts_to_the_selected_bank_account_and_blocks_holder_deletion(): void
     {
         $admin = $this->signInAdmin();
         $holder = ShareHolder::create(['company_id' => $admin->company_id, 'name' => 'mseti', 'mobile' => '0777', 'email' => 'a@example.com', 'date_of_birth' => '1990-01-01']);
+        $bank = BankAccount::create(['company_id' => $admin->company_id, 'name' => 'NMB']);
 
         $this->postJson('/api/v1/capital/capitals', ['share_id' => $holder->id, 'amount' => 5000000, 'pay_method' => 'BANK', 'recept' => '12', 'chaque_no' => '99'])
+            ->assertUnprocessable()->assertJsonValidationErrors('bank_account_id');
+
+        $this->postJson('/api/v1/capital/capitals', ['share_id' => $holder->id, 'amount' => 5000000, 'pay_method' => 'BANK', 'bank_account_id' => $bank->id, 'recept' => '12', 'chaque_no' => '99'])
             ->assertCreated()->assertJsonPath('message', 'Capital Added successfully');
 
         $ledger = app(Ledger::class);
-        $this->assertSame(5000000.0, $ledger->balance($admin->company_id, Account::Company));
+        $this->assertSame(0.0, $ledger->balance($admin->company_id, Account::Company));
+        $this->assertSame(5000000.0, $ledger->balance($admin->company_id, Account::Bank, bankAccount: $bank));
         $this->assertSame(5000000.0, $ledger->balance($admin->company_id, Account::Capital));
 
         $this->getJson('/api/v1/capital/capitals')->assertOk()
             ->assertJsonPath('data.share_holders.0.capitals.0.pay_method', 'BANK')
+            ->assertJsonPath('data.share_holders.0.capitals.0.receiving_account_label', 'BANK - NMB')
+            ->assertJsonPath('data.share_holders.0.ownership_percent', 100)
             ->assertJsonPath('data.share_holder_capital', 5000000)
-            ->assertJsonPath('data.company_capital', 5000000);
+            ->assertJsonPath('data.company_capital', 0)
+            ->assertJsonPath('data.bank_balance_total', 5000000);
 
         $this->deleteJson("/api/v1/capital/share-holders/{$holder->id}")->assertUnprocessable();
 
@@ -132,8 +141,10 @@ class ShareHolderCapitalApiTest extends TestCase
         $admin = $this->signInAdmin();
         $holder = ShareHolder::create(['company_id' => $admin->company_id, 'first_name' => 'JOHN', 'last_name' => 'MWAKALUKA', 'mobile' => '0777', 'email' => 'a@example.com', 'date_of_birth' => '1990-01-01']);
 
+        $bank = BankAccount::create(['company_id' => $admin->company_id, 'name' => 'CRDB']);
+
         $this->post('/api/v1/capital/capitals', [
-            'share_id' => $holder->id, 'amount' => 250000, 'pay_method' => 'BANK', 'recept' => 'RC-77', 'chaque_no' => 'CH-12',
+            'share_id' => $holder->id, 'amount' => 250000, 'pay_method' => 'BANK', 'bank_account_id' => $bank->id, 'recept' => 'RC-77', 'chaque_no' => 'CH-12',
             'receipt_file' => UploadedFile::fake()->create('deposit slip.pdf', 300, 'application/pdf'),
         ], ['Accept' => 'application/json'])->assertCreated();
 

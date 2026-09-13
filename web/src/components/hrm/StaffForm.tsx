@@ -72,8 +72,8 @@ export function StaffForm({ form, setForm, fieldError, registering }: { form: St
       <Field label="First name:" className="col-lg-4 col-6" error={fieldError("empl_name")}>
         <input className="form-control input-sm" placeholder="Enter first name" value={form.empl_name} onChange={(e) => set({ empl_name: e.target.value })} required />
       </Field>
-      <Field label="Midle name:" className="col-lg-4 col-6" error={fieldError("emp_mname")}>
-        <input className="form-control input-sm" placeholder="Enter midle name" value={form.emp_mname} onChange={(e) => set({ emp_mname: e.target.value })} required />
+      <Field label="Middle name:" className="col-lg-4 col-6" error={fieldError("emp_mname")}>
+        <input className="form-control input-sm" placeholder="Enter middle name" value={form.emp_mname} onChange={(e) => set({ emp_mname: e.target.value })} required />
       </Field>
       <Field label="Last name:" className="col-lg-4 col-6" error={fieldError("emp_lname")}>
         <input className="form-control input-sm" placeholder="Enter Last name" value={form.emp_lname} onChange={(e) => set({ emp_lname: e.target.value })} required />

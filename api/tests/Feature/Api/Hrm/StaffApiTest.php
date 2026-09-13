@@ -90,7 +90,7 @@ class StaffApiTest extends TestCase
         $this->assertSame('mpya', $staff->fresh()->last_name);
 
         $this->putJson("/api/v1/hrm/staff/{$staff->id}/salary", ['salary' => '100000', 'account_name' => 'CRDB', 'account_number' => '898657465', 'fee_salary' => '0', 'salary_type' => 'hq', 'commission_eligible' => true, 'payment_method' => 'mobile'])
-            ->assertOk()->assertJsonPath('message', 'Sallary Information Saved successfully');
+            ->assertOk()->assertJsonPath('message', 'Salary Information Saved successfully');
         $this->assertFalse($staff->fresh()->salaryInfo->commission_eligible);
         $this->getJson("/api/v1/hrm/staff/{$staff->id}")->assertOk()->assertJsonPath('data.salary_info.account_number', '898657465');
 

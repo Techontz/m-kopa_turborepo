@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 
 /**
  * The live system's "Report" tab: Cash Transaction, Branch Wise Report, File, Loan Pending, Loan Repayment, Default Loan,
- * Wright-off Loan, Loan Collection, Customer statement, Today Receivable, Today Received, Daily Report, Customer Development.
+ * Write-off Loan, Loan Collection, Customer statement, Today Receivable, Today Received, Daily Report, Customer Development.
  * Every endpoint requires reports.view and is limited to the employee's branch scope.
  */
 class LiveReportController extends ReportApiController
@@ -78,7 +78,7 @@ class LiveReportController extends ReportApiController
     }
 
     /**
-     * Wright-off Loan (`done=0`) and Bad Debit Done (`done=1`).
+     * Write-off Loan (`done=0`) and Bad Debt Done (`done=1`).
      */
     public function writeOff(Request $request): JsonResponse
     {

@@ -39,6 +39,11 @@ class BankTransfer extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
+
     public function approver(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'approved_by');

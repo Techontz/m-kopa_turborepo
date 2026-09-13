@@ -22,13 +22,13 @@ export default function PayrollPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Bank", "Payrol"]} />
+      <PageHeader crumbs={["Bank", "Payroll"]} />
       <Card
-        title="Payrol List"
+        title="Payroll List"
         actions={
           can("payroll.pay") && (
             <Link href="/hrm/salary-sheet" className="btn btn-primary">
-              <i className="icon-wallet" /> Pay Payrol
+              <i className="icon-wallet" /> Pay Payroll
             </Link>
           )
         }

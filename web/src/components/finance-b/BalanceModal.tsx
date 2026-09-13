@@ -7,7 +7,7 @@ import { useApi } from "@/lib/hooks";
 import { sum } from "./FilterModal";
 import type { BranchBalance } from "./types";
 
-/** Branch account balances modal (Agent "Balance", Insurelance "Saving Deposit Balance"). */
+/** Branch account balances modal (Agent "Balance", Insurance "Saving Deposit Balance"). */
 export function BalanceModal({ open, onClose, title, path, totalLabel = "TOTAL" }: { open: boolean; onClose: () => void; title: string; path: string; totalLabel?: string }) {
   const { data: rows, isLoading } = useApi<BranchBalance[]>(open ? path : null);
 

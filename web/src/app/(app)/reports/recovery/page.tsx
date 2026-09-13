@@ -60,7 +60,7 @@ export default function RecoveryPage() {
           <>
             <div className="row">
               <Stat tone="success" label="Recovered from Defaults" value={money(s.recovered_default)} />
-              <Stat tone="info" label="Recovered from Wright-off" value={money(s.recovered_write_off)} />
+              <Stat tone="info" label="Recovered from Write-off" value={money(s.recovered_write_off)} />
               <Stat tone="danger" label={`Balance in Default (${s.default_loans} loans)`} value={money(s.default_balance)} />
               <Stat tone="primary" label="Recovery Efficiency" value={`${s.efficiency}%`} />
             </div>
@@ -72,9 +72,9 @@ export default function RecoveryPage() {
                 { key: "label", header: "Branch" },
                 { key: "default_loans", header: "Default Loans" },
                 { key: "default_balance", header: "Default Balance", render: (row) => money(row.default_balance) },
-                { key: "written_off", header: "Wright-off Amount", render: (row) => money(row.written_off) },
+                { key: "written_off", header: "Write-off Amount", render: (row) => money(row.written_off) },
                 { key: "recovered_default", header: "Recovered (Default)", render: (row) => money(row.recovered_default) },
-                { key: "recovered_write_off", header: "Recovered (Wright-off)", render: (row) => money(row.recovered_write_off) },
+                { key: "recovered_write_off", header: "Recovered (Write-off)", render: (row) => money(row.recovered_write_off) },
                 { key: "total_recovered", header: "Total Recovered", render: (row) => money(row.total_recovered) },
                 { key: "efficiency", header: "Recovery Efficiency", render: (row) => `${row.efficiency}%` },
               ]}
@@ -87,7 +87,7 @@ export default function RecoveryPage() {
       {data && (
         <Card
           title="Recovery Transactions"
-          actions={<CsvButton filename="recovery-transactions" header={["Date", "Customer", "Loan Ac", "Branch", "End Date", "Days after End", "Amount", "Principal", "Penarty", "Interest", "Status"]} rows={data.rows.map((row) => [row.date, row.customer, row.loan_number, row.branch, row.end_date, row.days_after_end, row.amount, row.principal, row.penalty, row.interest, row.status])} />}
+          actions={<CsvButton filename="recovery-transactions" header={["Date", "Customer", "Loan Ac", "Branch", "End Date", "Days after End", "Amount", "Principal", "Penalty", "Interest", "Status"]} rows={data.rows.map((row) => [row.date, row.customer, row.loan_number, row.branch, row.end_date, row.days_after_end, row.amount, row.principal, row.penalty, row.interest, row.status])} />}
         >
           <DataTable
             rows={data.rows}
@@ -101,7 +101,7 @@ export default function RecoveryPage() {
               { key: "days_after_end", header: "Days after End" },
               { key: "amount", header: "Amount", render: (row) => money(row.amount) },
               { key: "principal", header: "Principal", render: (row) => money(row.principal) },
-              { key: "penalty", header: "Penarty", render: (row) => money(row.penalty) },
+              { key: "penalty", header: "Penalty", render: (row) => money(row.penalty) },
               { key: "interest", header: "Interest", render: (row) => money(row.interest) },
               { key: "status", header: "Loan Status" },
             ]}

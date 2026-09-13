@@ -36,7 +36,7 @@ export default function StaffActiveLoanPage() {
             { key: "branch", header: "Branch" },
             { key: "employee", header: "Staff name" },
             { key: "amount_applied", header: "How loan", render: (row) => money(row.amount_applied) },
-            { key: "amount_approved", header: "Loan Aproved", render: (row) => money(row.amount_approved) },
+            { key: "amount_approved", header: "Loan Approved", render: (row) => money(row.amount_approved) },
             { key: "sessions", header: "No.Repayment", render: (row) => `${row.duration.charAt(0).toUpperCase()}${row.duration.slice(1)} / ${row.sessions}` },
             { key: "total_payable", header: "Loan + interest", render: (row) => money(row.total_payable) },
             { key: "paid_amount", header: "Paid Amount", render: (row) => money(row.paid_amount) },

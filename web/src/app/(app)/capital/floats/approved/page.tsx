@@ -18,8 +18,8 @@ export default function ApprovedFloatPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Float", "Aproved Float"]} />
-      <Card title="Transaction List Aproved" actions={<button type="button" className="btn btn-sm btn-icon btn-primary" onClick={() => setOpen(true)}><i className="icon-magnifier" /></button>}>
+      <PageHeader crumbs={["Float", "Approved Float"]} />
+      <Card title="Transaction List Approved" actions={<button type="button" className="btn btn-sm btn-icon btn-primary" onClick={() => setOpen(true)}><i className="icon-magnifier" /></button>}>
         <DataTable
           rows={transfers}
           loading={isLoading}
@@ -29,7 +29,7 @@ export default function ApprovedFloatPage() {
             { key: "from_branch", header: "From Branch" },
             { key: "to_branch", header: "To Branch" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-            { key: "status", header: "Status", render: () => <Badge tone="success">Aproved</Badge> },
+            { key: "status", header: "Status", render: () => <Badge tone="success">Approved</Badge> },
             { key: "date", header: "Date" },
           ]}
           footer={<tr><td>TOTAL:</td><td /><td /><td><b>{money(totalAmount(transfers))}</b></td><td /><td /></tr>}

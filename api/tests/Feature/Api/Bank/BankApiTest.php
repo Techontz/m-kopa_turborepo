@@ -71,7 +71,7 @@ class BankApiTest extends TestCase
         $this->assertSame(0.0, $bank->balance());
         $this->getJson('/api/v1/bank/transfers')->assertOk()->assertJsonPath('data.0.branch_account_label', 'LOAN FEE A/C')->assertJsonPath('total', 110000);
 
-        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Aproved successfully');
+        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully');
 
         $this->assertSame('approved', $transfer->fresh()->status);
         $this->assertSame(110000.0, $bank->balance());

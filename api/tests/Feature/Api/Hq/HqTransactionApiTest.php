@@ -42,7 +42,7 @@ class HqTransactionApiTest extends TestCase
         $transaction = HqTransaction::firstOrFail();
         $this->getJson('/api/v1/hq/transactions')->assertOk()->assertJsonPath('data.0.from_account_label', 'INTEREST ACCOUNT')->assertJsonPath('total_charge', 1000);
 
-        $this->postJson("/api/v1/hq/transactions/{$transaction->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Aproved successfully');
+        $this->postJson("/api/v1/hq/transactions/{$transaction->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully');
 
         $transaction->refresh();
         $this->assertSame('approved', $transaction->status);

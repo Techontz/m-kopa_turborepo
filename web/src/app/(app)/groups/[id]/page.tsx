@@ -75,8 +75,8 @@ export default function GroupCustomersPage() {
             { key: "total_loan", header: "Total loan", render: (row) => money(row.total_loan) },
             { key: "paid_amount", header: "Paid amount", render: (row) => money(row.paid_amount) },
             { key: "remain", header: "Remain", render: (row) => money(row.remain) },
-            { key: "restoration", header: "Restration", render: (row) => money(row.restoration) },
-            { key: "write_off", header: "Wright-off", render: (row) => money(row.write_off) },
+            { key: "restoration", header: "Restoration", render: (row) => money(row.restoration) },
+            { key: "write_off", header: "Write-off", render: (row) => money(row.write_off) },
             { key: "status", header: "Status", render: (row) => <Badge tone={(row.status_badge ?? "default") as BadgeTone}>{row.status}</Badge> },
           ]}
           footer={

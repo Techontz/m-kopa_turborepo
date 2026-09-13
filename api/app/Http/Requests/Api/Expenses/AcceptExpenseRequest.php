@@ -9,7 +9,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * "Expences Accept Comment" modal; from_account applies to HQ expenses only (HQ accounts, never branch interest).
+ * "Expenses Accept Comment" modal; from_account applies to HQ expenses only (HQ accounts, never branch interest).
  */
 class AcceptExpenseRequest extends FormRequest
 {

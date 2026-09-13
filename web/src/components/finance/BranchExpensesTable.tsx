@@ -30,7 +30,7 @@ export function BranchExpensesTable({ rows, loading }: { rows: ExpenseRequest[] 
           { key: "branch", header: "Branch", render: (row) => <span className="text-uppercase">{row.branch}</span> },
           { key: "expense", header: "Expenses" },
           { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-          { key: "description", header: "Descrption" },
+          { key: "description", header: "Description" },
           { key: "comment", header: "Comment" },
           { key: "request_date", header: "Date" },
           {

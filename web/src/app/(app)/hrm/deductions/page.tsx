@@ -57,7 +57,7 @@ export default function StaffDeductionPage() {
         </form>
       </Card>
 
-      <Card title="Sataff Deduction List" actions={<HeaderButton onClick={() => setFiltering(true)} />}>
+      <Card title="Staff Deduction List" actions={<HeaderButton onClick={() => setFiltering(true)} />}>
         <DataTable
           rows={deductions}
           loading={isLoading}

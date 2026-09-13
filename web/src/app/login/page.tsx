@@ -60,7 +60,7 @@ export default function LoginPage() {
                 </div>
               </div>
             </div>
-            <div className="mf-marquee"><h5>FASTAMIKOPO MICROFINANCE &copy; {new Date().getFullYear()}</h5></div>
+            <div className="mf-marquee"><h5>M-KOPA MICROFINANCE &copy; {new Date().getFullYear()}</h5></div>
           </div>
         </div>
       </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Loans;
 
 use App\Enums\LoanStatus;
+use App\Http\Requests\Api\Loans\DisbursementSourceRequest;
 use App\Http\Requests\Api\Loans\EscalationRequest;
 use App\Http\Requests\Api\Loans\LoanReasonRequest;
 use App\Http\Requests\Api\Loans\MandateRequest;
@@ -34,7 +35,7 @@ class LoanWorkflowController extends LoanApiController
 
         $loan = $this->workflow->approveByManager($loan, (float) $validated['loan_aprove'], $this->currentEmployee());
 
-        return $this->loanMessage('Loan Aproved successfully', $loan);
+        return $this->loanMessage('Loan Approved successfully', $loan);
     }
 
     /**
@@ -100,28 +101,42 @@ class LoanWorkflowController extends LoanApiController
 
         $loan = $this->workflow->approveCredit($loan, $this->currentEmployee());
 
-        return $this->loanMessage('Loan Aproved successfully. Reference number: '.$loan->reference_number, $loan);
+        return $this->loanMessage('Loan Approved successfully. Reference number: '.$loan->reference_number, $loan);
     }
 
-    public function prepareDisbursement(Loan $loan): JsonResponse
+    /**
+     * Finance prepares the batch and chooses the disbursement source (branch cash or a company bank account).
+     */
+    public function prepareDisbursement(DisbursementSourceRequest $request, Loan $loan): JsonResponse
     {
         $this->authorizeAny('loans.prepare_disbursement');
         $this->ensureVisible($loan);
 
-        $disbursement = $this->workflow->prepareDisbursement($loan, $this->currentEmployee());
+        $disbursement = $this->workflow->prepareDisbursement($loan, $this->currentEmployee(), $request->source());
 
-        return $this->loanMessage('Disbursement prepared, batch '.$disbursement->batch_id, $loan->fresh());
+        return $this->loanMessage('Disbursement prepared, batch '.$disbursement->batch_id.' from '.$disbursement->sourceLabel(), $loan->fresh());
+    }
+
+    /**
+     * Accounts the loan can be disbursed from, with balances and the amount required from each.
+     */
+    public function disbursementSources(Loan $loan): JsonResponse
+    {
+        $this->authorizeAny('loans.prepare_disbursement', 'loans.disburse');
+        $this->ensureVisible($loan);
+
+        return response()->json(['data' => $this->workflow->sourceOptions($loan)]);
     }
 
     /**
      * Finance "Disburse" → request to Vodacom; the page opens the Vodacom portal when configured.
      */
-    public function disburse(Loan $loan): JsonResponse
+    public function disburse(DisbursementSourceRequest $request, Loan $loan): JsonResponse
     {
         $this->authorizeAny('loans.disburse');
         $this->ensureVisible($loan);
 
-        $result = $this->workflow->requestDisbursement($loan, $this->currentEmployee());
+        $result = $this->workflow->requestDisbursement($loan, $this->currentEmployee(), $request->source());
 
         return $this->loanMessage($result['message'], $loan->fresh(), $result['status'] === LoanStatus::Active || $result['status'] === LoanStatus::AwaitingDisbursement ? 200 : 422, [
             'batch_id' => $result['batch_id'],
@@ -129,12 +144,12 @@ class LoanWorkflowController extends LoanApiController
         ]);
     }
 
-    public function retry(Loan $loan): JsonResponse
+    public function retry(DisbursementSourceRequest $request, Loan $loan): JsonResponse
     {
         $this->authorizeAny('loans.disburse');
         $this->ensureVisible($loan);
 
-        $result = $this->workflow->retryDisbursement($loan, $this->currentEmployee());
+        $result = $this->workflow->retryDisbursement($loan, $this->currentEmployee(), $request->source());
 
         return $this->loanMessage($result['message'], $loan->fresh(), $result['status'] === LoanStatus::Active || $result['status'] === LoanStatus::AwaitingDisbursement ? 200 : 422, [
             'batch_id' => $result['batch_id'],
@@ -147,7 +162,7 @@ class LoanWorkflowController extends LoanApiController
         $this->authorizeAny('loans.disburse');
         $this->ensureVisible($loan);
 
-        $loan = $this->workflow->resolveEscalation($loan, $request->string('action')->toString(), $request->input('channel'), $request->string('reason')->toString(), $this->currentEmployee());
+        $loan = $this->workflow->resolveEscalation($loan, $request->string('action')->toString(), $request->input('channel'), $request->string('reason')->toString(), $this->currentEmployee(), $request->source());
 
         return $this->loanMessage(match ($loan->status) {
             LoanStatus::Cancelled => 'Loan Cancelled successfully',
@@ -209,7 +224,7 @@ class LoanWorkflowController extends LoanApiController
         $loans->writeOff($loan, $this->currentEmployee());
         $this->workflow->record($loan->fresh(), 'WRITTEN_OFF', $from, $this->currentEmployee());
 
-        return $this->loanMessage('Loan moved to Wright-off successfully', $loan->fresh());
+        return $this->loanMessage('Loan moved to Write-off successfully', $loan->fresh());
     }
 
     /**
@@ -237,7 +252,7 @@ class LoanWorkflowController extends LoanApiController
 
         $loan->update(['agreement_file' => $request->file('attach')->store('loans/agreements', 'public')]);
 
-        return $this->loanMessage('Loan Agrement uploaded successfully', $loan);
+        return $this->loanMessage('Loan Agreement uploaded successfully', $loan);
     }
 
     /**

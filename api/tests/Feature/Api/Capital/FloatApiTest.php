@@ -30,7 +30,7 @@ class FloatApiTest extends TestCase
         $this->ledger()->openingBalance($admin->company_id, Account::Company, 1000000, 'CAPITAL');
 
         $this->postJson('/api/v1/capital/floats', ['blanch_amount' => 400000, 'blanch_id' => $admin->branch_id])
-            ->assertCreated()->assertJsonPath('message', 'Float Transfered successfully');
+            ->assertCreated()->assertJsonPath('message', 'Float Transferred successfully');
 
         $this->assertSame(600000.0, $this->ledger()->balance($admin->company_id, Account::Company));
         $this->assertSame(400000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $admin->branch_id));
@@ -56,7 +56,7 @@ class FloatApiTest extends TestCase
         $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertUnprocessable();
         $this->ledger()->openingBalance($admin->company_id, Account::Principal, 250000, branch: $admin->branch_id);
 
-        $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Float Aproved successfully');
+        $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Float Approved successfully');
         $this->assertSame(150000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $admin->branch_id));
         $this->assertSame(100000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $kakonko->id));
 

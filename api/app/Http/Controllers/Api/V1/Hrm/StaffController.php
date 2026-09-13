@@ -185,7 +185,7 @@ class StaffController extends HrmController
         $salary = $employee->salaryInfo()->updateOrCreate(['employee_id' => $employee->id], $request->salaryData());
         $this->audit('EmployeeSalary.saved', $employee, $before, $salary->only(['salary', 'salary_type', 'commission_eligible', 'payment_method', 'account_number']));
 
-        return $this->message('Sallary Information Saved successfully');
+        return $this->message('Salary Information Saved successfully');
     }
 
     public function password(Request $request, Employee $employee): JsonResponse

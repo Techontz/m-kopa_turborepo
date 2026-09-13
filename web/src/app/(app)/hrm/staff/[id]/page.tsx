@@ -78,7 +78,7 @@ export default function StaffProfilePage() {
 
   return (
     <>
-      <PageHeader crumbs={["Emoloyee", "Employee Profile"]} />
+      <PageHeader crumbs={["Employee", "Employee Profile"]} />
 
       <div className="card">
         <div className="row profile_state">
@@ -98,7 +98,7 @@ export default function StaffProfilePage() {
           </div>
           <div className="col-lg-6 col-6">
             <div className="body text-center">
-              <span>Upload Pasport</span>
+              <span>Upload Passport</span>
               <div className="profile-image">
                 <br />
                 <br />
@@ -172,7 +172,7 @@ export default function StaffProfilePage() {
       )}
 
       {tab === "Salary" && staff && (
-        <Card title="Sallary & Bank Account" actions={!staff.salary_info && <button type="button" className="btn btn-sm btn-primary" onClick={openSalary}><i className="icon-plus" /></button>}>
+        <Card title="Salary & Bank Account" actions={!staff.salary_info && <button type="button" className="btn btn-sm btn-primary" onClick={openSalary}><i className="icon-plus" /></button>}>
           <DataTable
             rows={staff.salary_info ? [staff.salary_info] : []}
             searchable={false}
@@ -217,13 +217,13 @@ export default function StaffProfilePage() {
             columns={[
               { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
               { key: "amount_applied", header: "How loan", render: (row) => money(row.amount_applied) },
-              { key: "amount_approved", header: "Loan Aproved", render: (row) => money(row.amount_approved) },
+              { key: "amount_approved", header: "Loan Approved", render: (row) => money(row.amount_approved) },
               { key: "sessions", header: "No.Repayment", render: (row) => `${row.duration.charAt(0).toUpperCase()}${row.duration.slice(1)} / ${row.sessions}` },
               { key: "total_payable", header: "Loan + interest", render: (row) => money(row.total_payable) },
-              { key: "restoration", header: "Restration", render: (row) => money(row.restoration) },
+              { key: "restoration", header: "Restoration", render: (row) => money(row.restoration) },
               { key: "paid_amount", header: "Paid Amount", render: (row) => money(row.paid_amount) },
               { key: "remaining_amount", header: "Remain Amount", render: (row) => money(row.remaining_amount) },
-              { key: "status", header: "Status", render: (row) => <Badge tone="success">{row.status === "active" ? "Aproved" : row.status}</Badge> },
+              { key: "status", header: "Status", render: (row) => <Badge tone="success">{row.status === "active" ? "Approved" : row.status}</Badge> },
               { key: "created_at", header: "Date" },
             ]}
           />
@@ -237,13 +237,13 @@ export default function StaffProfilePage() {
             rowKey={(row) => row.id}
             columns={[
               { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
-              { key: "salary", header: "Sallary Amount", render: (row) => money(row.salary) },
+              { key: "salary", header: "Salary Amount", render: (row) => money(row.salary) },
               { key: "commission", header: "Commission", render: (row) => money(row.commission) },
-              { key: "salary_advance", header: "Sallary Advance", render: (row) => money(row.salary_advance) },
+              { key: "salary_advance", header: "Salary Advance", render: (row) => money(row.salary_advance) },
               { key: "allowance", header: "Allowance", render: (row) => money(row.allowance) },
               { key: "staff_fund", header: "Staff Fund", render: (row) => money(row.staff_fund) },
               { key: "deduction", header: "Deduction", render: (row) => money(row.deduction) },
-              { key: "loan_restoration", header: "Loan Restration", render: (row) => money(row.loan_restoration) },
+              { key: "loan_restoration", header: "Loan Restoration", render: (row) => money(row.loan_restoration) },
               { key: "take_home", header: "Take Home", render: (row) => money(row.take_home) },
               { key: "phone", header: "Phone no" },
               { key: "account_name", header: "Account name" },
@@ -258,14 +258,14 @@ export default function StaffProfilePage() {
       <Modal
         open={salaryOpen}
         onClose={() => setSalaryOpen(false)}
-        title="Add Sallary Information"
+        title="Add Salary Information"
         size="lg"
         submitLabel={staff?.salary_info ? "update" : "Save"}
         submitting={saveSalary.isPending}
         onSubmit={() => saveSalary.mutate(salary, { onSuccess: () => setSalaryOpen(false) })}
       >
         <div className="row clearfix">
-          <Field label="Sallary Amount:" className="col-lg-6 col-6" error={saveSalary.fieldError("salary")}>
+          <Field label="Salary Amount:" className="col-lg-6 col-6" error={saveSalary.fieldError("salary")}>
             <input className="form-control input-sm" placeholder="Enter Amount" value={salary.salary} onChange={(e) => setSalary({ ...salary, salary: e.target.value })} required />
           </Field>
           <Field label="Account Name:" className="col-lg-6 col-6" error={saveSalary.fieldError("account_name")}>

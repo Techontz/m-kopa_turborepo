@@ -17,7 +17,7 @@ interface AcceptBody {
   from_account?: string;
 }
 
-/** Live "Expences Accept Comment" modal (comment + amount); HQ expenses also pick the HQ account that pays. */
+/** Live "Expenses Accept Comment" modal (comment + amount); HQ expenses also pick the HQ account that pays. */
 export function AcceptExpenseModal({ request, onClose, limit }: { request: ExpenseRequest | null; onClose: () => void; limit?: number }) {
   const [form, setForm] = useState<AcceptBody>({ id: 0, req_comment: "", req_amount: "" });
   const accept = useAction<AcceptBody>("post", (body) => `expenses/requests/${body.id}/accept`);
@@ -35,7 +35,7 @@ export function AcceptExpenseModal({ request, onClose, limit }: { request: Expen
     <Modal
       open={request !== null}
       onClose={onClose}
-      title="Expences Accept Comment"
+      title="Expenses Accept Comment"
       submitLabel="Accept"
       submitting={accept.isPending}
       onSubmit={() => accept.mutate(form, { onSuccess: onClose })}

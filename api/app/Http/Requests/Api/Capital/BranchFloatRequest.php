@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Live "Transfar float" modal (admin/transfor_float): branch → branch request.
+ * Live "Transfer float" modal (admin/transfor_float): branch → branch request.
  */
 class BranchFloatRequest extends FormRequest
 {

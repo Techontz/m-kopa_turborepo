@@ -29,10 +29,10 @@ const TILES: Array<[string, string, string]> = [
   ["/reports/pending", "default.jpeg", "Loan Pending"],
   ["/reports/default", "rejected.png", "Default Loan"],
   ["/loans/pending", "aplication.png", "Loan Request"],
-  ["/loans/disbursed", "aproveds.jpg", "Loan Aproved"],
-  ["/penalties", "penarty.png", "Penarty"],
+  ["/loans/disbursed", "aproveds.jpg", "Loan Approved"],
+  ["/penalties", "penarty.png", "Penalty"],
   ["/loans/rejected", "rejected.jpg", "Loan Rejected"],
-  ["/expenses/requests", "aprove.png", "Aprove"],
+  ["/expenses/requests", "aprove.png", "Approve"],
   ["/reports/cash", "transaction.png", "Cash Transaction"],
   ["/loans/withdrawal", "withdrawal.png", "Loan Withdrawal"],
   ["/loan-fees/income", "fee.png", "Loan fee"],
@@ -121,7 +121,7 @@ export default function DashboardPage() {
                 <td>Monthly customer <span className="badge badge-success">{t.monthly_customers}</span></td>
                 <td>Monthly Deposit <span className="badge badge-success">{money(t.monthly_deposit)}</span></td>
                 <td>Monthly Withdrawal <span className="badge badge-success">{money(t.monthly_withdrawal)}</span></td>
-                <td>Penarty <span className="badge badge-success">{money(t.penalty_income)}</span></td>
+                <td>Penalty <span className="badge badge-success">{money(t.penalty_income)}</span></td>
                 <td>Today Expenses <span className="badge badge-success">{money(t.expenses)}</span></td>
               </tr>
               <tr>
@@ -149,7 +149,7 @@ export default function DashboardPage() {
                 <td>-</td>
                 <td>Agent <span className="badge badge-success">{money(t.agent_deposit)}</span></td>
                 <td>-</td>
-                <td>Insurelance<span className="badge badge-success">{money(t.insurance_income)}</span></td>
+                <td>Insurance<span className="badge badge-success">{money(t.insurance_income)}</span></td>
                 <td>Saving withdrawal <span className="badge badge-success">{money(t.saving_withdrawal)}</span></td>
               </tr>
               <tr className="mf-row-strong">
@@ -219,7 +219,7 @@ export default function DashboardPage() {
         <div className="table-responsive">
           <table className="table table-bordered">
             <thead className="thead-info">
-              <tr><th>Branch Name</th><th>Pricipal A/c</th><th>Interest A/c</th><th>Loan fee A/c</th><th>Penarty A/c</th><th>Reserve A/c</th><th>Agent</th><th>Insurance</th></tr>
+              <tr><th>Branch Name</th><th>Principal A/c</th><th>Interest A/c</th><th>Loan fee A/c</th><th>Penalty A/c</th><th>Reserve A/c</th><th>Agent</th><th>Insurance</th></tr>
             </thead>
             <tbody>
               {(data.branch_accounts ?? []).map((branch) => (

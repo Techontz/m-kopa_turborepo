@@ -8,7 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * "Add Sallary Information" modal (live) with the Documents' salary structure fields.
+ * "Add Salary Information" modal (live) with the Documents' salary structure fields.
  */
 class StaffSalaryRequest extends FormRequest
 {

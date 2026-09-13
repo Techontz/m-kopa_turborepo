@@ -32,7 +32,7 @@ class CustomerEligibility
 
         $reasons = [];
         if (! $kycComplete) {
-            $reasons[] = 'Please wait for the customer`s KYC to be Verfied!';
+            $reasons[] = "Please wait for the customer's KYC to be verified!";
         }
         if ($category !== null && ! $category->is_active) {
             $reasons[] = 'Customer category is inactive';

@@ -63,9 +63,9 @@ export function LoanFormFields({ form, setForm, categories, groups, fieldError, 
           required
         />
       </Field>
-      <Field label={<b>Interest Formular:</b>} required className={col} error={fieldError("rate")}>
+      <Field label={<b>Interest Formula:</b>} required className={col} error={fieldError("rate")}>
         <select className="form-control" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} required>
-          <option value="">Interest Formular</option>
+          <option value="">Interest Formula</option>
           <option value="SIMPLE">SIMPLE</option>
           <option value="FLATRATE">FLAT RATE</option>
           <option value="REDUCING">REDUCING</option>

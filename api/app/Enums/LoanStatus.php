@@ -49,7 +49,7 @@ enum LoanStatus: string
     public const Done = self::Closed;
 
     /**
-     * Label as displayed on the live system (including its spelling) where a live equivalent exists.
+     * Label as displayed on the live system (with corrected English spelling) where a live equivalent exists.
      */
     public function label(): string
     {
@@ -59,14 +59,14 @@ enum LoanStatus: string
             self::MandatePendingOtp => 'MANDATE PENDING OTP',
             self::MandateFailed => 'MANDATE FAILED',
             self::PendingCreditReview => 'PENDING CREDIT REVIEW',
-            self::PendingFinance => 'APROVED',
+            self::PendingFinance => 'APPROVED',
             self::AwaitingDisbursement => 'AWAITING DISBURSEMENT',
             self::DisbursementFailed => 'DISBURSEMENT FAILED',
             self::Escalated => 'ESCALATED',
             self::DisbursementSuspense => 'SUSPENSE',
             self::Active => 'ACTIVE',
             self::Overdue => 'OVERDUE',
-            self::Default => 'DEFALT',
+            self::Default => 'DEFAULT',
             self::Closed => 'DONE',
             self::Rejected => 'REJECTED',
             self::Cancelled => 'CANCELLED',

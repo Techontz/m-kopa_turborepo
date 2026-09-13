@@ -5,7 +5,7 @@ namespace App\Enums;
 /**
  * Chart of accounts (Documents: ACCOUNT OVERVIEW).
  *
- * Fund accounts that the live system shows as balances (Principal, Interest, Loan fee, Penarty,
+ * Fund accounts that the live system shows as balances (Principal, Interest, Loan fee, Penalty,
  * Reserve, Agent, Insurance, HQ accounts, banks) are modelled as asset accounts holding money.
  * Income, liability, equity and expense accounts record where that money came from or went.
  * Branch-scoped accounts carry a branch_id; HQ accounts have none.
@@ -115,7 +115,7 @@ enum Account: string
             self::Interest => 'INTEREST A/C',
             self::Reserve => 'RESERVE A/C',
             self::LoanFee => 'LOAN FEE A/C',
-            self::Penalty => 'PENARTY A/C',
+            self::Penalty => 'PENALTY A/C',
             self::Agent => 'AGENT A/C',
             self::Insurance => 'INSURANCE A/C',
             self::TellerCash => 'TELLER CASH A/C',

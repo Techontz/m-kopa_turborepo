@@ -19,9 +19,8 @@ export function Navbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
         </button>
       </div>
       <div className="navbar-brand">
-        <Link href="/dashboard">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/img/logomkp.png" alt="MikopoFasta" className="img-responsive logo" />
+        <Link href="/dashboard" className="mf-brand-link">
+          <span className="mf-brand" aria-label="M-KOPA">M-KOPA</span>
         </Link>
       </div>
       <div className="navbar-right">

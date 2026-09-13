@@ -35,6 +35,7 @@ Route::prefix('loans')->name('loans.')->group(function (): void {
         Route::post('{loan}/kyc-verify', 'verifyTelco')->name('kyc-verify');
         Route::post('{loan}/approve-credit', 'approveCredit')->name('approve-credit');
         Route::post('{loan}/prepare-disbursement', 'prepareDisbursement')->name('prepare-disbursement');
+        Route::get('{loan}/disbursement-sources', 'disbursementSources')->name('disbursement-sources');
         Route::post('{loan}/disburse', 'disburse')->name('disburse');
         Route::post('{loan}/retry-disbursement', 'retry')->name('retry-disbursement');
         Route::post('{loan}/escalation', 'escalation')->name('escalation');

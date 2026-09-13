@@ -44,6 +44,10 @@ export interface BankTransfer {
   charge: number;
   status: "pending" | "approved";
   transfer_date: string;
+  reference?: string | null;
+  journal_reference?: string | null;
+  employee?: string | null;
+  created_at?: string | null;
 }
 
 export interface HqTransaction {

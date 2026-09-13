@@ -231,7 +231,7 @@ class TellerController extends ApiController
     }
 
     /**
-     * Running statement: Date / Description / Deposit / Withdrawal / Balance / Remain Debit / Penalty.
+     * Running statement: Date / Description / Deposit / Withdrawal / Balance / Remaining Debt / Penalty.
      *
      * @return list<array<string, mixed>>
      */

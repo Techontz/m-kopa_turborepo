@@ -14,7 +14,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * Expense categories for the three live registers: Register Branch Expenses (branch),
- * Headquater Expenses → Register Expenses (hq) and Bank → Register Bank Expenses (bank).
+ * Headquarters Expenses → Register Expenses (hq) and Bank → Register Bank Expenses (bank).
  * Each category gets its own EXPENSES ledger sub-account on first posting (Documents: "Kila category = Ledger yake").
  */
 class ExpenseTypeController extends ApiController

@@ -30,8 +30,8 @@ export default function PayrollPaidPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Bank", "Payrol paid"]} />
-      <Card title={`Payrol paid Date: ${date}`}>
+      <PageHeader crumbs={["Bank", "Payroll paid"]} />
+      <Card title={`Payroll paid Date: ${date}`}>
         <DataTable
           rows={rows}
           loading={isLoading}
@@ -39,11 +39,11 @@ export default function PayrollPaidPage() {
           columns={[
             { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
             { key: "staff", header: "Staff name" },
-            { key: "salary", header: "Sallary Amount", render: (row) => money(row.salary) },
-            { key: "salary_advance", header: "Sallary Advance", render: (row) => money(row.salary_advance) },
+            { key: "salary", header: "Salary Amount", render: (row) => money(row.salary) },
+            { key: "salary_advance", header: "Salary Advance", render: (row) => money(row.salary_advance) },
             { key: "allowance", header: "Allowance", render: (row) => money(row.allowance) },
             { key: "deduction", header: "Deduction", render: (row) => money(row.deduction) },
-            { key: "loan_restoration", header: "Loan Restration", render: (row) => money(row.loan_restoration) },
+            { key: "loan_restoration", header: "Loan Restoration", render: (row) => money(row.loan_restoration) },
             { key: "take_home", header: "Take Home", render: (row) => money(row.take_home) },
             { key: "phone", header: "Phone no" },
             { key: "account_name", header: "Account name" },

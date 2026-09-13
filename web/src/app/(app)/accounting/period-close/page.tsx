@@ -19,7 +19,7 @@ const AMOUNT_COLUMNS: Array<[Amount, string]> = [
   ["interest_income", "Interest (after Reserve)"],
   ["reserve_amount", "Reserve Cut"],
   ["fee_income", "Loan Fee"],
-  ["penalty_income", "Penarty"],
+  ["penalty_income", "Penalty"],
   ["recovery_income", "Recoveries"],
   ["total_income", "Total Income"],
   ["expenses", "Expenses"],
@@ -77,7 +77,7 @@ export default function PeriodClosePage() {
               </div>
             </div>
             <small className="text-muted">
-              Total Income = Interest (reserve already cut) + Loan Fee + Penarty + Recoveries. Net Profit = Gross Profit − Loss brought forward. HQ holds 2% of a positive Net Profit; the rest is the distributable profit used for commission.
+              Total Income = Interest (reserve already cut) + Loan Fee + Penalty + Recoveries. Net Profit = Gross Profit − Loss brought forward. HQ holds 2% of a positive Net Profit; the rest is the distributable profit used for commission.
             </small>
           </form>
         </Card>

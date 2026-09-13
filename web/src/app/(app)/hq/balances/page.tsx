@@ -18,8 +18,8 @@ export default function HqBalancesPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Headquater Account Balance"]} />
-      <Card title="Headquater Account Balance">
+      <PageHeader crumbs={["Headquarters Account Balance"]} />
+      <Card title="Headquarters Account Balance">
         <DataTable
           rows={rows}
           loading={isLoading}

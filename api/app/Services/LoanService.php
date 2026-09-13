@@ -6,6 +6,7 @@ use App\Enums\Account;
 use App\Enums\LoanStatus;
 use App\Models\Customer;
 use App\Models\Employee;
+use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\LoanCategory;
 use App\Models\LoanTransaction;
@@ -16,6 +17,7 @@ use App\Services\Customers\KycStatusCalculator;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 class LoanService
 {
@@ -83,7 +85,7 @@ class LoanService
     }
 
     /**
-     * Deductions shown on the approval page ("Remain Loan Amount / Salary Advance / Penarty / Loan Fee").
+     * Deductions shown on the approval page ("Remain Loan Amount / Salary Advance / Penalty / Loan Fee").
      *
      * @return array{remain_loan: float, salary_advance: float, penalty: float, loan_fee: float, total: float, remain_cash: float}
      */
@@ -119,7 +121,7 @@ class LoanService
     public function approve(Loan $loan, float $approvedAmount): void
     {
         if ($loan->customer->kyc_status !== KycStatusCalculator::COMPLETED) {
-            throw ValidationException::withMessages(['loan' => 'Please wait for the customer`s KYC to be Verfied!']);
+            throw ValidationException::withMessages(['loan' => "Please wait for the customer's KYC to be verified!"]);
         }
 
         DB::transaction(function () use ($loan, $approvedAmount): void {
@@ -156,21 +158,36 @@ class LoanService
     /**
      * Money reaches the customer (teller cash-out, or a successful Vodacom / other-channel disbursement):
      * posts the disbursement to the ledger and starts the repayment schedule.
+     *
+     * Posting: Dr LOAN RECEIVABLE (the customer's loan) / Cr the source account — the branch PRINCIPAL A/C (branch
+     * lending cash, the default) or a company bank account. A deducted loan fee is income: with the branch source it
+     * lands in the branch LOAN FEE A/C (unchanged behaviour); with a bank source it never leaves the bank, so the
+     * bank is debited back the fee. Never an expense or revenue for the principal itself.
+     *
+     * @param  array{account: Account, branch?: int|null, bank?: int|null}|null  $source
      */
-    public function withdraw(Loan $loan, CarbonImmutable $date, ?Employee $employee = null, string $description = 'CASH WITHDRAWALS', string $channel = 'cash'): void
+    public function withdraw(Loan $loan, CarbonImmutable $date, ?Employee $employee = null, string $description = 'CASH WITHDRAWALS', string $channel = 'cash', ?array $source = null): JournalEntry
     {
         if ($loan->status !== LoanStatus::AwaitingDisbursement) {
             throw ValidationException::withMessages(['withdrow' => 'Only disbursed loans can be withdrawn.']);
         }
 
-        DB::transaction(function () use ($loan, $date, $employee, $description, $channel): void {
+        $source ??= ['account' => Account::Principal, 'branch' => $loan->branch_id];
+        if (! in_array($source['account'], [Account::Principal, Account::Bank], true) || ($source['account'] === Account::Bank && empty($source['bank']))) {
+            throw new InvalidArgumentException('A loan can only be disbursed from the branch PRINCIPAL A/C or a company bank account.');
+        }
+
+        return DB::transaction(function () use ($loan, $date, $employee, $description, $channel, $source): JournalEntry {
             $principal = (float) $loan->amount_approved;
             $fee = $loan->fee_deduct ? (float) $loan->loan_fee : 0;
+            $feeRetainedIn = $source['account'] === Account::Bank
+                ? ['account' => Account::Bank, 'bank' => $source['bank'] ?? null]
+                : ['account' => Account::LoanFee, 'branch' => $loan->branch_id];
 
-            $this->ledger->journal($loan->company_id, 'LOAN DISBURSEMENT '.$loan->loan_number, [
+            $entry = $this->ledger->journal($loan->company_id, 'LOAN DISBURSEMENT '.$loan->loan_number, [
                 ['account' => Account::LoanReceivable, 'branch' => $loan->branch_id, 'debit' => $principal],
-                ['account' => Account::Principal, 'branch' => $loan->branch_id, 'credit' => $principal],
-                ['account' => Account::LoanFee, 'branch' => $loan->branch_id, 'debit' => $fee],
+                $source + ['credit' => $principal],
+                $feeRetainedIn + ['debit' => $fee],
                 ['account' => Account::FeeIncome, 'branch' => $loan->branch_id, 'credit' => $fee],
             ], $loan, $date, $loan->branch_id, $employee);
 
@@ -204,6 +221,8 @@ class LoanService
                 'end_date' => $duration->addPeriods($date, $loan->sessions)->toDateString(),
             ]);
             $loan->customer->update(['status' => 'open']);
+
+            return $entry;
         });
     }
 
@@ -431,7 +450,7 @@ class LoanService
         DB::transaction(function () use ($penalty, $amount, $date): void {
             $penalty->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
             $penalty->increment('paid_amount', $amount);
-            $this->ledger->journal($penalty->company_id, 'PENARTY', [
+            $this->ledger->journal($penalty->company_id, 'PENALTY', [
                 ['account' => Account::Penalty, 'branch' => $penalty->branch_id, 'debit' => $amount],
                 ['account' => Account::PenaltyIncome, 'branch' => $penalty->branch_id, 'credit' => $amount],
             ], $penalty, $date, $penalty->branch_id);

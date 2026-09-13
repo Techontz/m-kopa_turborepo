@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Headquater Transaction → Hq Account balance, Requested Transaction and Aproved Transaction.
+ * Headquarters Transaction → Hq Account balance, Requested Transaction and Approved Transaction.
  */
 class HqTransactionController extends ApiController
 {
@@ -94,7 +94,7 @@ class HqTransactionController extends ApiController
             $transaction = HqTransaction::whereKey($hqTransaction->id)->lockForUpdate()->firstOrFail();
 
             if ($transaction->status !== 'pending') {
-                throw ValidationException::withMessages(['amount' => 'Transaction already aproved']);
+                throw ValidationException::withMessages(['amount' => 'Transaction already approved']);
             }
 
             $from = Account::from($transaction->from_account);
@@ -110,7 +110,7 @@ class HqTransactionController extends ApiController
             $transaction->update(['status' => 'approved', 'approved_at' => now(), 'approved_by' => $this->currentEmployee()->id]);
         });
 
-        return $this->message('Transaction Aproved successfully');
+        return $this->message('Transaction Approved successfully');
     }
 
     public function destroy(HqTransaction $hqTransaction): JsonResponse
@@ -118,7 +118,7 @@ class HqTransactionController extends ApiController
         $this->authorizeAny('hq.manage');
 
         if ($hqTransaction->status !== 'pending') {
-            return $this->message('Aproved transaction cannot be deleted', 422);
+            return $this->message('Approved transaction cannot be deleted', 422);
         }
 
         $hqTransaction->delete();

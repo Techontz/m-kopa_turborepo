@@ -33,7 +33,7 @@ class DashboardStatistics
     {
         return [
             'Loan Fee A/c' => $this->ledger->balance($company, Account::LoanFee, allBranches: true),
-            'Penarty A/c' => $this->ledger->balance($company, Account::Penalty, allBranches: true),
+            'Penalty A/c' => $this->ledger->balance($company, Account::Penalty, allBranches: true),
             'Interest A/c' => $this->ledger->balance($company, Account::Interest, allBranches: true),
             'Reserve A/c' => $this->ledger->balance($company, Account::Reserve, allBranches: true),
         ];

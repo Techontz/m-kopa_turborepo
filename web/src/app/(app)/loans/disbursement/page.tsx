@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import Swal from "sweetalert2";
 
+import { DisbursementSourceFields } from "@/components/loans/DisbursementSourceFields";
+import { EMPTY_SOURCE, sourcePayload, type SourceChoice } from "@/components/loans/disbursementSource";
 import { LoanStatusBadge } from "@/components/loans/LoanStatusBadge";
 import type { Loan } from "@/components/loans/types";
 import { Card } from "@/components/ui/Card";
@@ -36,13 +38,17 @@ async function askText(title: string, placeholder: string): Promise<string | nul
 
 /**
  * Finance disbursement desk (Documents: FINANCE PREPARATION → VODACOM DISBURSEMENT → CALLBACK → retry max 3 → ESCALATED).
- * Finance edits nothing: prepare batch, Disburse (then complete in the Vodacom portal), Retry, or decide on escalations.
+ * Finance edits nothing on the loan: prepare the batch choosing the disbursement source (branch cash or a company bank
+ * account), Disburse (then complete in the Vodacom portal), Retry, or decide on escalations.
  */
 export default function DisbursementPage() {
   const { can } = useAuth();
   const [tab, setTab] = useState(TABS[0].status);
   const [escalated, setEscalated] = useState<Loan | null>(null);
   const [decision, setDecision] = useState({ action: "", channel: "", reason: "" });
+  const [decisionSource, setDecisionSource] = useState<SourceChoice>(EMPTY_SOURCE);
+  const [preparing, setPreparing] = useState<Loan | null>(null);
+  const [source, setSource] = useState<SourceChoice>(EMPTY_SOURCE);
   const { data, isLoading } = useApi<Loan[]>("loans", { stage: "disbursement" });
 
   const openPortal = (result: DisburseResult) => {
@@ -50,10 +56,10 @@ export default function DisbursementPage() {
       window.open(result.portal_url, "_blank", "noopener");
     }
   };
-  const prepare = useAction<{ id: number }>("post", (body) => `loans/${body.id}/prepare-disbursement`);
+  const prepare = useAction<{ id: number; source_account?: string; source_bank_account_id?: number }>("post", (body) => `loans/${body.id}/prepare-disbursement`);
   const disburse = useAction<{ id: number }, DisburseResult>("post", (body) => `loans/${body.id}/disburse`);
   const retry = useAction<{ id: number }, DisburseResult>("post", (body) => `loans/${body.id}/retry-disbursement`);
-  const resolve = useAction<{ id: number; action: string; channel: string; reason: string }>("post", (body) => `loans/${body.id}/escalation`);
+  const resolve = useAction<{ id: number; action: string; channel: string; reason: string; source_account?: string; source_bank_account_id?: number }>("post", (body) => `loans/${body.id}/escalation`);
   const requeue = useAction<{ id: number }>("post", (body) => `loans/${body.id}/requeue`);
   const confirm = useAction<{ id: number; reference: string }>("post", (body) => `loans/${body.id}/confirm-disbursement`);
   const cashOut = useAction<{ id: number; code: string }>("post", (body) => `loans/${body.id}/cash-out`);
@@ -65,10 +71,10 @@ export default function DisbursementPage() {
     const latest = row.latest_disbursement;
     switch (row.status) {
       case "pending_finance":
-        return can("loans.prepare_disbursement") && <button type="button" className="btn btn-sm btn-primary" disabled={prepare.isPending} onClick={() => prepare.mutate({ id: row.id })}>Prepare Disbursement</button>;
+        return can("loans.prepare_disbursement") && <button type="button" className="btn btn-sm btn-primary" disabled={prepare.isPending} onClick={() => { prepare.setErrors({}); setSource(EMPTY_SOURCE); setPreparing(row); }}>Prepare Disbursement</button>;
       case "awaiting_disbursement":
         if (latest?.channel === "vodacom" && latest.status === "prepared") {
-          return can("loans.disburse") && <button type="button" className="btn btn-sm btn-success" disabled={disburse.isPending} onClick={async () => (await confirmAction("Disburse via Vodacom?", `${money(latest.amount)} to ${row.customer_phone}`)) && disburse.mutate({ id: row.id }, { onSuccess: openPortal })}>Disburse</button>;
+          return can("loans.disburse") && <button type="button" className="btn btn-sm btn-success" disabled={disburse.isPending} onClick={async () => (await confirmAction("Disburse via Vodacom?", `${money(latest.amount)} to ${row.customer_phone} from ${latest.source_label}`)) && disburse.mutate({ id: row.id }, { onSuccess: openPortal })}>Disburse</button>;
         }
         if (latest?.channel === "cash") {
           return can("payments.cash") ? <button type="button" className="btn btn-sm btn-info" onClick={async () => { const code = await askText("Enter withdrawal code", "Code sent by SMS"); if (code) { cashOut.mutate({ id: row.id, code }); } }}>Cash Withdrawal</button> : <small>Waiting for cash withdrawal at branch</small>;
@@ -80,7 +86,7 @@ export default function DisbursementPage() {
       case "disbursement_failed":
         return can("loans.disburse") && <button type="button" className="btn btn-sm btn-warning" disabled={retry.isPending} onClick={() => retry.mutate({ id: row.id }, { onSuccess: openPortal })}>Retry Disbursement</button>;
       case "escalated":
-        return can("loans.disburse") && <button type="button" className="btn btn-sm btn-danger" onClick={() => { setEscalated(row); setDecision({ action: "", channel: "", reason: "" }); }}>Manual Decision</button>;
+        return can("loans.disburse") && <button type="button" className="btn btn-sm btn-danger" onClick={() => { setEscalated(row); setDecision({ action: "", channel: "", reason: "" }); setDecisionSource(EMPTY_SOURCE); }}>Manual Decision</button>;
       case "disbursement_suspense":
         return can(["loans.disburse", "loans.prepare_disbursement"]) && <button type="button" className="btn btn-sm btn-primary" onClick={async () => (await confirmAction("Send back to Finance?")) && requeue.mutate({ id: row.id })}>Send to Finance</button>;
       default:
@@ -115,6 +121,7 @@ export default function DisbursementPage() {
             { key: "amount_approved", header: "Approved Loan", render: (row) => money(row.amount_approved) },
             { key: "amount", header: "Amount to Send", value: (row) => row.latest_disbursement?.amount ?? 0, render: (row) => (row.latest_disbursement ? money(row.latest_disbursement.amount) : "—") },
             { key: "batch", header: "Batch", value: (row) => row.latest_disbursement?.batch_id ?? "", render: (row) => row.latest_disbursement ? <>{row.latest_disbursement.batch_id}<br /><small>{row.latest_disbursement.channel.toUpperCase()} · {row.latest_disbursement.status}</small></> : "—" },
+            { key: "source", header: "Disbursement Source", value: (row) => row.latest_disbursement?.source_label ?? "", render: (row) => row.latest_disbursement?.source_label ?? "—" },
             { key: "attempts", header: "Attempts", value: (row) => row.disbursement_attempts, render: (row) => `${row.disbursement_attempts} / 3` },
             { key: "failure", header: "Reason", value: (row) => row.latest_disbursement?.failure_reason ?? "", render: (row) => row.latest_disbursement?.failure_reason ?? "" },
             { key: "status_label", header: "Status", render: (row) => <LoanStatusBadge loan={row} /> },
@@ -129,7 +136,7 @@ export default function DisbursementPage() {
         title={`Escalated disbursement — ${escalated?.customer_name ?? ""}`}
         submitLabel="Submit"
         submitting={resolve.isPending}
-        onSubmit={() => escalated && resolve.mutate({ id: escalated.id, ...decision }, { onSuccess: () => setEscalated(null) })}
+        onSubmit={() => escalated && resolve.mutate({ id: escalated.id, ...decision, ...(decision.action === "other_channel" ? sourcePayload(decisionSource) : {}) }, { onSuccess: () => setEscalated(null) })}
       >
         <p>Disbursement failed {escalated?.disbursement_attempts} times. No ledger entry has been posted.</p>
         <div className="row">
@@ -151,10 +158,35 @@ export default function DisbursementPage() {
               </select>
             </Field>
           )}
+          {decision.action === "other_channel" && escalated && (
+            <div className="col-md-12">
+              <p className="mb-1"><small>Leave the source unchanged to keep {escalated.latest_disbursement?.source_label ?? "branch cash"}.</small></p>
+              <DisbursementSourceFields loanId={escalated.id} value={decisionSource} onChange={setDecisionSource} fieldError={resolve.fieldError} required={false} />
+            </div>
+          )}
           <Field label="Reason:" required className="col-md-12" error={resolve.fieldError("reason")}>
             <textarea className="form-control" value={decision.reason} onChange={(e) => setDecision({ ...decision, reason: e.target.value })} required />
           </Field>
         </div>
+      </Modal>
+
+      <Modal
+        open={preparing !== null}
+        onClose={() => setPreparing(null)}
+        title={`Prepare Disbursement — ${preparing?.customer_name ?? ""}`}
+        submitLabel="Prepare"
+        submitting={prepare.isPending}
+        onSubmit={() => preparing && prepare.mutate({ id: preparing.id, ...sourcePayload(source) }, { onSuccess: () => setPreparing(null) })}
+      >
+        {preparing && (
+          <>
+            <p>
+              Loan <b>{preparing.loan_number}</b> · Reference <b>{preparing.reference_number ?? "—"}</b> · Approved <b>{money(preparing.amount_approved)}</b>
+              <br />Destination: <b>LOAN RECEIVABLE - {preparing.loan_number}</b> (customer loan account)
+            </p>
+            <DisbursementSourceFields loanId={preparing.id} value={source} onChange={setSource} fieldError={prepare.fieldError} />
+          </>
+        )}
       </Modal>
     </>
   );

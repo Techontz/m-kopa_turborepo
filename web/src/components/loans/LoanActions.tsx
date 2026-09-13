@@ -10,6 +10,8 @@ import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { useAction } from "@/lib/hooks";
 
+import { DisbursementSourceFields } from "./DisbursementSourceFields";
+import { EMPTY_SOURCE, sourcePayload, type SourceChoice } from "./disbursementSource";
 import type { LoanDetail } from "./types";
 
 /** Workflow panel on the loan detail page: the next step for the loan's status, limited to the user's permissions. */
@@ -21,6 +23,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
   const [mandateForm, setMandateForm] = useState({ bank_name: "", account_number: "", account_name: detail.customer.full_name });
   const [otp, setOtp] = useState("");
   const [comment, setComment] = useState("");
+  const [source, setSource] = useState<SourceChoice>(EMPTY_SOURCE);
 
   const reject = useAction<{ reason: string }>("post", path("reject"));
   const modify = useAction<{ reason: string }>("post", path("modify"));
@@ -28,7 +31,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
   const verifyOtp = useAction<{ otp: string }>("post", path("e-mandate/verify-otp"));
   const verifyTelco = useAction<Record<string, never>>("post", path("kyc-verify"));
   const approveCredit = useAction<Record<string, never>>("post", path("approve-credit"));
-  const prepare = useAction<Record<string, never>>("post", path("prepare-disbursement"));
+  const prepare = useAction<ReturnType<typeof sourcePayload>>("post", path("prepare-disbursement"));
   const disburse = useAction<Record<string, never>, { portal_url?: string | null }>("post", path("disburse"));
   const retry = useAction<Record<string, never>, { portal_url?: string | null }>("post", path("retry-disbursement"));
   const close = useAction<Record<string, never>>("post", path("close"));
@@ -54,7 +57,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
     case "pending_manager_approval":
       body = (
         <>
-          <p>Waiting for branch manager approval. Enter the Approved Loan below and click Aprove, or:</p>
+          <p>Waiting for branch manager approval. Enter the Approved Loan below and click Approve, or:</p>
           {rejectModify("loans.approve_manager")}
           {can("loans.apply") && <button type="button" className="btn btn-info" onClick={onEdit}><i className="icon-pencil" /> Edit loan</button>}
         </>
@@ -112,7 +115,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
             )}
           </p>
           <button type="button" className="btn btn-info mr-1" disabled={verifyTelco.isPending} onClick={() => verifyTelco.mutate({})}>Verification</button>
-          <button type="button" className="btn btn-success mr-1" disabled={!loan.telco_matched || approveCredit.isPending} onClick={async () => (await confirmAction("Aprove this loan?")) && approveCredit.mutate({})}>Aprove</button>
+          <button type="button" className="btn btn-success mr-1" disabled={!loan.telco_matched || approveCredit.isPending} onClick={async () => (await confirmAction("Approve this loan?")) && approveCredit.mutate({})}>Approve</button>
           {rejectModify("loans.credit_review")}
         </>
       ) : <p>Waiting for credit officer review.</p>;
@@ -120,15 +123,20 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
     case "pending_finance":
       body = (
         <>
-          <p>Approved by credit officer. Reference number <b>{loan.reference_number}</b>. Amount to send: <b>{money(detail.net_disbursement)}</b>.</p>
-          {can("loans.prepare_disbursement") && <button type="button" className="btn btn-primary" disabled={prepare.isPending} onClick={() => prepare.mutate({})}>Prepare Disbursement</button>}
+          <p>Approved by credit officer. Reference number <b>{loan.reference_number}</b>. Amount to send: <b>{money(detail.net_disbursement)}</b>. Destination: <b>LOAN RECEIVABLE - {loan.loan_number}</b>.</p>
+          {can("loans.prepare_disbursement") && (
+            <form onSubmit={(e) => { e.preventDefault(); prepare.mutate(sourcePayload(source)); }}>
+              <div className="row"><div className="col-lg-6"><DisbursementSourceFields loanId={loan.id} value={source} onChange={setSource} fieldError={prepare.fieldError} /></div></div>
+              <button type="submit" className="btn btn-primary mt-2" disabled={prepare.isPending}>Prepare Disbursement</button>
+            </form>
+          )}
         </>
       );
       break;
     case "awaiting_disbursement":
       body = (
         <>
-          <p>Batch <b>{loan.latest_disbursement?.batch_id}</b> ({loan.latest_disbursement?.channel.toUpperCase()}, {loan.latest_disbursement?.status}) — {money(loan.latest_disbursement?.amount)}.</p>
+          <p>Batch <b>{loan.latest_disbursement?.batch_id}</b> ({loan.latest_disbursement?.channel.toUpperCase()}, {loan.latest_disbursement?.status}) — {money(loan.latest_disbursement?.amount)} from <b>{loan.latest_disbursement?.source_label}</b>.</p>
           {can("loans.disburse") && loan.latest_disbursement?.channel === "vodacom" && loan.latest_disbursement.status === "prepared" && (
             <button type="button" className="btn btn-success" disabled={disburse.isPending} onClick={() => disburse.mutate({}, { onSuccess: portal })}>Disburse</button>
           )}
@@ -153,9 +161,9 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
     case "default":
       body = (
         <>
-          <p>Outstanding: <b>{money(detail.outstanding?.total)}</b> (Principal {money(detail.outstanding?.principal)} · Penarty {money(detail.outstanding?.penalty)} · Interest {money(detail.outstanding?.interest)}){loan.days_past_due > 0 ? ` · ${loan.days_past_due} days past due` : ""}</p>
+          <p>Outstanding: <b>{money(detail.outstanding?.total)}</b> (Principal {money(detail.outstanding?.principal)} · Penalty {money(detail.outstanding?.penalty)} · Interest {money(detail.outstanding?.interest)}){loan.days_past_due > 0 ? ` · ${loan.days_past_due} days past due` : ""}</p>
           {(detail.outstanding?.total ?? 1) <= 0.5 && can(["loans.approve_manager", "loans.disburse", "payments.verify"]) && <button type="button" className="btn btn-success mr-1" onClick={() => close.mutate({})}>Close Loan</button>}
-          {can("loans.write_off") && loan.status !== "active" && <button type="button" className="btn btn-danger" onClick={async () => (await confirmAction("Move loan to Wright-off?")) && writeOff.mutate({})}>Wright-off</button>}
+          {can("loans.write_off") && loan.status !== "active" && <button type="button" className="btn btn-danger" onClick={async () => (await confirmAction("Move loan to Write-off?")) && writeOff.mutate({})}>Write-off</button>}
         </>
       );
       break;

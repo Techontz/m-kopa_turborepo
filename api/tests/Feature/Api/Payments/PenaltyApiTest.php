@@ -13,7 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Penarty List / Paid Penarty (live admin/get_penart_list, admin/penart_paid_list) and customer statement data.
+ * Penalty List / Paid Penalty (live admin/get_penart_list, admin/penart_paid_list) and customer statement data.
  */
 class PenaltyApiTest extends TestCase
 {
@@ -46,7 +46,7 @@ class PenaltyApiTest extends TestCase
 
         $this->postJson("/api/v1/penalties/{$penalty->id}/pay", [])->assertUnprocessable()->assertJsonValidationErrors('penart_paid');
         $this->postJson("/api/v1/penalties/{$penalty->id}/pay", ['penart_paid' => 20000])->assertUnprocessable()->assertJsonValidationErrors('penart_paid');
-        $this->postJson("/api/v1/penalties/{$penalty->id}/pay", ['penart_paid' => 10000])->assertOk()->assertJsonPath('message', 'Penarty Paid successfully');
+        $this->postJson("/api/v1/penalties/{$penalty->id}/pay", ['penart_paid' => 10000])->assertOk()->assertJsonPath('message', 'Penalty Paid successfully');
 
         $this->assertEquals(10000, $penalty->fresh()->paid_amount);
         $this->assertSame(10000.0, $this->balance($admin, Account::Penalty, $admin->branch_id));

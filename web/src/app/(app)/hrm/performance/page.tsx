@@ -109,7 +109,7 @@ export default function PerformancePage() {
             { key: "targets", header: "Targets" },
             { key: "discipline", header: "Discipline" },
             { key: "rating", header: "Rating", render: (row) => `${row.rating}/5` },
-            { key: "remarks", header: "Remaks" },
+            { key: "remarks", header: "Remarks" },
             { key: "reviewed_by", header: "Reviewed by" },
           ]}
         />
@@ -152,7 +152,7 @@ export default function PerformancePage() {
               {[1, 2, 3, 4, 5].map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </Field>
-          <Field label="Remaks:" className="col-md-12" error={save.fieldError("remarks")}>
+          <Field label="Remarks:" className="col-md-12" error={save.fieldError("remarks")}>
             <textarea className="form-control" rows={2} value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
           </Field>
         </div>

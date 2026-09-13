@@ -6,14 +6,17 @@ export type Theme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "mf-theme";
 
+/** Theme used when the user has not chosen one. */
+export const DEFAULT_THEME: Theme = "dark";
+
 /**
- * Runs in <head> before first paint (app/layout.tsx): applies the saved theme so a dark-mode user never
- * sees a light flash. Light is the default when nothing is saved or storage is unavailable.
+ * Runs in <head> before first paint (app/layout.tsx): applies the saved theme so the page never flashes the
+ * wrong theme. Dark is the default when nothing is saved or storage is unavailable (the server renders dark).
  */
-export const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem("${THEME_STORAGE_KEY}");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()`;
+export const THEME_INIT_SCRIPT = `(function(){var t="${DEFAULT_THEME}";try{var s=localStorage.getItem("${THEME_STORAGE_KEY}");if(s==="dark"||s==="light")t=s}catch(e){}document.documentElement.setAttribute("data-theme",t)})()`;
 
 function currentTheme(): Theme {
-  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
 /** The <html data-theme> attribute is the single source of truth; subscribers re-render when it changes. */
@@ -44,7 +47,7 @@ export function setTheme(theme: Theme): void {
 }
 
 export function useTheme(): { theme: Theme; toggleTheme: () => void } {
-  const theme = useSyncExternalStore(subscribe, currentTheme, () => "light" as Theme);
+  const theme = useSyncExternalStore(subscribe, currentTheme, () => DEFAULT_THEME);
 
   return { theme, toggleTheme: () => setTheme(theme === "dark" ? "light" : "dark") };
 }

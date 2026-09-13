@@ -18,7 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 /**
- * Capital → Float, Float Branch To Branch, Aproved Float, Float Ac-Ac (live transfar_amount, float_branch_branch,
+ * Capital → Float, Float Branch To Branch, Approved Float, Float Ac-Ac (live transfar_amount, float_branch_branch,
  * aproved_float, float_branch_ac_ac). Lists default to today like the live pages; the filter modal narrows them.
  */
 class FloatController extends ApiController
@@ -46,7 +46,7 @@ class FloatController extends ApiController
 
         $this->floats->companyToBranch($this->currentEmployee()->company_id, $request->integer('blanch_id'), $request->float('blanch_amount'));
 
-        return $this->message('Float Transfered successfully', 201);
+        return $this->message('Float Transferred successfully', 201);
     }
 
     public function branch(): JsonResponse
@@ -78,7 +78,7 @@ class FloatController extends ApiController
 
         $this->floats->approve($floatTransfer);
 
-        return $this->message('Float Aproved successfully');
+        return $this->message('Float Approved successfully');
     }
 
     public function destroy(FloatTransfer $floatTransfer): JsonResponse
@@ -87,7 +87,7 @@ class FloatController extends ApiController
         $this->assertBranchAccessible((int) $floatTransfer->from_branch_id);
 
         if ($floatTransfer->status !== 'pending') {
-            return $this->message('Aproved transaction cannot be deleted', 422);
+            return $this->message('Approved transaction cannot be deleted', 422);
         }
 
         $floatTransfer->delete();
@@ -121,7 +121,7 @@ class FloatController extends ApiController
 
         $this->floats->accountToAccount($this->currentEmployee()->company_id, $request->integer('blanch_id'), $request->fromAccount(), $request->toAccount(), $request->float('amount'));
 
-        return $this->message('Float Transfered successfully', 201);
+        return $this->message('Float Transferred successfully', 201);
     }
 
     /**

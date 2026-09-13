@@ -18,7 +18,7 @@ class StaffLoanController extends HrmController
     public function __construct(private readonly StaffCredit $credit) {}
 
     /**
-     * Pending applications, approved (awaiting disbursement) and the "Aproved List" (active / done).
+     * Pending applications, approved (awaiting disbursement) and the "Approved List" (active / done).
      */
     public function index(Request $request): JsonResponse
     {
@@ -64,7 +64,7 @@ class StaffLoanController extends HrmController
 
         $this->credit->approveLoan($loan, $this->currentEmployee());
 
-        return $this->message('Staff Loan Aproved successfully');
+        return $this->message('Staff Loan Approved successfully');
     }
 
     public function reject(StaffLoan $loan): JsonResponse

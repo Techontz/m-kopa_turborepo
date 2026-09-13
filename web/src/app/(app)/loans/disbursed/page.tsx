@@ -40,7 +40,7 @@ export default function LoanDisbursedPage() {
               <th>{money(total("amount_approved"))}</th>
               <th />
               <th>{money(total("total_payable"))}</th>
-              <th colSpan={6} />
+              <th colSpan={8} />
             </tr>
           }
           columns={[
@@ -50,10 +50,12 @@ export default function LoanDisbursedPage() {
             { key: "loan_number", header: "Loan Ac", render: (row) => <Link href={`/loans/${row.id}`}>{row.loan_number}</Link> },
             { key: "amount_approved", header: "Loan Disbursed", render: (row) => money(row.amount_approved) },
             { key: "interest_rate", header: "Loan Interest", render: (row) => percent(row.interest_rate) },
-            { key: "total_payable", header: "Principle + Interest", render: (row) => money(row.total_payable) },
+            { key: "total_payable", header: "Principal + Interest", render: (row) => money(row.total_payable) },
             { key: "duration_label", header: "Restoration Type" },
             { key: "sessions", header: "Number of Repayment" },
             { key: "restoration", header: "Restoration", render: (row) => money(row.restoration) },
+            { key: "source", header: "Disbursement Source", value: (row) => row.latest_disbursement?.source_label ?? "", render: (row) => row.latest_disbursement?.source_label ?? "—" },
+            { key: "journal_reference", header: "Transaction Ref", value: (row) => row.latest_disbursement?.journal_reference ?? "", render: (row) => row.latest_disbursement?.journal_reference ?? "—" },
             { key: "withdrawn_at", header: "Date" },
             { key: "status_label", header: "Status", render: (row) => <span className={`badge badge-${row.status_badge}`}>{row.status_label}{row.days_past_due > 0 ? ` (${row.days_past_due} DPD)` : ""}</span> },
             {
@@ -79,7 +81,7 @@ export default function LoanDisbursedPage() {
       <Modal
         open={uploading !== null}
         onClose={() => setUploading(null)}
-        title="Upload Loan Agrement"
+        title="Upload Loan Agreement"
         submitLabel="Upload"
         submitting={upload.isPending}
         onSubmit={() => {

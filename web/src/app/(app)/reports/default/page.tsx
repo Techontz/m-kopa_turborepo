@@ -14,13 +14,13 @@ type DefaultRow = LoanReportRow & { paid_this_month: number };
 type Tab = "Basic" | "aditinal" | "Account" | "General";
 
 const PANES: Record<Tab, [string, DefaultRow["duration"] | null]> = {
-  Basic: ["All default laoan", null],
+  Basic: ["All default loan", null],
   aditinal: ["Monthly Default loan", "Monthly"],
   Account: ["Weekly Default loan", "Weekly"],
   General: ["Daily Default Loan", "Daily"],
 };
 
-/** Report → Default Loan (live admin/get_outstand_loan) with the Wright-off action. */
+/** Report → Default Loan (live admin/get_outstand_loan) with the Write-off action. */
 export default function DefaultLoanPage() {
   const { can } = useAuth();
   const [tab, setTab] = useState<Tab>("Basic");
@@ -44,7 +44,7 @@ export default function DefaultLoanPage() {
     { key: "sessions", header: "Number of Repayment" },
     ...(withPaid ? [{ key: "paid_this_month", header: tab === "Basic" ? "Paid This Month" : "Paid this Month", render: (row: DefaultRow) => money(row.paid_this_month) }] : []),
     { key: "remain", header: "Remain Amount", render: (row) => money(row.remain) },
-    { key: "withdrawal_date", header: "Satart date" },
+    { key: "withdrawal_date", header: "Start date" },
     { key: "end_date", header: "End date" },
     ...(withPaid
       ? [{
@@ -53,7 +53,7 @@ export default function DefaultLoanPage() {
           sortable: false,
           render: (row: DefaultRow) =>
             tab === "Basic" && can("loans.write_off") ? (
-              <button type="button" className="btn btn-sm btn-danger" title="Wright-off" onClick={async () => (await confirmAction("Are you sure to wright-off")) && writeOff.mutate({ id: row.id })}>
+              <button type="button" className="btn btn-sm btn-danger" title="Write-off" onClick={async () => (await confirmAction("Are you sure to write-off")) && writeOff.mutate({ id: row.id })}>
                 <i className="icon-close" />
               </button>
             ) : null,

@@ -24,9 +24,9 @@ export default function CompanyFloatPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Transifor Float From Company Account To Blanch Account"]} />
+      <PageHeader crumbs={["Transfer Float From Company Account To Branch Account"]} />
 
-      <Card title="Transifor Float Form">
+      <Card title="Transfer Float Form">
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(form, { onSuccess: () => setForm(EMPTY) }); }}>
           <div className="row">
             <Field label="Amount:" required className="col-md-6" error={create.fieldError("blanch_amount")}>
@@ -38,7 +38,7 @@ export default function CompanyFloatPage() {
             </Field>
           </div>
           <div className="text-center m-t-20">
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Transfor</button>
+            <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Transfer</button>
           </div>
         </form>
       </Card>

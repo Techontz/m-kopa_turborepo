@@ -48,7 +48,7 @@ export default function BranchFloatPage() {
               className: "text-nowrap",
               render: (row) => (
                 <>
-                  <button type="button" className="btn btn-success btn-sm mr-1" title="Aprove" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-check" /></button>
+                  <button type="button" className="btn btn-success btn-sm mr-1" title="Approve" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-check" /></button>
                   <button type="button" className="btn btn-danger btn-sm" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                 </>
               ),
@@ -57,7 +57,7 @@ export default function BranchFloatPage() {
         />
       </Card>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Transfar float" submitLabel="Transfar" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => { setForm(EMPTY); setOpen(false); } })}>
+      <Modal open={open} onClose={() => setOpen(false)} title="Transfer float" submitLabel="Transfer" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => { setForm(EMPTY); setOpen(false); } })}>
         <div className="row clearfix">
           <Field label="From branch:" className="col-lg-6" error={create.fieldError("from_blanch_id")}>
             <SelectBox placeholder="Select Branch" optionsUrl="options/branches" value={form.from_blanch_id} onChange={(value) => setForm({ ...form, from_blanch_id: value ?? "" })} />

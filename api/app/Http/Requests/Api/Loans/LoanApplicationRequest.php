@@ -37,7 +37,7 @@ class LoanApplicationRequest extends LiveLoanApplicationRequest
             'category_id' => 'loan category',
             'how_loan' => 'loan amount applied',
             'session' => 'number of repayments',
-            'rate' => 'interest formular',
+            'rate' => 'interest formula',
             'fee_status' => 'deducted fee',
         ];
     }

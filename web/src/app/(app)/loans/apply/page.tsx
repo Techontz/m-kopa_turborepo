@@ -46,7 +46,7 @@ export default function LoanApplicationPage() {
         <Card title="Search Customer">
           <div className="row">
             <div className="col-lg-6 col-md-8">
-              <SelectBox placeholder="Sarch Customer" optionsUrl="options/customers" query={{ with_code: 1 }} value={customerId} onChange={(value) => { setCustomerId(value ?? ""); setForm(EMPTY_LOAN_FORM); }} />
+              <SelectBox placeholder="Search Customer" optionsUrl="options/customers" query={{ with_code: 1 }} value={customerId} onChange={(value) => { setCustomerId(value ?? ""); setForm(EMPTY_LOAN_FORM); }} />
             </div>
           </div>
         </Card>

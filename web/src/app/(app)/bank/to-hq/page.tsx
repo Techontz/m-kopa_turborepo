@@ -31,7 +31,7 @@ export default function BankToHqPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Bank", "Transfor Balance To salary advance Acc"]} />
+      <PageHeader crumbs={["Bank", "Transfer Balance To salary advance Acc"]} />
       <Card
         title="Transaction list From Bank Acc to salary Advance & disbursement Account"
         actions={
@@ -67,7 +67,7 @@ export default function BankToHqPage() {
 
       <FilterModal open={modal === "filter"} onClose={() => setModal(null)} onApply={setFilters} />
 
-      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Transfor Balance To salary advance Acc" submitLabel="Submit" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
+      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Transfer Balance To salary advance Acc" submitLabel="Submit" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
         <div className="row clearfix">
           <Field label="From Account:" className="col-lg-6" error={create.fieldError("from_acc")}>
             <SelectBox placeholder="Select Account" optionsUrl="bank/options/accounts" value={form.from_acc} onChange={(value) => setForm({ ...form, from_acc: value ?? "" })} />

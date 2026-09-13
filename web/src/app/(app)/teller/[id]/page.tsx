@@ -103,7 +103,7 @@ export default function TellerCustomerPage() {
         <div className="table-responsive">
           <table className="table table-hover table-custom">
             <thead className="thead-info">
-              <tr><th>Phone Number</th><th>Withdrawal Date</th><th>End Date</th><th>Loan Amount</th><th>Insurelance</th><th>Restoration</th><th>Amount Paid</th><th>Remaining debt</th></tr>
+              <tr><th>Phone Number</th><th>Withdrawal Date</th><th>End Date</th><th>Loan Amount</th><th>Insurance</th><th>Restoration</th><th>Amount Paid</th><th>Remaining debt</th></tr>
             </thead>
             <tbody>
               <tr>
@@ -122,11 +122,11 @@ export default function TellerCustomerPage() {
       </Card>
 
       {data?.outstanding && (
-        <Card title="Outstanding Balance (Principal → Penarty → Interest)">
+        <Card title="Outstanding Balance (Principal → Penalty → Interest)">
           <div className="table-responsive">
             <table className="table table-hover table-custom mb-0">
               <thead className="thead-info">
-                <tr><th>Principal</th><th>Penarty</th><th>Interest</th><th>Insurelance</th><th>Total</th><th>Pending Verification</th><th>Loan Status</th></tr>
+                <tr><th>Principal</th><th>Penalty</th><th>Interest</th><th>Insurance</th><th>Total</th><th>Pending Verification</th><th>Loan Status</th></tr>
               </thead>
               <tbody>
                 <tr>
@@ -171,7 +171,7 @@ export default function TellerCustomerPage() {
       <Card>
         <div className="table-responsive">
           <table className="table table-hover table-custom">
-            <thead className="thead-info"><tr><th>Date</th><th>Description</th><th>Deposit</th><th>Withdrawal</th><th>Balance</th><th>Remain Debit</th><th>Penalty</th></tr></thead>
+            <thead className="thead-info"><tr><th>Date</th><th>Description</th><th>Deposit</th><th>Withdrawal</th><th>Balance</th><th>Remaining Debt</th><th>Penalty</th></tr></thead>
             <tbody>
               {statement.map((row) => (
                 <tr key={row.id}>
@@ -240,11 +240,11 @@ export default function TellerCustomerPage() {
           <div className="row clearfix">
             <div className="col-md-4 col-6"><span>Total Loan</span><input type="text" className="form-control" value={money(loan?.total_loan)} readOnly /></div>
             <div className="col-md-2 col-6"><span>Amount Paid</span><input type="text" className="form-control" value={money(loan?.amount_paid)} readOnly /></div>
-            <div className="col-md-2 col-12"><span>Insurelance</span><input type="text" className="form-control" value={money(loan?.insurance)} readOnly /></div>
-            <div className="col-md-4 col-12"><span>Remain Debit</span><input type="text" className="form-control" value={money(data.outstanding?.total)} readOnly /></div>
+            <div className="col-md-2 col-12"><span>Insurance</span><input type="text" className="form-control" value={money(loan?.insurance)} readOnly /></div>
+            <div className="col-md-4 col-12"><span>Remaining Debt</span><input type="text" className="form-control" value={money(data.outstanding?.total)} readOnly /></div>
             <div className="col-md-4 col-12"><span>Salary advance</span><input type="text" className="form-control" value={money(data.salary_advance)} readOnly /></div>
             <div className="col-md-4 col-6"><span>Recovery Amount</span><input type="text" className="form-control" value={data.recovery_amount.toFixed(2)} readOnly style={{ color: "var(--mf-negative)" }} /></div>
-            <div className="col-md-4 col-6"><span>Penart</span><input type="text" className="form-control" value={data.penalty.toFixed(2)} readOnly style={{ color: "var(--mf-negative)" }} /></div>
+            <div className="col-md-4 col-6"><span>Penalty</span><input type="text" className="form-control" value={data.penalty.toFixed(2)} readOnly style={{ color: "var(--mf-negative)" }} /></div>
             <div className="col-md-6 col-6">
               <span style={{ color: "var(--mf-positive)" }}>Deposit Amount </span>
               <input
@@ -270,11 +270,11 @@ export default function TellerCustomerPage() {
             <div className="col-md-4 col-12">
               <br />
               <div className="d-flex align-items-center">
-                <input type="checkbox" checked={form.recept} onChange={(e) => setForm({ ...form, recept: e.target.checked })} style={{ width: 19, height: 19 }} /> &nbsp;&nbsp; Do you wan`t recept?
+                <input type="checkbox" checked={form.recept} onChange={(e) => setForm({ ...form, recept: e.target.checked })} style={{ width: 19, height: 19 }} /> &nbsp;&nbsp; Do you want a receipt?
               </div>
             </div>
             <div className="col-md-12 m-t-10">
-              <small className="text-muted">Principal {money(data.outstanding?.principal)} · Penarty {money(data.outstanding?.penalty)} · Interest {money(data.outstanding?.interest)} — cash is held as PENDING VERIFICATION until Finance confirms the bank deposit.</small>
+              <small className="text-muted">Principal {money(data.outstanding?.principal)} · Penalty {money(data.outstanding?.penalty)} · Interest {money(data.outstanding?.interest)} — cash is held as PENDING VERIFICATION until Finance confirms the bank deposit.</small>
             </div>
           </div>
         )}

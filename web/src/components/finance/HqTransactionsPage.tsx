@@ -25,7 +25,7 @@ interface TransactionForm {
 
 const EMPTY: TransactionForm = { from_account: "", to_account: "", amount: "", charge: "" };
 
-/** Headquater Transaction → Requested Transaction (live request_headqueter) / Aproved Transaction (request_headqueter_aproved). */
+/** Headquarters Transaction → Requested Transaction (live request_headqueter) / Approved Transaction (request_headqueter_aproved). */
 export function HqTransactionsPage({ approved }: { approved: boolean }) {
   const [filters, setFilters] = useState<Filters>({});
   const [modal, setModal] = useState<"filter" | "request" | null>(null);
@@ -40,11 +40,11 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
     { key: "from_account_label", header: "From Account" },
     { key: "amount", header: "Amount", render: (row) => money(row.amount) },
     { key: "to_account_label", header: "To Account" },
-    { key: "status", header: "status", render: (row) => (row.status === "approved" ? <Badge tone="success">APROVED</Badge> : <Badge tone="danger">PENDING</Badge>) },
+    { key: "status", header: "status", render: (row) => (row.status === "approved" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">PENDING</Badge>) },
     { key: "staff", header: "Staff Name" },
     { key: "charge", header: "Charger", render: (row) => money(row.charge) },
     approved
-      ? { key: "approved_at", header: "Aproved Date" }
+      ? { key: "approved_at", header: "Approved Date" }
       : { key: "date", header: "Date" },
   ];
 
@@ -56,7 +56,7 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
       className: "text-nowrap",
       render: (row) => (
         <>
-          <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Aprove" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
+          <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
           <button type="button" className="btn btn-sm btn-icon btn-danger" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
         </>
       ),
@@ -65,9 +65,9 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
 
   return (
     <>
-      <PageHeader crumbs={[approved ? "Headquater Transaction Aproved" : "Headquater Transaction requested"]} />
+      <PageHeader crumbs={[approved ? "Headquarters Transaction Approved" : "Headquarters Transaction requested"]} />
       <Card
-        title={approved ? "From Headquater Aproved Transaction - CEO ACC" : "From Headquater Transaction - CEO ACC"}
+        title={approved ? "From Headquarters Approved Transaction - CEO ACC" : "From Headquarters Transaction - CEO ACC"}
         actions={approved ? <HeaderButton onClick={() => setModal("filter")} /> : <HeaderButton icon="icon-pencil" onClick={() => { setForm(EMPTY); setModal("request"); }} />}
       >
         <DataTable

@@ -19,7 +19,7 @@ use Illuminate\Validation\Rule;
 /**
  * Expense requisitions for the three live flows:
  *  - branch: Expenses → All Expenses Request / All Accept Expenses (paid from branch INTEREST A/C);
- *  - hq: Headquater Expenses → All Expenses Requested / All Aproved Expenses (paid from HQ accounts);
+ *  - hq: Headquarters Expenses → All Expenses Requested / All Approved Expenses (paid from HQ accounts);
  *  - bank: Bank → Request Expenses (paid from the chosen bank account).
  */
 class ExpenseRequestController extends ApiController

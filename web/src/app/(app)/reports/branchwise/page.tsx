@@ -24,10 +24,10 @@ interface BranchRow {
 
 const AMOUNTS: Array<[keyof BranchRow, string]> = [
   ["receivable", "Total Receivable"],
-  ["receivable_principal", "Receivable Pricipal"],
-  ["receivable_interest", "Receivable Intrest"],
+  ["receivable_principal", "Receivable Principal"],
+  ["receivable_interest", "Receivable Interest"],
   ["received", "Total Received"],
-  ["received_principal", "Received Pricipal"],
+  ["received_principal", "Received Principal"],
   ["received_interest", "Received Interest"],
   ["pending", "Total Pending"],
   ["reserve", "Reserve"],

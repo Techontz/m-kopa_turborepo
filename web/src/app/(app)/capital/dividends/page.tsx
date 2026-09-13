@@ -84,7 +84,7 @@ function PayModal({ allocation, onClose }: { allocation: Allocation; onClose: ()
 
 /**
  * Documents: ACCOUNT OVERVIEW "Dividend Account" — monthly profit → Dividend; 70% → Principal (reinvestment),
- * 30% → shareholders split by share percentage; Dividend account withdrawn by CASH or BANK.
+ * 30% → shareholders split by ownership percentage (share of historical capital contributions); Dividend account withdrawn by CASH or BANK.
  */
 export default function DividendsPage() {
   const { can } = useAuth();
@@ -150,7 +150,7 @@ export default function DividendsPage() {
             <div className="table-responsive">
               <table className="table table-hover table-custom">
                 <thead className="thead-info">
-                  <tr><th>S/No.</th><th>Share Holder</th><th>Capital</th><th>Share %</th><th>Dividend</th></tr>
+                  <tr><th>S/No.</th><th>Shareholder</th><th>Contributed Capital</th><th>Ownership %</th><th>Dividend</th></tr>
                 </thead>
                 <tbody>
                   {(summary?.shares ?? []).map((share, index) => (
@@ -176,7 +176,7 @@ export default function DividendsPage() {
         <div className="table-responsive">
           <table className="table table-hover dataTable table-custom">
             <thead className="thead-info">
-              <tr><th>S/No.</th><th>Month</th><th>Share Holder</th><th>Share %</th><th>Amount</th><th>Status</th><th>Pay method</th><th>Date</th><th>Action</th></tr>
+              <tr><th>S/No.</th><th>Month</th><th>Shareholder</th><th>Ownership %</th><th>Amount</th><th>Status</th><th>Pay method</th><th>Date</th><th>Action</th></tr>
             </thead>
             <tbody>
               {isLoading && <tr><td colSpan={9} className="mf-loading">Loading...</td></tr>}

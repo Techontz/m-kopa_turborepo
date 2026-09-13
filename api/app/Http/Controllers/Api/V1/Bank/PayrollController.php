@@ -8,7 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 
 /**
- * Bank → Payrol (live admin/payrol_expenses and admin/view_expenses/{date}).
+ * Bank → Payroll (live admin/payrol_expenses and admin/view_expenses/{date}).
  * The HRM module owns the salary sheet, commission and staff fund; payroll is paid only from an
  * HR-approved payroll run (Documents: HR approves, Finance disburses). This page lists paid payrolls.
  */

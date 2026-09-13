@@ -21,7 +21,7 @@ class GeneralSettingsApiTest extends TestCase
         $this->signInAdmin();
         $formula = InterestFormula::create(['code' => 'FLAT', 'name' => 'FLAT RATE FORMULAR', 'is_enabled' => false]);
 
-        $this->postJson("/api/v1/settings/formulas/{$formula->id}/enable")->assertOk()->assertJsonPath('message', 'Interest Formular Added successfully');
+        $this->postJson("/api/v1/settings/formulas/{$formula->id}/enable")->assertOk()->assertJsonPath('message', 'Interest Formula Added successfully');
         $this->getJson('/api/v1/settings/options/formulas')->assertOk()->assertJsonPath('data.0.value', 'FLAT');
         $this->deleteJson("/api/v1/settings/formulas/{$formula->id}")->assertOk();
         $this->assertFalse($formula->fresh()->is_enabled);
@@ -71,7 +71,7 @@ class GeneralSettingsApiTest extends TestCase
         $admin = $this->signInAdmin();
         $region = Region::create(['name' => 'Kagera']);
 
-        $this->putJson('/api/v1/settings/penalty', ['action_penart' => 'MONEY VALUE', 'penart' => 5000])->assertOk()->assertJsonPath('message', 'Penart Setting Updated successfully');
+        $this->putJson('/api/v1/settings/penalty', ['action_penart' => 'MONEY VALUE', 'penart' => 5000])->assertOk()->assertJsonPath('message', 'Penalty Setting Updated successfully');
         $this->getJson('/api/v1/settings/penalty')->assertOk()->assertJsonPath('data.action_penart', 'MONEY VALUE')->assertJsonPath('data.penart', 5000);
         $this->putJson('/api/v1/settings/penalty', ['action_penart' => 'PERCENTAGE VALUE', 'penart' => 150])->assertUnprocessable();
 

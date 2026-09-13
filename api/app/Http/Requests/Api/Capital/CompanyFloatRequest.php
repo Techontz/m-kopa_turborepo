@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Live "Transifor Float Form" (admin/create_float): company account → branch principal.
+ * Live "Transfer Float Form" (admin/create_float): company account → branch principal.
  */
 class CompanyFloatRequest extends FormRequest
 {

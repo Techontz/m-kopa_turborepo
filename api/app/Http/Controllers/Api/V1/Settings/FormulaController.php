@@ -7,7 +7,7 @@ use App\Models\InterestFormula;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Settings → Interest Formular (live admin/formular_setting). Formulas are system-wide; enabling one makes it
+ * Settings → Interest Formula (live admin/formular_setting). Formulas are system-wide; enabling one makes it
  * selectable when defining loan categories.
  */
 class FormulaController extends ApiController
@@ -30,7 +30,7 @@ class FormulaController extends ApiController
 
         $formula->update(['is_enabled' => true]);
 
-        return $this->message('Interest Formular Added successfully');
+        return $this->message('Interest Formula Added successfully');
     }
 
     public function disable(InterestFormula $formula): JsonResponse
@@ -39,6 +39,6 @@ class FormulaController extends ApiController
 
         $formula->update(['is_enabled' => false]);
 
-        return $this->message('Interest Formular Deleted successfully');
+        return $this->message('Interest Formula Deleted successfully');
     }
 }

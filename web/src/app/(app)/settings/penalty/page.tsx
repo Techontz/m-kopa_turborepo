@@ -31,8 +31,8 @@ function PenaltyForm({ setting }: { setting: PenaltySetting }) {
         </div>
         <div className="col-md-6 col-6">
           <div className="form-group">
-            <span>Penalt Amount</span>
-            <input className="form-control" placeholder="penart Amount % $" value={form.penart} onChange={(e) => setForm({ ...form, penart: e.target.value })} required autoComplete="off" />
+            <span>Penalty Amount</span>
+            <input className="form-control" placeholder="Penalty Amount % $" value={form.penart} onChange={(e) => setForm({ ...form, penart: e.target.value })} required autoComplete="off" />
             {update.fieldError("penart") && <div className="field-error">{update.fieldError("penart")}</div>}
           </div>
         </div>
@@ -70,13 +70,13 @@ export default function PenaltySettingPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Penart Setting"]} />
-      <Card title="Penart Setting">{data ? <PenaltyForm key={`${data.action_penart}-${data.penart}`} setting={data} /> : <div className="mf-loading">Loading...</div>}</Card>
-      <Card title="Penart Setting">
+      <PageHeader crumbs={["Penalty Setting"]} />
+      <Card title="Penalty Setting">{data ? <PenaltyForm key={`${data.action_penart}-${data.penart}`} setting={data} /> : <div className="mf-loading">Loading...</div>}</Card>
+      <Card title="Penalty Setting">
         <div className="table-responsive">
           <table className="table table-hover dataTable table-custom">
             <thead className="thead-info">
-              <tr><th>Calculation Type</th><th>Penalt Amount</th><th>Action</th></tr>
+              <tr><th>Calculation Type</th><th>Penalty Amount</th><th>Action</th></tr>
             </thead>
             <tbody>
               {data && (

@@ -31,7 +31,7 @@ export default function AgentTransactionsPage() {
         title="transaction list"
         actions={
           <>
-            <HeaderButton icon="icon-plus" tone="info" title="receord" onClick={() => setModal("record")} />
+            <HeaderButton icon="icon-plus" tone="info" title="record" onClick={() => setModal("record")} />
             <HeaderButton icon="icon-wallet" tone="success" title="balance" onClick={() => setModal("balance")} />
             <HeaderButton title="Filter" onClick={() => setModal("filter")} />
           </>

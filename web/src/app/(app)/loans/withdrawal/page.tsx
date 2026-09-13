@@ -21,6 +21,9 @@ interface Filters {
 
 const STATUSES = ["PENDING", "APROVED", "DISBURSED", "ACTIVE", "DONE", "DEFALT", "ALL"];
 
+/** Display text for the filter values the API expects (values keep the live spelling). */
+const STATUS_LABELS: Record<string, string> = { APROVED: "APPROVED", DEFALT: "DEFAULT" };
+
 /**
  * Report → Loan Withdrawal (live loan_withdrawal): loans whose money reached the customer in the period (default today),
  * grouped All / Monthly / Weekly / Daily. "Method" is the disbursement channel (Vodacom, Airtel, bank or cash).
@@ -88,7 +91,7 @@ export default function LoanWithdrawalPage() {
           <Field label="Loan Status" required className="col-md-12">
             <select className="form-control" value={form.loan_status} onChange={(e) => setForm({ ...form, loan_status: e.target.value })} required>
               <option value="">Select Loan Status</option>
-              {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+              {STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABELS[status] ?? status}</option>)}
             </select>
           </Field>
         </div>

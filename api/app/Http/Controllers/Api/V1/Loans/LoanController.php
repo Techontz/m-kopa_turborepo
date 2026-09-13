@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Loans;
 
+use App\Enums\Account;
 use App\Enums\Duration;
 use App\Enums\LoanStatus;
 use App\Http\Requests\Api\Loans\LoanApplicationRequest;
@@ -9,8 +10,10 @@ use App\Http\Resources\Api\V1\Loans\LoanResource;
 use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Group;
+use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\LoanCategory;
+use App\Models\LoanDisbursement;
 use App\Models\LoanTransaction;
 use App\Services\LoanCalculator;
 use App\Services\LoanService;
@@ -62,7 +65,7 @@ class LoanController extends LoanApiController
         ]);
 
         $query = $this->scoped(Loan::query())
-            ->with(['customer', 'branch', 'category', 'latestDisbursement'])
+            ->with(['customer', 'branch', 'category', 'latestDisbursement.sourceBankAccount', 'latestDisbursement.branch', 'latestDisbursement.journalEntry'])
             ->when($request->filled('stage'), fn (Builder $query) => $query->status(...$this->stages()[$request->string('stage')->toString()]))
             ->when($request->filled('status'), fn (Builder $query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->has('special'), fn (Builder $query) => $query->where('is_special', $request->boolean('special')))
@@ -89,7 +92,7 @@ class LoanController extends LoanApiController
         $this->authorizeAny('loans.view');
         $this->ensureVisible($loan);
 
-        $loan->load(['customer.region', 'customer.branch', 'branch', 'category', 'employee', 'group', 'guarantors.region', 'collaterals', 'schedules', 'mandate', 'disbursements.requester', 'latestDisbursement', 'topupOf', 'writeOff']);
+        $loan->load(['customer.region', 'customer.branch', 'branch', 'category', 'employee', 'group', 'guarantors.region', 'collaterals', 'schedules', 'mandate', 'disbursements.requester', 'disbursements.sourceBankAccount', 'disbursements.branch', 'disbursements.journalEntry.lines.account', 'latestDisbursement.sourceBankAccount', 'latestDisbursement.branch', 'latestDisbursement.journalEntry', 'topupOf', 'writeOff']);
         $customer = $loan->customer;
 
         return response()->json(['data' => [
@@ -183,7 +186,13 @@ class LoanController extends LoanApiController
                 'requested_by' => $disbursement->requester?->full_name,
                 'requested_at' => $disbursement->requested_at?->toDateTimeString(),
                 'completed_at' => $disbursement->completed_at?->toDateTimeString(),
+                'source_account' => $disbursement->source_account ?? LoanDisbursement::SOURCE_CASH,
+                'source_label' => $disbursement->sourceLabel(),
+                'destination' => Account::LoanReceivable->label().' - '.$loan->loan_number,
+                'journal_entry' => $disbursement->journalEntry ? $this->presentEntry($disbursement->journalEntry) : null,
             ])->values(),
+            'disbursement_chain' => $this->disbursementChain($loan),
+            'ledger' => $this->receivableLedger($loan),
             'max_disbursement_attempts' => $this->workflow->maxAttempts(),
             'topup_of' => $loan->topupOf ? ['id' => $loan->topupOf->id, 'loan_number' => $loan->topupOf->loan_number, 'status_label' => $loan->topupOf->status->label()] : null,
             'timeline' => $loan->auditLogs()->with('employee')->where('action', 'not like', 'Loan.%')->latest('id')->get()->map(fn (AuditLog $log): array => [
@@ -197,6 +206,89 @@ class LoanController extends LoanApiController
             ])->values(),
             'customer_loans' => LoanResource::collection($customer->loans()->with('category')->latest('id')->get()),
         ]]);
+    }
+
+    /**
+     * Customer → Loan → Approval → Disbursement → source account → journal entry, from the loan's own records.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function disbursementChain(Loan $loan): ?array
+    {
+        $disbursement = $loan->disbursements->firstWhere('status', LoanDisbursement::SUCCESS) ?? $loan->disbursements->last();
+        if ($disbursement === null) {
+            return null;
+        }
+
+        $approval = fn (string $action): ?array => ($log = $loan->auditLogs()->with('employee')->where('action', $action)->latest('id')->first())
+            ? ['by' => $log->employee?->full_name ?? 'SYSTEM', 'at' => $log->created_at?->toDateTimeString(), 'context' => $log->context]
+            : null;
+
+        return [
+            'customer' => ['id' => $loan->customer->id, 'name' => $loan->customer->full_name, 'code' => $loan->customer->customer_code],
+            'loan' => ['id' => $loan->id, 'loan_number' => $loan->loan_number, 'reference_number' => $loan->reference_number, 'amount_approved' => (float) $loan->amount_approved],
+            'manager_approval' => $approval('MANAGER_APPROVED'),
+            'credit_approval' => $approval('CREDIT_APPROVED'),
+            'disbursement' => [
+                'id' => $disbursement->id,
+                'batch_id' => $disbursement->batch_id,
+                'channel' => $disbursement->channel,
+                'status' => $disbursement->status,
+                'amount' => (float) $disbursement->amount,
+                'source_label' => $disbursement->sourceLabel(),
+                'destination' => Account::LoanReceivable->label().' - '.$loan->loan_number,
+                'provider_reference' => $disbursement->provider_reference,
+                'requested_by' => $disbursement->requester?->full_name,
+                'completed_at' => $disbursement->completed_at?->toDateTimeString(),
+            ],
+            'journal_entry' => $disbursement->journalEntry ? $this->presentEntry($disbursement->journalEntry) : null,
+        ];
+    }
+
+    /**
+     * The customer's loan account in the ledger: every journal entry posted for this loan or its repayments, and the
+     * LOAN RECEIVABLE balance those postings leave.
+     *
+     * @return array{receivable_balance: float, entries: list<array<string, mixed>>}
+     */
+    private function receivableLedger(Loan $loan): array
+    {
+        $entries = JournalEntry::query()
+            ->where('company_id', $loan->company_id)
+            ->where(fn (Builder $query) => $query
+                ->where(fn (Builder $inner) => $inner->where('source_type', $loan->getMorphClass())->where('source_id', $loan->id))
+                ->orWhere(fn (Builder $inner) => $inner->where('source_type', (new LoanTransaction)->getMorphClass())->whereIn('source_id', $loan->transactions()->select('id'))))
+            ->with('lines.account')
+            ->orderBy('id')
+            ->get();
+
+        $receivable = $entries->flatMap->lines->filter(fn ($line): bool => $line->account?->key === Account::LoanReceivable);
+
+        return [
+            'receivable_balance' => round((float) $receivable->sum('debit') - (float) $receivable->sum('credit'), 2),
+            'entries' => $entries->map(fn (JournalEntry $entry): array => $this->presentEntry($entry))->values()->all(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function presentEntry(JournalEntry $entry): array
+    {
+        return [
+            'id' => $entry->id,
+            'reference' => $entry->reference,
+            'description' => $entry->description,
+            'entry_date' => $entry->entry_date?->toDateString(),
+            'created_at' => $entry->created_at?->toDateTimeString(),
+            'lines' => $entry->lines->map(fn ($line): array => [
+                'key' => $line->account?->key?->value,
+                'account' => $line->account?->name,
+                'code' => $line->account?->code,
+                'debit' => (float) $line->debit,
+                'credit' => (float) $line->credit,
+            ])->values()->all(),
+        ];
     }
 
     /**

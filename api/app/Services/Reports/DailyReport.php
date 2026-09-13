@@ -27,8 +27,8 @@ use Illuminate\Support\Facades\DB;
  *   held in bank accounts, receivables and the non-cash Offset / Outstanding Interest assets, up to the day before
  *   "from" (opening) and up to "to" (closing). Opening therefore always equals the previous day's closing.
  * - Money in: CAPITAL (share capital, HQ only), TRANSFER (approved float received), DEPOSIT (loan
- *   repayments less their penalty portion, which is reported under PENARTY), AGENT (agent transactions), SAVING DEPOSIT,
- *   DEBT PENDING (salary advance repayments), LOAN FEE (loan fee ledger inflow), PENARTY (penalty payments).
+ *   repayments less their penalty portion, which is reported under PENALTY), AGENT (agent transactions), SAVING DEPOSIT,
+ *   DEBT PENDING (salary advance repayments), LOAN FEE (loan fee ledger inflow), PENALTY (penalty payments).
  * - Money out: LOAN WITHDRAWAL, SAVING WITHDRAWAL, DEBT PENDING (salary advances issued), EXPENSES
  *   (accepted expense requests), BANK (branch → bank transfers), TRANSFER (approved float sent).
  * Reversed records (reversal markers) are excluded.
@@ -85,7 +85,7 @@ class DailyReport
             'SAVING DEPOSIT' => (float) $notReversed($scoped(Saving::query()))->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
             'DEBT PENDING' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn (Builder $query) => $notReversed($scoped($query)))->whereBetween('paid_on', $range)->sum('amount'),
             'LOAN FEE' => $this->movement($companyId, $branchIds, Account::LoanFee, $from, $to),
-            'PENARTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->sum('amount'),
+            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->sum('amount'),
         ];
 
         $out = [

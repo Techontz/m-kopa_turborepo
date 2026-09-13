@@ -20,6 +20,8 @@ Route::prefix('bank')->name('bank.')->group(function (): void {
         Route::post('to-branch', 'toBranchStore')->name('to-branch.store');
         Route::get('to-hq', 'toHqIndex')->name('to-hq.index');
         Route::post('to-hq', 'toHqStore')->name('to-hq.store');
+        Route::get('company-transfers', 'companyIndex')->name('company-transfers.index');
+        Route::post('company-transfers', 'companyStore')->name('company-transfers.store');
     });
 
     Route::controller(PayrollController::class)->group(function (): void {

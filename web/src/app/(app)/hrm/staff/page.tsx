@@ -81,7 +81,7 @@ export default function AllStaffPage() {
                       ) : (
                         <button type="button" className="btn btn-danger btn-sm mr-1" title="Block" onClick={() => act.mutate({ id: row.id, action: "block" })}><i className="icon-lock" /></button>
                       )}
-                      <Link href={`/hrm/staff/${row.id}#role`} className="btn btn-info btn-sm mr-1" title="Privillage (Role)"><i className="icon-arrow-right" /></Link>
+                      <Link href={`/hrm/staff/${row.id}#role`} className="btn btn-info btn-sm mr-1" title="Privilege (Role)"><i className="icon-arrow-right" /></Link>
                       <button type="button" className="btn btn-danger btn-sm mr-1" title="Delete" onClick={async () => (await confirmAction("Are you sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                       <button type="button" className="btn btn-danger btn-sm mr-1" title="Reject" onClick={async () => (await confirmAction("Are you sure to reject?")) && act.mutate({ id: row.id, action: "reject" })}><i className="icon-close" /></button>
                       <button type="button" className="btn btn-warning btn-sm" title="Reset password" onClick={async () => (await confirmAction()) && act.mutate({ id: row.id, action: "reset-password" })}><i className="icon-key" /></button>

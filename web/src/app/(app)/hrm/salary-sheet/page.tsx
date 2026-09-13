@@ -46,13 +46,13 @@ interface Sheet {
 }
 
 const MONEY_COLUMNS: [keyof Row, string][] = [
-  ["base_salary", "Sallary Amount"],
+  ["base_salary", "Salary Amount"],
   ["commission", "Commission"],
   ["allowance", "Allowance"],
   ["staff_fund", "Staff Fund"],
-  ["salary_advance", "Sallary Advance"],
+  ["salary_advance", "Salary Advance"],
   ["deduction", "Deduction"],
-  ["loan_restoration", "Loan Restration"],
+  ["loan_restoration", "Loan Restoration"],
   ["take_home", "Take Home"],
 ];
 
@@ -80,7 +80,7 @@ export default function SalarySheetPage() {
 
   const run = sheet?.run;
   const rows = sheet?.rows;
-  const title = `Staff Sallary Sheet / ${new Date(`${period}-01`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`;
+  const title = `Staff Salary Sheet / ${new Date(`${period}-01`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}`;
 
   return (
     <>
@@ -91,7 +91,7 @@ export default function SalarySheetPage() {
         actions={
           <>
             {run?.status === "approved" && can("payroll.pay") && <HeaderButton icon="icon-pencil" title="pay salary" onClick={() => setModal("pay")} />}
-            <HeaderButton icon="icon-list" title="sallary statement" onClick={() => setModal("paid")} />
+            <HeaderButton icon="icon-list" title="salary statement" onClick={() => setModal("paid")} />
             <HeaderButton title="filter" onClick={() => setModal("filter")} />
             <HeaderButton icon="icon-printer" tone="info" title="print" onClick={() => window.print()} />
             <HeaderButton icon="icon-cloud-download" tone="secondary" title="download" onClick={() => sheet && downloadCsv(sheet)} />
@@ -106,14 +106,14 @@ export default function SalarySheetPage() {
             Payroll status: {run ? <Badge tone={statusTone(run.status)}>{run.status.toUpperCase()}</Badge> : <Badge tone="warning">NOT GENERATED (PREVIEW)</Badge>}{" "}
             {sheet && !sheet.period_closed && <Badge tone="danger">Commission: period not closed</Badge>}
             {run?.prepared_by && <small className="ml-2">Prepared: {run.prepared_by}</small>}
-            {run?.approved_by && <small className="ml-2">Aproved: {run.approved_by} ({run.approved_at})</small>}
+            {run?.approved_by && <small className="ml-2">Approved: {run.approved_by} ({run.approved_at})</small>}
             {run?.paid_by && <small className="ml-2">Paid: {run.paid_by} ({run.paid_at})</small>}
             <span className="float-right">
               {can("payroll.approve") && (!run || run.status === "draft") && (
                 <button type="button" className="btn btn-sm btn-primary mr-1" disabled={generate.isPending} onClick={() => generate.mutate({ period })}>{run ? "Re-generate" : "Generate Payroll"}</button>
               )}
               {can("payroll.approve") && run?.status === "draft" && (
-                <button type="button" className="btn btn-sm btn-success" disabled={approve.isPending} onClick={async () => (await confirmAction("Aprove payroll?", "Salaries can not be changed after approval")) && approve.mutate({ id: run.id })}>Aprove Payroll</button>
+                <button type="button" className="btn btn-sm btn-success" disabled={approve.isPending} onClick={async () => (await confirmAction("Approve payroll?", "Salaries can not be changed after approval")) && approve.mutate({ id: run.id })}>Approve Payroll</button>
               )}
             </span>
           </div>
@@ -143,7 +143,7 @@ export default function SalarySheetPage() {
         />
       </Card>
 
-      <Modal open={modal === "pay"} onClose={() => setModal(null)} title="Pay Sallary" submitLabel="Pay" submitting={pay.isPending} onSubmit={() => run && pay.mutate({ id: run.id, ac_id: "interest" }, { onSuccess: () => setModal(null) })}>
+      <Modal open={modal === "pay"} onClose={() => setModal(null)} title="Pay Salary" submitLabel="Pay" submitting={pay.isPending} onSubmit={() => run && pay.mutate({ id: run.id, ac_id: "interest" }, { onSuccess: () => setModal(null) })}>
         <span>Account:</span>
         <select className="form-control" required defaultValue="interest">
           <option value="interest">INTEREST ACC</option>
@@ -151,7 +151,7 @@ export default function SalarySheetPage() {
         <small className="text-muted">Branch staff are paid from their branch INTEREST ACC, HQ staff from the COMPANY ACCOUNT. Take home: <b>{money(sum(rows, (row) => row.take_home))}</b></small>
       </Modal>
 
-      <Modal open={modal === "paid"} onClose={() => setModal(null)} title="Sallary Paid" size="xl">
+      <Modal open={modal === "paid"} onClose={() => setModal(null)} title="Salary Paid" size="xl">
         <div className="mb-2 text-right"><HeaderButton title="filter" onClick={() => setModal("filter")} /></div>
         <DataTable
           rows={payments}
@@ -159,13 +159,13 @@ export default function SalarySheetPage() {
           columns={[
             { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
             { key: "employee", header: "Staff name" },
-            { key: "salary", header: "Sallary Amount", render: (row) => money(row.salary) },
+            { key: "salary", header: "Salary Amount", render: (row) => money(row.salary) },
             { key: "commission", header: "Commission", render: (row) => money(row.commission) },
-            { key: "salary_advance", header: "Sallary Advance", render: (row) => money(row.salary_advance) },
+            { key: "salary_advance", header: "Salary Advance", render: (row) => money(row.salary_advance) },
             { key: "allowance", header: "Allowance", render: (row) => money(row.allowance) },
             { key: "staff_fund", header: "Staff Fund", render: (row) => money(row.staff_fund) },
             { key: "deduction", header: "Deduction", render: (row) => money(row.deduction) },
-            { key: "loan_restoration", header: "Loan Restration", render: (row) => money(row.loan_restoration) },
+            { key: "loan_restoration", header: "Loan Restoration", render: (row) => money(row.loan_restoration) },
             { key: "take_home", header: "Take Home", render: (row) => money(row.take_home) },
             { key: "phone", header: "Phone no" },
             { key: "account_name", header: "Account name" },

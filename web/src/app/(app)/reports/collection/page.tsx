@@ -10,11 +10,12 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
-const STATUSES = ["PENDING", "APROVED", "DISBURSED", "ACTIVE", "DONE", "DEFALT"];
+/** Filter values stay the live API keys (APROVED / DEFALT); only the option text is corrected. */
+const STATUSES: [value: string, label: string][] = [["PENDING", "PENDING"], ["APROVED", "APPROVED"], ["DISBURSED", "DISBURSED"], ["ACTIVE", "ACTIVE"], ["DONE", "DONE"], ["DEFALT", "DEFAULT"]];
 
 /**
  * Report → Loan Collection (live admin/loan_collection). Remain Amount = outstanding principal + interest (+ insurance);
- * Penart Amount = unpaid penalty (allocation Principal → Penalty → Interest).
+ * Penalty Amount = unpaid penalty (allocation Principal → Penalty → Interest).
  */
 export default function LoanCollectionPage() {
   const [filters, setFilters] = useState<ReportFilters>({});
@@ -39,7 +40,7 @@ export default function LoanCollectionPage() {
             { key: "restoration", header: "Collection", render: (row) => money(row.restoration) },
             { key: "paid", header: "Paid Amount", render: (row) => money(row.paid) },
             { key: "remain", header: "Remain Amount", render: (row) => money(row.remain) },
-            { key: "penalty", header: "Penart Amount", render: (row) => money(row.penalty) },
+            { key: "penalty", header: "Penalty Amount", render: (row) => money(row.penalty) },
             { key: "end_date", header: "End Date" },
             { key: "status", header: "Status", render: (row) => <StatusBadge label={row.status} tone={row.status_badge} /> },
           ]}
@@ -52,7 +53,7 @@ export default function LoanCollectionPage() {
           <Field label="Loan Status" className="col-md-12">
             <select className="form-control" value={form.loan_status ?? ""} onChange={(e) => setForm({ ...form, loan_status: e.target.value })} required>
               <option value="">Select Loan Status</option>
-              {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+              {STATUSES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </Field>
         )}

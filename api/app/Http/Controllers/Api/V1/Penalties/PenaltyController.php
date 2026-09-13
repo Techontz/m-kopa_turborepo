@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Penarty → Penarty List (live admin/get_penart_list) and Paid Penarty (live admin/penart_paid_list).
+ * Penalty → Penalty List (live admin/get_penart_list) and Paid Penalty (live admin/penart_paid_list).
  */
 class PenaltyController extends ApiController
 {
@@ -54,15 +54,15 @@ class PenaltyController extends ApiController
         $remaining = round((float) $penalty->amount - (float) $penalty->paid_amount, 2);
 
         if ($penalty->is_waived || $remaining <= 0) {
-            throw ValidationException::withMessages(['penart_paid' => 'Penarty is already cleared']);
+            throw ValidationException::withMessages(['penart_paid' => 'Penalty is already cleared']);
         }
         if ($amount > $remaining + 0.001) {
-            throw ValidationException::withMessages(['penart_paid' => 'Amount is greater than penarty amount ('.money($remaining).')']);
+            throw ValidationException::withMessages(['penart_paid' => 'Amount is greater than penalty amount ('.money($remaining).')']);
         }
 
         $loans->payPenalty($penalty, $amount, CarbonImmutable::today());
 
-        return $this->message('Penarty Paid successfully');
+        return $this->message('Penalty Paid successfully');
     }
 
     /**

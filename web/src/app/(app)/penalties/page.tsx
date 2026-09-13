@@ -22,7 +22,7 @@ interface PenaltyRow {
   penalty_date: string;
 }
 
-/** Penarty → Penarty List (live admin/get_penart_list). */
+/** Penalty → Penalty List (live admin/get_penart_list). */
 export default function PenaltyListPage() {
   const [filters, setFilters] = useState<PaymentFilters>({});
   const [filtering, setFiltering] = useState(false);
@@ -35,9 +35,9 @@ export default function PenaltyListPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Penarty", "Penarty List"]} />
+      <PageHeader crumbs={["Penalty", "Penalty List"]} />
 
-      <Card title="Penarty List" actions={<SearchButton onClick={() => setFiltering(true)} />}>
+      <Card title="Penalty List" actions={<SearchButton onClick={() => setFiltering(true)} />}>
         <DataTable
           rows={rows}
           loading={isLoading}
@@ -47,7 +47,7 @@ export default function PenaltyListPage() {
             { key: "customer", header: "Customer Name" },
             { key: "branch", header: "Branch Name" },
             { key: "loan_amount", header: "Loan Amount", render: (row) => money(row.loan_amount) },
-            { key: "remaining", header: "Penart Amount", render: (row) => money(row.remaining) },
+            { key: "remaining", header: "Penalty Amount", render: (row) => money(row.remaining) },
             { key: "penalty_date", header: "Date" },
             {
               key: "action",

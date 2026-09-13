@@ -17,7 +17,7 @@ interface PaidRow {
   paid_on: string;
 }
 
-/** Penarty → Paid Penarty List (live admin/penart_paid_list). */
+/** Penalty → Paid Penalty List (live admin/penart_paid_list). */
 export default function PaidPenaltyPage() {
   const [filters, setFilters] = useState<PaymentFilters>({});
   const [filtering, setFiltering] = useState(false);
@@ -25,9 +25,9 @@ export default function PaidPenaltyPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Penarty", "Paid Penarty List"]} />
+      <PageHeader crumbs={["Penalty", "Paid Penalty List"]} />
 
-      <Card title="Paid Penarty List" actions={<SearchButton onClick={() => setFiltering(true)} />}>
+      <Card title="Paid Penalty List" actions={<SearchButton onClick={() => setFiltering(true)} />}>
         <DataTable
           rows={rows}
           loading={isLoading}

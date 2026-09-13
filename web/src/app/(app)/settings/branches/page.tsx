@@ -45,7 +45,7 @@ function BranchFields({ form, setForm, fieldError }: { form: BranchForm; setForm
         <SelectBox placeholder="Select Region" optionsUrl="options/regions" value={form.region_id} onChange={(value) => setForm({ ...form, region_id: value ?? "" })} />
       </Field>
       <Field label=" Branch Phone Number:" required className="col-md-3" error={fieldError("blanch_no")}>
-        <input type="number" className="form-control" placeholder="Blanch phone number" value={form.blanch_no} onChange={(e) => setForm({ ...form, blanch_no: e.target.value })} required />
+        <input type="number" className="form-control" placeholder="Branch phone number" value={form.blanch_no} onChange={(e) => setForm({ ...form, blanch_no: e.target.value })} required />
       </Field>
       <Field label=" Branch Type:" required className="col-md-3" error={fieldError("branch_type")}>
         <select className="form-control" value={form.branch_type} onChange={(e) => setForm({ ...form, branch_type: e.target.value })} required>

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { ContributionHistoryModal } from "@/components/capital/ContributionHistoryModal";
+import { ownershipLabel } from "@/components/capital/contributions";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -11,6 +13,7 @@ import { PassportPhotoField } from "@/components/ui/PassportPhotoField";
 import { confirmAction } from "@/components/ui/notify";
 import { backendUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
 interface ShareHolder {
@@ -24,6 +27,9 @@ interface ShareHolder {
   gender: string | null;
   date_of_birth: string | null;
   photo_endpoint: string | null;
+  total_contributed: number;
+  ownership_percent: number;
+  contributions_count: number;
 }
 
 interface HolderForm {
@@ -96,7 +102,10 @@ function HolderFields({ form, setForm, fieldError, editing, currentPhoto }: { fo
   );
 }
 
-/** Live admin/shareHolder, with the name split into first / middle / last and a passport-size photo. */
+/**
+ * Live admin/shareHolder, with the name split into first / middle / last and a passport-size photo. A shareholder
+ * record alone owns nothing: Total Contributed Capital and Ownership % come only from their capital contributions.
+ */
 export default function ShareHoldersPage() {
   const { can } = useAuth();
   const { data: holders, isLoading } = useApi<ShareHolder[]>("capital/share-holders");
@@ -104,6 +113,7 @@ export default function ShareHoldersPage() {
   const [formKey, setFormKey] = useState(0);
   const [editing, setEditing] = useState<ShareHolder | null>(null);
   const [editForm, setEditForm] = useState<HolderForm>(EMPTY);
+  const [historyOf, setHistoryOf] = useState<number | null>(null);
 
   const create = useAction<FormData>("post", "capital/share-holders");
   const update = useAction<FormData>("post", () => `capital/share-holders/${editing?.id}`);
@@ -112,10 +122,10 @@ export default function ShareHoldersPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Share Holder"]} />
+      <PageHeader crumbs={["Shareholders"]} />
 
       {canManage && (
-        <Card title="Register Share Holder">
+        <Card title="Register Shareholder">
           <form
             key={formKey}
             onSubmit={(e) => {
@@ -131,7 +141,7 @@ export default function ShareHoldersPage() {
         </Card>
       )}
 
-      <Card title="Share Holder List">
+      <Card title="Shareholder List">
         <DataTable
           rows={holders}
           loading={isLoading}
@@ -147,18 +157,26 @@ export default function ShareHoldersPage() {
                 <img src={row.photo_endpoint ? backendUrl(row.photo_endpoint) : "/assets/img/user.png"} alt={row.photo_endpoint ? row.name : "No photo"} className="img-thumbnail mf-passport-thumb" />
               ),
             },
-            { key: "name", header: "Shareholder name" },
+            { key: "first_name", header: "First Name", render: (row) => row.first_name ?? row.name },
+            { key: "middle_name", header: "Middle Name", render: (row) => row.middle_name ?? "" },
+            { key: "last_name", header: "Last Name", render: (row) => row.last_name ?? "" },
             { key: "mobile", header: "Phone number" },
             { key: "email", header: "Email" },
             { key: "gender", header: "Sex" },
             { key: "date_of_birth", header: "Date of Birth" },
+            { key: "total_contributed", header: "Total Contributed Capital", render: (row) => money(row.total_contributed) },
+            { key: "ownership_percent", header: "Ownership %", render: (row) => ownershipLabel(row.ownership_percent) },
             {
               key: "action",
               header: "Action",
               sortable: false,
               className: "text-nowrap",
-              render: (row) =>
-                canManage && (
+              render: (row) => (
+                <>
+                  <button type="button" className="btn btn-sm btn-icon btn-info mr-1" title={`Contribution history (${row.contributions_count})`} onClick={() => setHistoryOf(row.id)}>
+                    <i className="icon-list" />
+                  </button>
+                  {canManage && (
                   <>
                     <button
                       type="button"
@@ -182,7 +200,9 @@ export default function ShareHoldersPage() {
                     </button>
                     <button type="button" className="btn btn-sm btn-icon btn-danger" title="Delete" onClick={async () => (await confirmAction("Are You Sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                   </>
-                ),
+                  )}
+                </>
+              ),
             },
           ]}
         />
@@ -191,7 +211,7 @@ export default function ShareHoldersPage() {
       <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}
-        title="Edit Share Holder"
+        title="Edit Shareholder"
         size="xl"
         submitLabel="Update"
         submitting={update.isPending}
@@ -206,6 +226,8 @@ export default function ShareHoldersPage() {
           currentPhoto={editing?.photo_endpoint ? backendUrl(editing.photo_endpoint) : null}
         />
       </Modal>
+
+      <ContributionHistoryModal shareHolderId={historyOf} onClose={() => setHistoryOf(null)} />
     </>
   );
 }

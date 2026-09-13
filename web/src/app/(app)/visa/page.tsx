@@ -46,7 +46,7 @@ export default function VisaPage() {
             { key: "branch", header: "Branch", render: (row) => row.branch?.toUpperCase() },
             { key: "customer", header: "Customer name" },
             { key: "phone", header: "Phone Number" },
-            { key: "bank_account_name", header: "Acount name" },
+            { key: "bank_account_name", header: "Account name" },
             { key: "bank_password", header: "VISA" },
             {
               key: "action",

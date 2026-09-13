@@ -55,13 +55,13 @@ export default function StaffSalaryAdvancePage() {
 
   return (
     <>
-      <PageHeader crumbs={["HRM", "Sallary Advance"]} />
+      <PageHeader crumbs={["HRM", "Salary Advance"]} />
       <Card
-        title="Sallary Advance"
+        title="Salary Advance"
         actions={
           <>
             {can("hrm.manage") && <HeaderButton icon="icon-pencil" title="Request" onClick={() => setModal("request")} />}
-            <HeaderButton icon="icon-list" title="aproved List" onClick={() => setModal("approved")} />
+            <HeaderButton icon="icon-list" title="Approved List" onClick={() => setModal("approved")} />
             <HeaderButton title="filter" onClick={() => setModal("filter")} />
           </>
         }
@@ -85,7 +85,7 @@ export default function StaffSalaryAdvancePage() {
               render: (row) => (
                 <>
                   {row.status === "pending" && hr && (
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Aprove" onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className="icon-like" /></button>
+                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className="icon-like" /></button>
                   )}
                   {row.status === "approved" && finance && (
                     <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Disburse" onClick={() => setDisbursing(row)}><i className="icon-wallet" /></button>
@@ -116,7 +116,7 @@ export default function StaffSalaryAdvancePage() {
         </div>
       </Modal>
 
-      <Modal open={modal === "approved"} onClose={() => setModal(null)} title="Aproved Salary Advance" size="xl">
+      <Modal open={modal === "approved"} onClose={() => setModal(null)} title="Approved Salary Advance" size="xl">
         <DataTable
           rows={data?.disbursed}
           rowKey={(row) => row.id}

@@ -98,7 +98,7 @@ export default function SalaryAdvanceCategoriesPage() {
       <Modal
         open={creating}
         onClose={() => setCreating(false)}
-        title="Pending Debist Category"
+        title="Pending Debit Category"
         submitLabel="Save"
         submitting={create.isPending}
         onSubmit={() => create.mutate(form, { onSuccess: () => { setForm(EMPTY); setCreating(false); } })}
@@ -109,7 +109,7 @@ export default function SalaryAdvanceCategoriesPage() {
       <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}
-        title="Edit Pending Debist Category"
+        title="Edit Pending Debit Category"
         submitLabel="Update"
         submitting={update.isPending}
         onSubmit={() => editing && update.mutate({ ...editForm, id: editing.id }, { onSuccess: () => setEditing(null) })}

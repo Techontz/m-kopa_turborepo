@@ -116,7 +116,7 @@ function StatementReport() {
                       </tr>
                       <tr>
                         <td><b>Outstanding Principal:</b> {money(data.loan.outstanding.principal)}</td>
-                        <td><b>Outstanding Penarty:</b> {money(data.loan.outstanding.penalty)}</td>
+                        <td><b>Outstanding Penalty:</b> {money(data.loan.outstanding.penalty)}</td>
                         <td><b>Outstanding Interest:</b> {money(data.loan.outstanding.interest)}</td>
                         <td><b>Total Outstanding:</b> {money(data.loan.outstanding.total)} ({data.loan.status})</td>
                       </tr>
@@ -140,11 +140,11 @@ function StatementReport() {
               { key: "deposit", header: "Deposit", render: (row) => money(row.deposit) },
               { key: "withdrawal", header: "Withdrawal", render: (row) => money(row.withdrawal) },
               { key: "principal", header: "Principal", render: (row) => money(row.principal) },
-              { key: "penalty", header: "Penarty", render: (row) => money(row.penalty) },
+              { key: "penalty", header: "Penalty", render: (row) => money(row.penalty) },
               { key: "interest", header: "Interest", render: (row) => money(row.interest) },
               { key: "insurance", header: "Insurance", render: (row) => money(row.insurance) },
               { key: "balance", header: "Balance", render: (row) => money(row.balance) },
-              { key: "remain_debit", header: "Remain Debit", render: (row) => money(row.remain_debit) },
+              { key: "remain_debit", header: "Remaining Debt", render: (row) => money(row.remain_debit) },
             ]}
             footer={
               data && (

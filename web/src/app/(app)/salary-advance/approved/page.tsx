@@ -23,9 +23,9 @@ export default function SalaryAdvanceApprovedPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Salary Advance", "salary Advance Loan Aproved"]} />
+      <PageHeader crumbs={["Salary Advance", "salary Advance Loan Approved"]} />
 
-      <Card title={`Salary Advance Aproved Today / ${todayLabel()}`} actions={<HeaderButton onClick={() => setFiltering(true)} />}>
+      <Card title={`Salary Advance Approved Today / ${todayLabel()}`} actions={<HeaderButton onClick={() => setFiltering(true)} />}>
         <DataTable
           rows={advances}
           loading={isLoading}

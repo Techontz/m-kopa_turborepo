@@ -37,7 +37,7 @@ const loanColumns: Column<StaffLoan>[] = [
   { key: "branch", header: "Branch" },
   { key: "employee", header: "Staff name" },
   { key: "amount_applied", header: "How loan", render: (row) => money(row.amount_applied) },
-  { key: "amount_approved", header: "Loan Aproved", render: (row) => money(row.amount_approved) },
+  { key: "amount_approved", header: "Loan Approved", render: (row) => money(row.amount_approved) },
   { key: "sessions", header: "No.Repayment", render: (row) => `${capitalize(row.duration)} / ${row.sessions}` },
   { key: "total_payable", header: "Loan + interest", render: (row) => money(row.total_payable) },
 ];
@@ -65,7 +65,7 @@ export default function StaffLoanPage() {
         actions={
           <>
             <HeaderButton title="filter loan" onClick={() => setModal("filter")} />
-            <HeaderButton icon="icon-list" title="Aproved List" onClick={() => setModal("approved")} />
+            <HeaderButton icon="icon-list" title="Approved List" onClick={() => setModal("approved")} />
             <Link href="/hrm/staff-loans/active" className="btn btn-warning btn-sm ml-1" title="Active loan"><i className="icon-arrow-right" /></Link>
             {can("hrm.manage") && <HeaderButton icon="icon-plus" title="Apply loan" onClick={() => setModal("apply")} />}
           </>
@@ -87,7 +87,7 @@ export default function StaffLoanPage() {
               render: (row) => (
                 <>
                   {row.status === "pending" && hr && (
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Aprove" onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className="icon-like" /></button>
+                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className="icon-like" /></button>
                   )}
                   {row.status === "approved" && finance && (
                     <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Disburse from Staff Fund" onClick={async () => (await confirmAction("Disburse from Staff Fund?")) && act.mutate({ id: row.id, action: "disburse" })}><i className="icon-wallet" /></button>
@@ -130,7 +130,7 @@ export default function StaffLoanPage() {
         </div>
       </Modal>
 
-      <Modal open={modal === "approved"} onClose={() => setModal(null)} title="Aproved Staff Loan" size="xl">
+      <Modal open={modal === "approved"} onClose={() => setModal(null)} title="Approved Staff Loan" size="xl">
         <DataTable
           rows={data?.disbursed}
           rowKey={(row) => row.id}

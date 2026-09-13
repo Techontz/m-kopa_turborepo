@@ -38,7 +38,7 @@ use Throwable;
  *  - cash confirmed:            Dr Bank (slip bank A/C)          Cr Teller Cash
  *  - unmatched / excess money:  Dr Bank                          Cr Suspense
  *  - any allocation to a loan:  Dr Suspense                      Cr Bank, then LoanService::deposit()
- *    (Dr Principal/Penarty/Interest/Insurance A/C, Cr Loan Receivable / income) — so held money moves
+ *    (Dr Principal/Penalty/Interest/Insurance A/C, Cr Loan Receivable / income) — so held money moves
  *    into the branch fund accounts exactly like a live teller deposit.
  *  - rejected teller cash:      Ledger::reverse() of the receipt entry.
  * Inferred: the bank leg is posted against the bank account on the slip (or the company-level bank

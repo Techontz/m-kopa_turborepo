@@ -16,7 +16,7 @@ function ReserveForm({ reserve }: { reserve: number }) {
         <div className="col-md-12 col-12">
           <div className="form-group">
             <span>Reserve Percentage</span>
-            <input className="form-control" placeholder="Enter Recerve Percentage % " value={value} onChange={(e) => setValue(e.target.value)} required autoComplete="off" />
+            <input className="form-control" placeholder="Enter Reserve Percentage % " value={value} onChange={(e) => setValue(e.target.value)} required autoComplete="off" />
             {update.fieldError("reserve") && <div className="field-error">{update.fieldError("reserve")}</div>}
           </div>
         </div>

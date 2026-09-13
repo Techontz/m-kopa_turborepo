@@ -46,7 +46,7 @@ class LoanLifecycleApiTest extends TestCase
 
         $this->getJson(route('api.v1.loans.index', ['stage' => 'pending']))->assertOk()->assertJsonPath('data.0.loan_number', $loan->loan_number);
 
-        $this->postJson(route('api.v1.loans.approve-manager', $loan), ['loan_aprove' => 100000])->assertOk()->assertJsonPath('message', 'Loan Aproved successfully');
+        $this->postJson(route('api.v1.loans.approve-manager', $loan), ['loan_aprove' => 100000])->assertOk()->assertJsonPath('message', 'Loan Approved successfully');
         $this->assertSame(LoanStatus::PendingCreditReview, $loan->fresh()->status);
 
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertUnprocessable();

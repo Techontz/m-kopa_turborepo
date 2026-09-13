@@ -130,6 +130,3 @@
 /* ---------------------------------------------------------------- Scrollbars */
 :root[data-theme="dark"] .table-responsive::-webkit-scrollbar { height: 8px; }
 :root[data-theme="dark"] .table-responsive::-webkit-scrollbar-thumb { background: var(--mf-border-strong); border-radius: 4px; }
-
-/* ---------------------------------------------------------------- Brand logo (dark lettering) */
-:root[data-theme="dark"] .navbar-brand img { background: #fff; border-radius: 4px; padding: 2px 5px; box-sizing: content-box; }

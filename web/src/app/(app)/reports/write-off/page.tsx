@@ -39,8 +39,8 @@ const BASE: Column<WriteOffRow>[] = [
 ];
 
 /**
- * Report → Wright-off Loan (live admin/write_off_data) with the live "Bad Debit" and "Bad Debit Done" tabs.
- * Bad Debit Done = written-off debt fully recovered.
+ * Report → Write-off Loan (live admin/write_off_data) with the live "Bad Debt" and "Bad Debt Done" tabs.
+ * Bad Debt Done = written-off debt fully recovered.
  */
 export default function WriteOffPage() {
   const [tab, setTab] = useState<Tab>("write-off");
@@ -54,7 +54,7 @@ export default function WriteOffPage() {
         ...BASE,
         { key: "amount", header: "bad debit Amount", render: (row) => money(row.amount) },
         { key: "recovered_amount", header: "paid Amount", render: (row) => money(row.recovered_amount) },
-        { key: "start_date", header: "Satart date" },
+        { key: "start_date", header: "Start date" },
         { key: "end_date", header: "End date" },
         { key: "employee", header: "employee" },
         { key: "description", header: "Desc" },
@@ -62,17 +62,17 @@ export default function WriteOffPage() {
       ]
     : [
         ...BASE,
-        { key: "amount", header: "Wright-off Amount", render: (row) => money(row.amount) },
-        { key: "start_date", header: "Satart date" },
+        { key: "amount", header: "Write-off Amount", render: (row) => money(row.amount) },
+        { key: "start_date", header: "Start date" },
         { key: "end_date", header: "End date" },
       ];
 
   return (
     <>
-      <PageHeader crumbs={["Report", done ? "Bad Debit Done" : "Wright-off"]} />
-      <ReportTabs tabs={[["write-off", "Write-off loan"], ["bad-debit", "Bad Debit"], ["done", "Bad Debit Done"]]} value={tab} onChange={setTab} />
+      <PageHeader crumbs={["Report", done ? "Bad Debt Done" : "Write-off"]} />
+      <ReportTabs tabs={[["write-off", "Write-off loan"], ["bad-debit", "Bad Debt"], ["done", "Bad Debt Done"]]} value={tab} onChange={setTab} />
 
-      <PaneCard title={{ "write-off": "Write-off Loan", "bad-debit": "Bad Debit", done: "Bad Debit Done" }[tab]} actions={!done && <SearchButton onClick={() => setFiltering(true)} />}>
+      <PaneCard title={{ "write-off": "Write-off Loan", "bad-debit": "Bad Debt", done: "Bad Debt Done" }[tab]} actions={!done && <SearchButton onClick={() => setFiltering(true)} />}>
         <DataTable
           key={tab}
           rows={data?.rows}

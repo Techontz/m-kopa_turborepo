@@ -19,7 +19,7 @@ interface Receipt {
   outstanding: { principal: number; penalty: number; interest: number; insurance: number; total: number } | null;
 }
 
-/** Teller cash receipt ("Do you wan`t recept?") — printable, marked PENDING_VERIFICATION until Finance confirms. */
+/** Teller cash receipt ("Do you want a receipt?") — printable, marked PENDING_VERIFICATION until Finance confirms. */
 export function ReceiptModal({ paymentId, onClose }: { paymentId: number | null; onClose: () => void }) {
   const { data: receipt } = useApi<Receipt>(paymentId ? `teller/receipts/${paymentId}` : null);
 
@@ -38,7 +38,7 @@ export function ReceiptModal({ paymentId, onClose }: { paymentId: number | null;
               <tr><td>Date</td><td>{receipt.paid_on}</td></tr>
               <tr><td>Teller</td><td>{receipt.employee}</td></tr>
               <tr><td>Status</td><td>{receipt.status_label}</td></tr>
-              {receipt.outstanding && <tr><td>Remain Debit</td><td>{money(receipt.outstanding.total)}</td></tr>}
+              {receipt.outstanding && <tr><td>Remaining Debt</td><td>{money(receipt.outstanding.total)}</td></tr>}
             </tbody>
           </table>
           <div className="text-center">

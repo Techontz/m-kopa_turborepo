@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1\Loans;
 
 use App\Models\Loan;
+use App\Models\LoanDisbursement;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -66,6 +67,12 @@ class LoanResource extends JsonResource
                 'amount' => (float) $this->latestDisbursement->amount,
                 'status' => $this->latestDisbursement->status,
                 'failure_reason' => $this->latestDisbursement->failure_reason,
+                'source_account' => $this->latestDisbursement->source_account ?? LoanDisbursement::SOURCE_CASH,
+                'source_bank_account_id' => $this->latestDisbursement->source_bank_account_id,
+                'source_label' => $this->latestDisbursement->sourceLabel(),
+                'provider_reference' => $this->latestDisbursement->provider_reference,
+                'journal_reference' => $this->latestDisbursement->journalEntry?->reference,
+                'completed_at' => $this->latestDisbursement->completed_at?->toDateTimeString(),
             ] : null),
             'days_past_due' => (int) $this->days_past_due,
             'topup_of_loan_id' => $this->topup_of_loan_id,

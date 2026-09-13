@@ -8,7 +8,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Live "Transifor Float From Ac-Ac" form (admin/transfor_float_acc_acc): PRINCIPAL ↔ INTEREST within a branch.
+ * Live "Transfer Float From Ac-Ac" form (admin/transfor_float_acc_acc): PRINCIPAL ↔ INTEREST within a branch.
  */
 class AccountFloatRequest extends FormRequest
 {

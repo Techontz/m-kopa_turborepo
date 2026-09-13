@@ -2,12 +2,14 @@
 
 namespace App\Services;
 
+use App\Enums\Account;
 use App\Enums\LoanStatus;
 use App\Integrations\BankMandate\BankMandateGateway;
 use App\Integrations\Sms\SmsGateway;
 use App\Integrations\Vodacom\DisbursementCallback;
 use App\Integrations\Vodacom\VodacomGateway;
 use App\Models\AuditLog;
+use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\Loan;
@@ -30,6 +32,13 @@ use Illuminate\Validation\ValidationException;
  *
  * Every transition is written to the audit trail (audit_logs, auditable = loan). No ledger entry is posted before a
  * disbursement succeeds; the posting itself is LoanService::withdraw().
+ *
+ * Disbursement source: Finance chooses where the money is paid from when preparing (and may change it before sending):
+ * "cash" = the loan branch's PRINCIPAL A/C — the branch lending cash fund that the COMPANY ACCOUNT floats money into
+ * (FloatService) and bank → branch transfers top up — or "bank" = a company bank account. The source is stored on the
+ * batch, its balance is checked before money is sent, and on success the batch keeps the journal entry
+ * (Dr LOAN RECEIVABLE / Cr source). A loan is posted once: batch and loan rows are locked and a loan that already has
+ * a successful batch is never posted again (duplicate callbacks, retries and double clicks create no second entry).
  */
 class LoanWorkflow
 {
@@ -182,7 +191,7 @@ class LoanWorkflow
         $loan->loadMissing(['category', 'customer']);
 
         if (! $this->eligibility->for($loan->customer)['kyc_complete']) {
-            throw ValidationException::withMessages(['loan_aprove' => 'Please wait for the customer`s KYC to be Verfied!']);
+            throw ValidationException::withMessages(['loan_aprove' => "Please wait for the customer's KYC to be verified!"]);
         }
         if ($approvedAmount > (float) $loan->category->amount_to) {
             throw ValidationException::withMessages(['loan_aprove' => 'Approved loan must not exceed '.money($loan->category->amount_to)]);
@@ -339,14 +348,18 @@ class LoanWorkflow
     /**
      * Finance: POST /loans/{id}/prepare-disbursement — generates the batch id.
      */
-    public function prepareDisbursement(Loan $loan, Employee $employee): LoanDisbursement
+    /**
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source
+     */
+    public function prepareDisbursement(Loan $loan, Employee $employee, ?array $source = null): LoanDisbursement
     {
-        return DB::transaction(function () use ($loan, $employee): LoanDisbursement {
+        return DB::transaction(function () use ($loan, $employee, $source): LoanDisbursement {
             $loan = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($loan, LoanStatus::PendingFinance);
 
-            $disbursement = $this->newBatch($loan, 'vodacom', $employee);
-            $this->transition($loan, LoanStatus::AwaitingDisbursement, 'DISBURSEMENT_PREPARED', $employee, ['batch_id' => $disbursement->batch_id, 'amount' => (float) $disbursement->amount]);
+            $disbursement = $this->newBatch($loan, 'vodacom', $employee, $source);
+            $this->assertSourceFunds($loan, $disbursement);
+            $this->transition($loan, LoanStatus::AwaitingDisbursement, 'DISBURSEMENT_PREPARED', $employee, ['batch_id' => $disbursement->batch_id, 'amount' => (float) $disbursement->amount, 'source' => $disbursement->sourceLabel()]);
 
             return $disbursement;
         });
@@ -356,11 +369,12 @@ class LoanWorkflow
      * Finance taps "Disburse": POST /vodacom/disbursement-request, then completes it in the Vodacom portal.
      * The result arrives on the callback (the test driver may simulate it immediately).
      *
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  changes the prepared batch's source
      * @return array{status: LoanStatus, message: string, portal_url: string|null, batch_id: string}
      */
-    public function requestDisbursement(Loan $loan, Employee $employee): array
+    public function requestDisbursement(Loan $loan, Employee $employee, ?array $source = null): array
     {
-        $disbursement = DB::transaction(function () use ($loan, $employee): LoanDisbursement {
+        $disbursement = DB::transaction(function () use ($loan, $employee, $source): LoanDisbursement {
             $locked = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($locked, LoanStatus::AwaitingDisbursement);
             $disbursement = $locked->latestDisbursement()->lockForUpdate()->first();
@@ -369,8 +383,13 @@ class LoanWorkflow
                 throw ValidationException::withMessages(['loan' => 'This disbursement has already been sent to Vodacom']);
             }
 
+            if ($source !== null && filled($source['source_account'] ?? null)) {
+                $disbursement->update($this->resolveSource($locked, $source));
+            }
+            $this->assertSourceFunds($locked, $disbursement);
+
             $disbursement->update(['status' => LoanDisbursement::REQUESTED, 'requested_by' => $employee->id, 'requested_at' => now()]);
-            $this->record($locked, 'DISBURSEMENT_REQUESTED', $locked->status, $employee, ['batch_id' => $disbursement->batch_id, 'attempt' => $disbursement->attempt]);
+            $this->record($locked, 'DISBURSEMENT_REQUESTED', $locked->status, $employee, ['batch_id' => $disbursement->batch_id, 'attempt' => $disbursement->attempt, 'source' => $disbursement->sourceLabel()]);
 
             return $disbursement;
         });
@@ -429,11 +448,12 @@ class LoanWorkflow
      * Documents: "IF status == DISBURSEMENT_FAILED → allow retry ELSE reject"; max 3 attempts; each retry has a new
      * batch id and an audit record {action: RETRY_DISBURSEMENT, user, timestamp, batch_id, attempt}. Finance edits nothing.
      *
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  defaults to the previous batch's source
      * @return array{status: LoanStatus, message: string, portal_url: string|null, batch_id: string}
      */
-    public function retryDisbursement(Loan $loan, Employee $employee): array
+    public function retryDisbursement(Loan $loan, Employee $employee, ?array $source = null): array
     {
-        DB::transaction(function () use ($loan, $employee): void {
+        DB::transaction(function () use ($loan, $employee, $source): void {
             $locked = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($locked, LoanStatus::DisbursementFailed);
 
@@ -441,7 +461,8 @@ class LoanWorkflow
                 throw ValidationException::withMessages(['loan' => 'Maximum disbursement retries reached']);
             }
 
-            $disbursement = $this->newBatch($locked, 'vodacom', $employee);
+            $disbursement = $this->newBatch($locked, 'vodacom', $employee, $source);
+            $this->assertSourceFunds($locked, $disbursement);
             $this->transition($locked, LoanStatus::AwaitingDisbursement, 'RETRY_DISBURSEMENT', $employee, [
                 'user' => $employee->full_name,
                 'timestamp' => now()->toIso8601String(),
@@ -456,17 +477,19 @@ class LoanWorkflow
     /**
      * Manual decision on an ESCALATED disbursement: cancel the loan, move it to suspense, or pay through a
      * different channel (Airtel, bank or branch cash with a withdrawal code).
+     *
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  source account for the new channel
      */
-    public function resolveEscalation(Loan $loan, string $action, ?string $channel, string $reason, Employee $employee): Loan
+    public function resolveEscalation(Loan $loan, string $action, ?string $channel, string $reason, Employee $employee, ?array $source = null): Loan
     {
-        return DB::transaction(function () use ($loan, $action, $channel, $reason, $employee): Loan {
+        return DB::transaction(function () use ($loan, $action, $channel, $reason, $employee, $source): Loan {
             $loan = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($loan, LoanStatus::Escalated);
 
             match ($action) {
                 'cancel' => $this->cancel($loan, $reason, $employee),
                 'suspense' => $this->transition($loan, LoanStatus::DisbursementSuspense, 'MOVED_TO_SUSPENSE', $employee, ['reason' => $reason]),
-                'other_channel' => $this->switchChannel($loan, (string) $channel, $reason, $employee),
+                'other_channel' => $this->switchChannel($loan, (string) $channel, $reason, $employee, $source),
                 default => throw ValidationException::withMessages(['action' => 'Unknown action']),
             };
 
@@ -497,6 +520,7 @@ class LoanWorkflow
         if ($disbursement === null || ! in_array($disbursement->channel, ['airtel', 'bank'], true) || $disbursement->status !== LoanDisbursement::REQUESTED) {
             throw ValidationException::withMessages(['reference' => 'This loan is not waiting for a manual disbursement']);
         }
+        $this->assertSourceFunds($loan, $disbursement);
 
         $this->completeDisbursement($disbursement, $reference, $employee);
 
@@ -517,6 +541,7 @@ class LoanWorkflow
         if ($loan->withdrawal_code === null || ! hash_equals($loan->withdrawal_code, $code)) {
             throw ValidationException::withMessages(['code' => 'Invalid withdrawal code']);
         }
+        $this->assertSourceFunds($loan, $disbursement);
 
         $this->completeDisbursement($disbursement, 'CASH-'.$disbursement->batch_id, $employee);
 
@@ -559,6 +584,44 @@ class LoanWorkflow
         return round(max(0, (float) $loan->amount_approved - $fee - $topup), 2);
     }
 
+    /**
+     * Amount the source account decreases by when the loan is posted: the full principal from the branch PRINCIPAL
+     * A/C (a deducted fee is kept in the branch LOAN FEE A/C), or principal less the deducted fee from a bank account.
+     */
+    public function sourceOutflow(Loan $loan, string $sourceAccount): float
+    {
+        $fee = $loan->fee_deduct ? (float) $loan->loan_fee : 0.0;
+
+        return round($sourceAccount === LoanDisbursement::SOURCE_BANK ? (float) $loan->amount_approved - $fee : (float) $loan->amount_approved, 2);
+    }
+
+    /**
+     * Accounts Finance may disburse from, with live balances and the amount this loan needs from each.
+     *
+     * @return array{cash: array{value: string, label: string, balance: float, required: float}, banks: list<array{value: string, label: string, balance: float, required: float}>}
+     */
+    public function sourceOptions(Loan $loan): array
+    {
+        $loan->loadMissing('branch');
+        $ledger = app(Ledger::class);
+
+        return [
+            'cash' => [
+                'value' => LoanDisbursement::SOURCE_CASH,
+                'label' => Account::Principal->label().' (CASH) - '.$loan->branch?->name,
+                'balance' => $ledger->balance($loan->company_id, Account::Principal, $loan->branch_id) + 0.0,
+                'required' => $this->sourceOutflow($loan, LoanDisbursement::SOURCE_CASH),
+            ],
+            'banks' => BankAccount::where('company_id', $loan->company_id)->orderBy('id')->get()
+                ->map(fn (BankAccount $account): array => [
+                    'value' => (string) $account->id,
+                    'label' => $account->name,
+                    'balance' => $account->balance() + 0.0,
+                    'required' => $this->sourceOutflow($loan, LoanDisbursement::SOURCE_BANK),
+                ])->values()->all(),
+        ];
+    }
+
     public function maxAttempts(): int
     {
         return (int) config('integrations.vodacom.max_disbursement_attempts', 3);
@@ -591,11 +654,20 @@ class LoanWorkflow
             }
 
             $loan = Loan::lockForUpdate()->with(['topupOf', 'customer', 'company'])->findOrFail($disbursement->loan_id);
+            if (LoanDisbursement::where('loan_id', $loan->id)->where('status', LoanDisbursement::SUCCESS)->exists()) {
+                return;
+            }
+
             $today = CarbonImmutable::today();
             $previous = $loan->topupOf;
 
-            $disbursement->update(['status' => LoanDisbursement::SUCCESS, 'provider_reference' => $providerReference ?? $disbursement->provider_reference, 'completed_at' => now()]);
-            $this->loans->withdraw($loan, $today, $employee, 'LOAN DISBURSEMENT', $disbursement->channel);
+            $entry = $this->loans->withdraw($loan, $today, $employee, 'LOAN DISBURSEMENT', $disbursement->channel, $disbursement->ledgerSource());
+            $disbursement->update([
+                'status' => LoanDisbursement::SUCCESS,
+                'provider_reference' => $providerReference ?? $disbursement->provider_reference,
+                'completed_at' => now(),
+                'journal_entry_id' => $entry->id,
+            ]);
 
             if ($previous !== null && in_array($previous->status, LoanStatus::repayable(), true)) {
                 $balance = $this->loans->outstanding($previous)['total'];
@@ -612,6 +684,8 @@ class LoanWorkflow
                 'channel' => $disbursement->channel,
                 'amount' => (float) $disbursement->amount,
                 'provider_reference' => $disbursement->provider_reference,
+                'source' => $disbursement->sourceLabel(),
+                'journal_reference' => $entry->reference,
             ]);
 
             $this->notify($loan, 'Mkopo wako wa TSH '.money($loan->amount_approved).' umetolewa. Umepokea TSH '.money($disbursement->amount)
@@ -647,13 +721,17 @@ class LoanWorkflow
         $this->transition($loan, LoanStatus::Cancelled, 'CANCELLED', $employee, ['reason' => $reason]);
     }
 
-    private function switchChannel(Loan $loan, string $channel, string $reason, Employee $employee): void
+    /**
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source
+     */
+    private function switchChannel(Loan $loan, string $channel, string $reason, Employee $employee, ?array $source = null): void
     {
         if (! in_array($channel, ['airtel', 'bank', 'cash'], true)) {
             throw ValidationException::withMessages(['channel' => 'Select a valid channel']);
         }
 
-        $disbursement = $this->newBatch($loan, $channel, $employee);
+        $disbursement = $this->newBatch($loan, $channel, $employee, $source);
+        $this->assertSourceFunds($loan, $disbursement);
         $disbursement->update(['status' => LoanDisbursement::REQUESTED, 'requested_by' => $employee->id, 'requested_at' => now()]);
 
         if ($channel === 'cash') {
@@ -668,9 +746,16 @@ class LoanWorkflow
         }
     }
 
-    private function newBatch(Loan $loan, string $channel, ?Employee $employee): LoanDisbursement
+    /**
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  defaults to the previous batch's source, else branch cash
+     */
+    private function newBatch(Loan $loan, string $channel, ?Employee $employee, ?array $source = null): LoanDisbursement
     {
         $attempt = (int) $loan->disbursement_attempts + 1;
+        $previous = $loan->latestDisbursement()->first();
+        $source = filled($source['source_account'] ?? null)
+            ? $this->resolveSource($loan, $source)
+            : ['source_account' => $previous?->source_account ?? LoanDisbursement::SOURCE_CASH, 'source_bank_account_id' => $previous?->source_bank_account_id];
         $prefix = match ($channel) {
             'airtel' => 'AIRT',
             'bank' => 'BANK',
@@ -689,7 +774,43 @@ class LoanWorkflow
             'amount' => $this->netDisbursement($loan),
             'status' => LoanDisbursement::PREPARED,
             'prepared_by' => $employee?->id,
-        ]);
+        ] + $source);
+    }
+
+    /**
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}  $source
+     * @return array{source_account: string, source_bank_account_id: int|null}
+     */
+    private function resolveSource(Loan $loan, array $source): array
+    {
+        $account = (string) ($source['source_account'] ?? '');
+        if (! in_array($account, [LoanDisbursement::SOURCE_CASH, LoanDisbursement::SOURCE_BANK], true)) {
+            throw ValidationException::withMessages(['source_account' => 'Select the account the loan is disbursed from']);
+        }
+        if ($account === LoanDisbursement::SOURCE_CASH) {
+            return ['source_account' => $account, 'source_bank_account_id' => null];
+        }
+
+        $bank = BankAccount::where('company_id', $loan->company_id)->find($source['source_bank_account_id'] ?? null);
+        if ($bank === null) {
+            throw ValidationException::withMessages(['source_bank_account_id' => 'Select the company bank account the loan is disbursed from']);
+        }
+
+        return ['source_account' => $account, 'source_bank_account_id' => $bank->id];
+    }
+
+    /**
+     * The chosen source must hold what the posting takes from it before any money is sent.
+     */
+    private function assertSourceFunds(Loan $loan, LoanDisbursement $disbursement): void
+    {
+        $source = $disbursement->ledgerSource();
+        $required = $this->sourceOutflow($loan, (string) ($disbursement->source_account ?? LoanDisbursement::SOURCE_CASH));
+        $available = app(Ledger::class)->balance($loan->company_id, $source['account'], $source['branch'] ?? null, $source['bank'] ?? null);
+
+        if ($available + 0.001 < $required) {
+            throw ValidationException::withMessages(['source_account' => 'Insufficient balance in '.$disbursement->sourceLabel().': available '.money($available).', required '.money($required)]);
+        }
     }
 
     /**

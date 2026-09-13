@@ -91,11 +91,11 @@ class PayrollController extends HrmController
 
         $this->payroll->approve($run, $this->currentEmployee());
 
-        return $this->message('Payroll Aproved successfully');
+        return $this->message('Payroll Approved successfully');
     }
 
     /**
-     * "Pay Sallary" modal. Branch staff are paid from their branch INTEREST ACC, HQ staff from the COMPANY ACCOUNT.
+     * "Pay Salary" modal. Branch staff are paid from their branch INTEREST ACC, HQ staff from the COMPANY ACCOUNT.
      */
     public function pay(Request $request, PayrollRun $run): JsonResponse
     {
@@ -109,7 +109,7 @@ class PayrollController extends HrmController
     }
 
     /**
-     * "Sallary Paid" statement (live filter_salary_paid) and salary slips.
+     * "Salary Paid" statement (live filter_salary_paid) and salary slips.
      */
     public function payments(Request $request): AnonymousResourceCollection
     {

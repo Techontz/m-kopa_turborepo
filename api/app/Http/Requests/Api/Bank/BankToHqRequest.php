@@ -7,7 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Bank → Transfor Balance /Salary advance & disbursement Acc.
+ * Bank → Transfer Balance /Salary advance & disbursement Acc.
  */
 class BankToHqRequest extends FormRequest
 {

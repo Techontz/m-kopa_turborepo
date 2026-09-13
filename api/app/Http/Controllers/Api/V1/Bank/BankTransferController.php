@@ -7,9 +7,11 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Bank\BankToBranchRequest;
 use App\Http\Requests\Api\Bank\BankToHqRequest;
 use App\Http\Requests\Api\Bank\BranchToBankRequest;
+use App\Http\Requests\Api\Bank\CompanyFundTransferRequest;
 use App\Http\Resources\Api\V1\Bank\BankTransferResource;
 use App\Models\BankAccount;
 use App\Models\BankTransfer;
+use App\Services\CompanyFunds;
 use App\Services\Ledger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -18,9 +20,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Bank → Bank Transaction / Aproved Transaction (branch → bank, request then approve),
- * Transfor Balance /Branch Acc (bank → branch PRINCIPAL A/C) and
- * Transfor Balance /Salary advance & disbursement Acc (bank → HQ account).
+ * Bank → Bank Transaction / Approved Transaction (branch → bank, request then approve),
+ * Transfer Balance /Branch Acc (bank → branch PRINCIPAL A/C) and
+ * Transfer Balance /Salary advance & disbursement Acc (bank → HQ account) and
+ * Company Cash ↔ Bank (COMPANY ACCOUNT ↔ bank account, {@see CompanyFunds}).
  */
 class BankTransferController extends ApiController
 {
@@ -102,7 +105,7 @@ class BankTransferController extends ApiController
             $transfer->update(['status' => 'approved', 'approved_by' => $this->currentEmployee()->id]);
         });
 
-        return $this->message('Transaction Aproved successfully');
+        return $this->message('Transaction Approved successfully');
     }
 
     public function destroy(BankTransfer $bankTransfer): JsonResponse
@@ -111,7 +114,7 @@ class BankTransferController extends ApiController
         $this->assertTransferVisible($bankTransfer);
 
         if ($bankTransfer->status !== 'pending') {
-            return $this->message('Aproved transaction cannot be deleted', 422);
+            return $this->message('Approved transaction cannot be deleted', 422);
         }
 
         $bankTransfer->delete();
@@ -212,6 +215,50 @@ class BankTransferController extends ApiController
         });
 
         return $this->message('Transaction Sent successfully', 201);
+    }
+
+    /**
+     * Company Cash ↔ Bank: movements between the COMPANY ACCOUNT and company bank accounts (both directions).
+     */
+    public function companyIndex(Request $request): JsonResponse
+    {
+        $this->authorizeAny('bank.manage');
+        $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date']]);
+
+        $query = BankTransfer::query()
+            ->where('company_id', $this->currentEmployee()->company_id)
+            ->whereIn('type', [CompanyFunds::CASH_TO_BANK, CompanyFunds::BANK_TO_CASH])
+            ->with(['bankAccount', 'employee', 'journalEntry'])
+            ->latest('id');
+
+        $transfers = $this->applyFilters($query, $request->merge(['branch_id' => null]), 'transfer_date')->get();
+
+        return response()->json([
+            'data' => BankTransferResource::collection($transfers),
+            'total' => round((float) $transfers->sum('amount'), 2),
+            'company_cash_balance' => $this->ledger->balance($this->currentEmployee()->company_id, Account::Company) + 0.0,
+        ]);
+    }
+
+    public function companyStore(CompanyFundTransferRequest $request, CompanyFunds $funds): JsonResponse
+    {
+        $this->authorizeAny('bank.manage');
+
+        $result = $funds->transfer(
+            $this->currentEmployee()->company_id,
+            $request->string('direction')->toString(),
+            $request->integer('bank_account_id'),
+            $request->float('amount'),
+            $this->currentEmployee(),
+            $request->input('reference'),
+            $request->input('idempotency_key'),
+        );
+
+        return $this->message(
+            $result['created'] ? 'Transfer Completed successfully' : 'Transfer was already recorded',
+            $result['created'] ? 201 : 200,
+            ['data' => new BankTransferResource($result['transfer']->load(['bankAccount', 'employee', 'journalEntry']))],
+        );
     }
 
     /**

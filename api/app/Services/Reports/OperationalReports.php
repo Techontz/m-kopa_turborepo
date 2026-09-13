@@ -231,7 +231,7 @@ class OperationalReports
     }
 
     /**
-     * Wright-off Loan (open write-offs) / Bad Debit Done (written-off debt fully recovered; inferred).
+     * Write-off Loan (open write-offs) / Bad Debt Done (written-off debt fully recovered; inferred).
      *
      * @return array{rows: list<array<string, mixed>>, totals: array{amount: float, recovered_amount: float}}
      */

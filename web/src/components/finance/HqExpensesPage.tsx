@@ -28,10 +28,10 @@ interface RequestForm {
 
 const EMPTY: RequestForm = { scope: "hq", blanch_id: "", ex_id: "", req_amount: "", req_description: "" };
 
-/** Headquater Expenses → All Expenses Requested (live get_hq_expenses_request) / All Aproved Expenses (get_hq_expenses_aproved). */
+/** Headquarters Expenses → All Expenses Requested (live get_hq_expenses_request) / All Approved Expenses (get_hq_expenses_aproved). */
 export function HqExpensesPage({ approved }: { approved: boolean }) {
   const { can } = useAuth();
-  const heading = approved ? "Headquater Aproved Expenses" : "Headquater Recomended Expenses";
+  const heading = approved ? "Headquarters Approved Expenses" : "Headquarters Recommended Expenses";
   const [filters, setFilters] = useState<Filters>({});
   const [modal, setModal] = useState<"filter" | "request" | null>(null);
   const [form, setForm] = useState<RequestForm>(EMPTY);
@@ -57,7 +57,7 @@ export function HqExpensesPage({ approved }: { approved: boolean }) {
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "description", header: "Description" },
             { key: "staff", header: "Staff" },
-            { key: "status", header: "status", render: (row) => (row.status === "accepted" ? <Badge tone="success">APROVED</Badge> : <Badge tone="danger">NOT APROVED</Badge>) },
+            { key: "status", header: "status", render: (row) => (row.status === "accepted" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">NOT APPROVED</Badge>) },
             { key: "request_date", header: "Date" },
             {
               key: "action",

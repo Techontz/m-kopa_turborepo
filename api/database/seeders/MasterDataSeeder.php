@@ -73,7 +73,7 @@ class MasterDataSeeder extends Seeder
             'branch_id' => $branches->first()->id,
             'employee_number' => 'MK-0012024',
             'first_name' => 'ADMIN',
-            'last_name' => 'MIKOPOFASTA',
+            'last_name' => 'M-KOPA',
             'email' => config('demo.admin_email'),
             'username' => 'admin',
             'gender' => 'male',

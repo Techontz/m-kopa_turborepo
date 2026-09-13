@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { DisbursementChainCard } from "@/components/loans/DisbursementChainCard";
 import { LoanActions } from "@/components/loans/LoanActions";
 import { LoanFormFields } from "@/components/loans/LoanFormFields";
 import { LoanSecurities } from "@/components/loans/LoanSecurities";
@@ -130,8 +131,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
               <b>District:</b> {customer.district}<br />
               <b>Ward:</b> {customer.ward}<br />
               <b>Street:</b> {customer.street}<br />
-              <b>Place of bussiness:</b> {customer.place_of_business}<br />
-              <small>(NIDA) / Voter ID / Driver `s Lisence - {customer.id_number}</small>
+              <b>Place of business:</b> {customer.place_of_business}<br />
+              <small>(NIDA) / Voter ID / Driver&apos;s Licence - {customer.id_number}</small>
             </div>
             <div className="col-md-4">
               <b>Phone number:</b> {customer.phone}<br />
@@ -150,7 +151,7 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
       <Card>
         <div className="table-responsive">
           <table className="table mb-0">
-            <thead><tr><th>Remain Loan Amount</th><th>Salary Advance</th><th>Penarty Amount</th><th>Loan Fee</th><th>Total Deduction</th><th>Remain Cash</th></tr></thead>
+            <thead><tr><th>Remain Loan Amount</th><th>Salary Advance</th><th>Penalty Amount</th><th>Loan Fee</th><th>Total Deduction</th><th>Remain Cash</th></tr></thead>
             <tbody><tr>
               <td>{money(detail.deductions.remain_loan)}</td><td>{money(detail.deductions.salary_advance)}</td><td>{money(detail.deductions.penalty)}</td>
               <td>{money(detail.deductions.loan_fee)}</td><td>{money(detail.deductions.total)}</td><td>{money(detail.deductions.remain_cash)}</td>
@@ -176,11 +177,11 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
             <div className="col-md-3 mb-2"><span>Instalment</span><input className="form-control" readOnly value={money(loan.instalment)} /></div>
             <div className="col-md-3 mb-2"><span>Purpose of Loan</span><input className="form-control" readOnly value={loan.reason} /></div>
             <div className="col-md-3 mb-2"><span>Loan + interest</span><input className="form-control" readOnly value={money(loan.total_payable)} /></div>
-            <div className="col-md-3 mb-2"><span>Restration</span><input className="form-control" readOnly value={money(loan.restoration)} /></div>
-            <div className="col-md-3 mb-2"><span>Insurerance</span><input className="form-control" readOnly value={money(loan.insurance)} /></div>
+            <div className="col-md-3 mb-2"><span>Restoration</span><input className="form-control" readOnly value={money(loan.restoration)} /></div>
+            <div className="col-md-3 mb-2"><span>Insurance</span><input className="form-control" readOnly value={money(loan.insurance)} /></div>
           </div>
           <div className="text-center m-t-20">
-            {canApprove ? <button type="submit" className="btn btn-primary" disabled={approve.isPending}><i className="icon-check" />Aprove</button> : <LoanStatusBadge loan={loan} />}
+            {canApprove ? <button type="submit" className="btn btn-primary" disabled={approve.isPending}><i className="icon-check" />Approve</button> : <LoanStatusBadge loan={loan} />}
           </div>
         </form>
       </Card>
@@ -190,6 +191,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
           <p className="mb-0">{detail.mandate.bank_name} · {detail.mandate.account_number} · {detail.mandate.account_name} · Ref {detail.mandate.mandate_reference ?? "—"} · <b>{detail.mandate.status.toUpperCase()}</b> · OTP attempts {detail.mandate.otp_attempts}{detail.mandate.failure_reason ? ` · ${detail.mandate.failure_reason}` : ""}</p>
         </Card>
       )}
+
+      {detail.disbursement_chain && <DisbursementChainCard chain={detail.disbursement_chain} ledger={detail.ledger} />}
 
       {detail.disbursements.length > 0 && (
         <Card title="Disbursement Attempts">
@@ -203,6 +206,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
               { key: "channel", header: "Channel", render: (row) => row.channel.toUpperCase() },
               { key: "phone", header: "Phone" },
               { key: "amount", header: "Amount", render: (row) => money(row.amount) },
+              { key: "source_label", header: "Source Account" },
+              { key: "journal", header: "Journal Ref", value: (row) => row.journal_entry?.reference ?? "", render: (row) => row.journal_entry?.reference ?? "—" },
               { key: "status", header: "Status", render: (row) => <span className={`badge badge-${row.status === "success" ? "success" : row.status === "failed" || row.status === "cancelled" ? "danger" : "info"}`}>{row.status.toUpperCase()}</span> },
               { key: "provider_reference", header: "Reference" },
               { key: "failure_reason", header: "Reason" },
@@ -242,7 +247,7 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
               { key: "method", header: "Method" },
               { key: "amount", header: "Amount", render: (row) => money(row.amount) },
               { key: "principal", header: "Principal", render: (row) => money(row.principal) },
-              { key: "penalty", header: "Penarty", render: (row) => money(row.penalty) },
+              { key: "penalty", header: "Penalty", render: (row) => money(row.penalty) },
               { key: "interest", header: "Interest", render: (row) => money(row.interest) },
             ]}
           />

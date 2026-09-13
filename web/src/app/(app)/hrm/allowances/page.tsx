@@ -53,7 +53,7 @@ export default function StaffAllowancePage() {
         </form>
       </Card>
 
-      <Card title="Sataff Allowance List" actions={<HeaderButton onClick={() => setFiltering(true)} />}>
+      <Card title="Staff Allowance List" actions={<HeaderButton onClick={() => setFiltering(true)} />}>
         <DataTable
           rows={allowances}
           loading={isLoading}

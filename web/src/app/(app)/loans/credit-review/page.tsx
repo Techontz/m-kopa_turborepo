@@ -58,7 +58,7 @@ export default function CreditReviewPage() {
               render: (row) => (
                 <>
                   <button type="button" className="btn btn-sm btn-info mr-1" disabled={verify.isPending} onClick={() => verify.mutate({ id: row.id })}>Verification</button>
-                  <button type="button" className="btn btn-sm btn-success mr-1" disabled={!row.telco_matched || approve.isPending} onClick={async () => (await confirmAction("Aprove this loan?")) && approve.mutate({ id: row.id })}>Aprove</button>
+                  <button type="button" className="btn btn-sm btn-success mr-1" disabled={!row.telco_matched || approve.isPending} onClick={async () => (await confirmAction("Approve this loan?")) && approve.mutate({ id: row.id })}>Approve</button>
                   <button type="button" className="btn btn-sm btn-danger mr-1" onClick={async () => { const reason = await promptReason("Reject loan"); if (reason) { reject.mutate({ id: row.id, reason }); } }}>Reject</button>
                   <button type="button" className="btn btn-sm btn-warning" onClick={async () => { const reason = await promptReason("Modify: send back to loan officer"); if (reason) { modify.mutate({ id: row.id, reason }); } }}>Modify</button>
                 </>

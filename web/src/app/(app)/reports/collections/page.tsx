@@ -39,7 +39,7 @@ const columns = (heading: string): Column<CollectionRow>[] => [
   { key: "due_paid", header: "Paid on Due Instalments", render: (row) => money(row.due_paid) },
   { key: "collected", header: "Actual Collected", render: (row) => money(row.collected) },
   { key: "principal", header: "Principal", render: (row) => money(row.principal) },
-  { key: "penalty", header: "Penarty", render: (row) => money(row.penalty) },
+  { key: "penalty", header: "Penalty", render: (row) => money(row.penalty) },
   { key: "interest", header: "Interest", render: (row) => money(row.interest) },
   { key: "variance", header: "Variance", render: (row) => money(row.variance) },
   { key: "collection_rate", header: "Collection Rate", render: (row) => `${row.collection_rate}%` },
@@ -85,7 +85,7 @@ export default function CollectionsPage() {
       {data && (
         <Card
           title="Collection per Branch"
-          actions={<CsvButton filename="collection-per-branch" header={["Branch", "Expected", "Paid on Due", "Collected", "Principal", "Penarty", "Interest", "Variance", "Rate %"]} rows={data.by_branch.map((row) => [row.label, row.expected, row.due_paid, row.collected, row.principal, row.penalty, row.interest, row.variance, row.collection_rate])} />}
+          actions={<CsvButton filename="collection-per-branch" header={["Branch", "Expected", "Paid on Due", "Collected", "Principal", "Penalty", "Interest", "Variance", "Rate %"]} rows={data.by_branch.map((row) => [row.label, row.expected, row.due_paid, row.collected, row.principal, row.penalty, row.interest, row.variance, row.collection_rate])} />}
         >
           <DataTable rows={data.by_branch} rowKey={(row) => row.label} columns={columns("Branch")} footer={<TotalsRow cells={totals(data.summary)} />} />
           <p className="text-muted mb-0">

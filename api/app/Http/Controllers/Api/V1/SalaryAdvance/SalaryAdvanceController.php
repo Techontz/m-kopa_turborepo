@@ -55,7 +55,7 @@ class SalaryAdvanceController extends ApiController
 
         $this->service->approve($salaryAdvance);
 
-        return $this->message('Salary Advance Aproved successfully');
+        return $this->message('Salary Advance Approved successfully');
     }
 
     /**
@@ -77,7 +77,7 @@ class SalaryAdvanceController extends ApiController
     }
 
     /**
-     * "Salary Advance Aproved Today" (filter: branch).
+     * "Salary Advance Approved Today" (filter: branch).
      */
     public function approved(Request $request): AnonymousResourceCollection
     {

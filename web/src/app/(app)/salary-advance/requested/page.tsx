@@ -98,7 +98,7 @@ export default function SalaryAdvanceRequestedPage() {
               className: "text-nowrap",
               render: (row) => (
                 <>
-                  <button type="button" className="btn btn-success btn-sm mr-1" title="Aprove" onClick={async () => (await confirmAction("Are you sure to Aprove?")) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
+                  <button type="button" className="btn btn-success btn-sm mr-1" title="Approve" onClick={async () => (await confirmAction("Are you sure to Approve?")) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
                   <button type="button" className="btn btn-danger btn-sm" title="Delete" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                 </>
               ),

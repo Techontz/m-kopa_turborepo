@@ -45,11 +45,11 @@ export default function StaffLeavePage() {
           columns={[
             { key: "employee", header: "Employee" },
             { key: "phone", header: "Phone number" },
-            { key: "branch", header: "Blanch" },
+            { key: "branch", header: "Branch" },
             { key: "position", header: "Position", className: "text-uppercase" },
             { key: "start_date", header: "Leave Start date" },
             { key: "end_date", header: "Leave End date" },
-            { key: "remarks", header: "Remaks" },
+            { key: "remarks", header: "Remarks" },
             { key: "status", header: "Status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> },
             {
               key: "action",
@@ -58,7 +58,7 @@ export default function StaffLeavePage() {
               className: "text-nowrap",
               render: (row) => row.status === "pending" && (
                 <>
-                  <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Aprove" onClick={async () => (await confirmAction("Are You Sure?")) && decide.mutate({ id: row.id, status: "approved" })}><i className="icon-like" /></button>
+                  <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction("Are You Sure?")) && decide.mutate({ id: row.id, status: "approved" })}><i className="icon-like" /></button>
                   <button type="button" className="btn btn-sm btn-icon btn-danger" title="Reject" onClick={async () => (await confirmAction("Are You Sure?")) && decide.mutate({ id: row.id, status: "rejected" })}><i className="icon-close" /></button>
                 </>
               ),
@@ -78,8 +78,8 @@ export default function StaffLeavePage() {
           <Field label="Leave End date:" className="col-lg-6 col-6" error={create.fieldError("end_date")}>
             <input type="date" className="form-control" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} required />
           </Field>
-          <Field label="Remaks:" className="col-lg-12 col-12" error={create.fieldError("remaks")}>
-            <textarea className="form-control" rows={3} placeholder="Remaks" value={form.remaks} onChange={(e) => setForm({ ...form, remaks: e.target.value })} required />
+          <Field label="Remarks:" className="col-lg-12 col-12" error={create.fieldError("remaks")}>
+            <textarea className="form-control" rows={3} placeholder="Remarks" value={form.remaks} onChange={(e) => setForm({ ...form, remaks: e.target.value })} required />
           </Field>
         </div>
       </Modal>

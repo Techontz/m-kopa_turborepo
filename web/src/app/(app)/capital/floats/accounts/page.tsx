@@ -28,8 +28,8 @@ export default function AccountFloatPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Transifor Float From Acount - Acount"]} />
-      <Card title="Transifor Float From Ac-Ac">
+      <PageHeader crumbs={["Transfer Float From Account - Account"]} />
+      <Card title="Transfer Float From Ac-Ac">
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(form, { onSuccess: () => setForm(EMPTY) }); }}>
           <div className="row">
             <Field label="To Branch Name:" required className="col-md-3" error={create.fieldError("blanch_id")}>
@@ -59,7 +59,7 @@ export default function AccountFloatPage() {
             </div>
           )}
           <div className="text-center m-t-20">
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Transfor</button>
+            <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Transfer</button>
           </div>
         </form>
       </Card>

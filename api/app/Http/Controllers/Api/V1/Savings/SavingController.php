@@ -17,7 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * Insurelance (insurance savings): customer deposit & withdrawal (live admin/search_customer_saving),
+ * Insurance (insurance savings): customer deposit & withdrawal (live admin/search_customer_saving),
  * today deposits, withdrawals and balances.
  */
 class SavingController extends ApiController

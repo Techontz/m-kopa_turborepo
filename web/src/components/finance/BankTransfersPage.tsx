@@ -25,7 +25,7 @@ interface TransferForm {
 
 const EMPTY: TransferForm = { from_blanch_id: "", ac_type: "", amount: "", to_account_id: "" };
 
-/** Bank → Bank Transaction (pending, live bank_transaction_list) and Aproved Transaction (get_aproved_transaction). */
+/** Bank → Bank Transaction (pending, live bank_transaction_list) and Approved Transaction (get_aproved_transaction). */
 export function BankTransfersPage({ approved }: { approved: boolean }) {
   const [filters, setFilters] = useState<Filters>({});
   const [modal, setModal] = useState<"filter" | "transfer" | null>(null);
@@ -39,7 +39,7 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
     <>
       <PageHeader crumbs={["Bank", "Bank Transaction list"]} />
       <Card
-        title={approved ? "Transaction Aproved list" : "Transaction list"}
+        title={approved ? "Transaction Approved list" : "Transaction list"}
         actions={approved ? <HeaderButton onClick={() => setModal("filter")} /> : <HeaderButton icon="icon-pencil" onClick={() => { setForm(EMPTY); setModal("transfer"); }} />}
       >
         <DataTable
@@ -52,7 +52,7 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
             { key: "branch_account_label", header: "From A/c" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "bank_account", header: "To A/C" },
-            { key: "status", header: "status", render: (row) => (row.status === "approved" ? <Badge tone="success">APROVED</Badge> : <Badge tone="danger">PENDING</Badge>) },
+            { key: "status", header: "status", render: (row) => (row.status === "approved" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">PENDING</Badge>) },
             { key: "transfer_date", header: "Date" },
             {
               key: "action",
@@ -62,7 +62,7 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
               render: (row) =>
                 row.status === "pending" && (
                   <>
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Aprove" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
+                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
                     <button type="button" className="btn btn-sm btn-icon btn-danger" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                   </>
                 ),
@@ -82,7 +82,7 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
 
       <FilterModal open={modal === "filter"} onClose={() => setModal(null)} onApply={setFilters} withBranch />
 
-      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Transfer Amount From Branch To Bank" submitLabel="Transfar" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
+      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Transfer Amount From Branch To Bank" submitLabel="Transfer" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
         <div className="row clearfix">
           <Field label="From Branch" required className="col-lg-6" error={create.fieldError("from_blanch_id")}>
             <SelectBox placeholder="Select branch" optionsUrl="options/branches" value={form.from_blanch_id} onChange={(value) => setForm({ ...form, from_blanch_id: value ?? "" })} />

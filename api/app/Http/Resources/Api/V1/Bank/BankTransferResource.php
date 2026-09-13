@@ -32,6 +32,10 @@ class BankTransferResource extends JsonResource
             'charge' => (float) $this->charge,
             'status' => $this->status,
             'transfer_date' => $this->transfer_date?->toDateString(),
+            'reference' => $this->reference,
+            'journal_reference' => $this->whenLoaded('journalEntry', fn () => $this->journalEntry?->reference),
+            'employee' => $this->whenLoaded('employee', fn () => $this->employee?->full_name),
+            'created_at' => $this->created_at?->toDateTimeString(),
         ];
     }
 }

@@ -64,7 +64,7 @@ export default function ReceivedPage() {
             { key: "total_payable", header: "Loan", render: (row) => money(row.total_payable) },
             { key: "amount", header: "Received Amount", render: (row) => money(row.amount) },
             { key: "principal", header: "Principal", render: (row) => money(row.principal) },
-            { key: "interest", header: "Intrest", render: (row) => money(row.interest) },
+            { key: "interest", header: "Interest", render: (row) => money(row.interest) },
             { key: "reserve", header: reserveLabel, render: (row) => money(row.reserve) },
             { key: "employee", header: "Employee" },
             { key: "date", header: "Date" },

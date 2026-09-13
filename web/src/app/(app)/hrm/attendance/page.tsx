@@ -107,7 +107,7 @@ export default function AttendancePage() {
               { key: "check_out", header: "Check out" },
               { key: "hours", header: "Hours" },
               { key: "status", header: "Status", render: (row) => <Badge tone={TONES[row.status]}>{row.status.toUpperCase()}</Badge> },
-              { key: "remarks", header: "Remaks" },
+              { key: "remarks", header: "Remarks" },
               {
                 key: "action",
                 header: "Action",
@@ -165,8 +165,8 @@ export default function AttendancePage() {
           <Field label="Check out:" className="col-md-4" error={save.fieldError("check_out")}>
             <input type="time" className="form-control" value={form.check_out} onChange={(e) => setForm({ ...form, check_out: e.target.value })} />
           </Field>
-          <Field label="Remaks:" className="col-md-12" error={save.fieldError("remarks")}>
-            <input className="form-control" placeholder="Remaks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
+          <Field label="Remarks:" className="col-md-12" error={save.fieldError("remarks")}>
+            <input className="form-control" placeholder="Remarks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
           </Field>
         </div>
       </Modal>

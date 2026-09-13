@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Insurance savings ("Insurelance"). Money is held in the branch HQ saving account and owed to the
+ * Insurance savings (menu "Insurance"). Money is held in the branch HQ saving account and owed to the
  * customer through the Savings Deposits liability:
  *  - deposit: Dr HQ Saving / Cr Savings Deposits;
  *  - withdrawal (TAKEN or CLEAR LOAN): Dr Savings Deposits / Cr HQ Saving. A CLEAR LOAN withdrawal is then

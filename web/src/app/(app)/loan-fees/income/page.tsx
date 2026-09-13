@@ -36,7 +36,7 @@ export default function LoanFeeIncomePage() {
             { key: "sn", header: "S/NO.", render: (_, index) => `${index + 1}.`, sortable: false },
             { key: "customer", header: "Customer Name" },
             { key: "branch", header: "Branch Name" },
-            { key: "loan_approved", header: "Loan Aproved", render: (row) => money(row.loan_approved) },
+            { key: "loan_approved", header: "Loan Approved", render: (row) => money(row.loan_approved) },
             { key: "amount", header: "Income Amount", render: (row) => money(row.amount) },
             { key: "date", header: "Date" },
           ]}

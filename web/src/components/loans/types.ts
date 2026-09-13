@@ -40,7 +40,20 @@ export interface Loan {
   telco_verified_at: string | null;
   disbursement_channel: string | null;
   disbursement_attempts: number;
-  latest_disbursement?: { batch_id: string; attempt: number; channel: string; amount: number; status: string; failure_reason: string | null } | null;
+  latest_disbursement?: {
+    batch_id: string;
+    attempt: number;
+    channel: string;
+    amount: number;
+    status: string;
+    failure_reason: string | null;
+    source_account: "cash" | "bank";
+    source_bank_account_id: number | null;
+    source_label: string;
+    provider_reference: string | null;
+    journal_reference: string | null;
+    completed_at: string | null;
+  } | null;
   days_past_due: number;
   topup_of_loan_id: number | null;
   agreement_file: string | null;
@@ -121,11 +134,59 @@ export interface LoanDetail {
   schedules: Schedule[];
   transactions: { id: number; date: string; type: string; description: string; method: string; amount: number; principal: number; penalty: number; interest: number }[];
   mandate: { bank_name: string; account_number: string; account_name: string; mandate_reference: string | null; status: string; otp_attempts: number; failure_reason: string | null; activated_at: string | null } | null;
-  disbursements: { id: number; batch_id: string; attempt: number; channel: string; phone: string | null; amount: number; status: string; provider_reference: string | null; failure_reason: string | null; requested_by: string | null; requested_at: string | null; completed_at: string | null }[];
+  disbursements: {
+    id: number;
+    batch_id: string;
+    attempt: number;
+    channel: string;
+    phone: string | null;
+    amount: number;
+    status: string;
+    provider_reference: string | null;
+    failure_reason: string | null;
+    requested_by: string | null;
+    requested_at: string | null;
+    completed_at: string | null;
+    source_account: "cash" | "bank";
+    source_label: string;
+    destination: string;
+    journal_entry: JournalEntrySummary | null;
+  }[];
+  disbursement_chain: DisbursementChain | null;
+  ledger: { receivable_balance: number; entries: JournalEntrySummary[] };
   max_disbursement_attempts: number;
   topup_of: { id: number; loan_number: string; status_label: string } | null;
   timeline: { id: number; action: string; from: string | null; to: string | null; context: Record<string, unknown> | null; user: string; created_at: string | null }[];
   customer_loans: Loan[];
+}
+
+export interface JournalEntrySummary {
+  id: number;
+  reference: string;
+  description: string;
+  entry_date: string | null;
+  created_at: string | null;
+  lines: { key: string | null; account: string | null; code: string | null; debit: number; credit: number }[];
+}
+
+export interface DisbursementChain {
+  customer: { id: number; name: string; code: string | null };
+  loan: { id: number; loan_number: string; reference_number: string | null; amount_approved: number };
+  manager_approval: { by: string; at: string | null; context: Record<string, unknown> | null } | null;
+  credit_approval: { by: string; at: string | null; context: Record<string, unknown> | null } | null;
+  disbursement: {
+    id: number;
+    batch_id: string;
+    channel: string;
+    status: string;
+    amount: number;
+    source_label: string;
+    destination: string;
+    provider_reference: string | null;
+    requested_by: string | null;
+    completed_at: string | null;
+  };
+  journal_entry: JournalEntrySummary | null;
 }
 
 export interface LoanForm {

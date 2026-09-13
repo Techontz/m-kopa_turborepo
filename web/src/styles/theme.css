@@ -1,5 +1,5 @@
 /*
- * MikopoFasta admin theme.
+ * M-KOPA admin theme (recreated from the MikopoFasta live system).
  * Reproduces the look of the live system (Lucid admin layout, AdminLTE button palette)
  * using measured values; written from scratch for this project.
  */
@@ -20,36 +20,11 @@ body.font-ubuntu { font-family: "Ubuntu", sans-serif; }
 a { color: var(--mf-link); }
 a:hover { text-decoration: none; }
 
-/* Orange frame used on the dashboard and teller screens (theme-orange). */
-body.theme-orange::before,
-body.theme-orange::after {
-    content: "";
-    position: fixed;
-    left: 0;
-    width: 100%;
-    height: 5px;
-    z-index: 999;
-    background: var(--mf-orange);
-}
-body.theme-orange::before { top: 0; }
-body.theme-orange::after { bottom: 0; }
-body.theme-orange #wrapper::before,
-body.theme-orange #wrapper::after {
-    content: "";
-    position: fixed;
-    top: 0;
-    width: 5px;
-    height: 100vh;
-    z-index: 999;
-    background: var(--mf-orange);
-}
-body.theme-orange #wrapper::before { left: 0; }
-body.theme-orange #wrapper::after { right: 0; }
 
 /* ---------------------------------------------------------------- Top bar */
 .navbar-fixed-top {
     position: fixed;
-    top: 5px;
+    top: 0;
     left: 0;
     width: 100%;
     height: 61px;
@@ -64,6 +39,8 @@ body.theme-orange #wrapper::after { right: 0; }
 .navbar-fixed-top .navbar-btn button { font-size: 20px; border: 0; background: none; color: var(--mf-nav-icon); }
 .navbar-fixed-top .navbar-brand { width: 250px; padding: 15px; margin: 0; }
 .navbar-fixed-top .navbar-brand img { width: 85px; margin-top: 2px; vertical-align: top; }
+.navbar-fixed-top .navbar-brand .mf-brand { display: inline-block; font-size: 24px; font-weight: 800; line-height: 30px; letter-spacing: .06em; color: var(--mf-heading); text-decoration: none; }
+.navbar-fixed-top .navbar-brand .mf-brand:hover { color: var(--mf-heading); }
 .navbar-fixed-top .navbar-right { flex: 1; display: flex; align-items: center; justify-content: space-between; padding-right: 15px; }
 #navbar-search { width: 300px; margin-top: 0; }
 #navbar-menu .navbar-nav { flex-direction: row; margin: 0 15px 0 0; }
@@ -81,7 +58,7 @@ body.theme-orange #wrapper::after { right: 0; }
 #left-sidebar {
     position: fixed;
     top: 0;
-    left: 5px;
+    left: 0;
     width: var(--mf-sidebar-width);
     height: 100%;
     margin-top: 61px;
@@ -276,7 +253,7 @@ div.dataTables_wrapper div.dataTables_filter input { height: 35px; }
 @media screen and (max-width: 1200px) {
     .navbar-fixed-top .navbar-btn { display: block; }
     #left-sidebar { left: -250px; box-shadow: 0 5px 10px 0 rgba(0, 0, 0, .2); }
-    body.offcanvas-active #left-sidebar { left: 5px; }
+    body.offcanvas-active #left-sidebar { left: 0; }
     #main-content { width: 100%; padding: 0; }
     #navbar-search { display: none; }
     .auth-box { width: 90%; margin: 0 auto; }

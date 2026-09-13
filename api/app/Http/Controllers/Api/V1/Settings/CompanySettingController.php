@@ -14,7 +14,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Company-wide settings: Company Profile (live admin/setting), Penart Setting (admin/penart_setting)
+ * Company-wide settings: Company Profile (live admin/setting), Penalty Setting (admin/penart_setting)
  * and Reserve Setting (admin/reserve_setting).
  */
 class CompanySettingController extends ApiController
@@ -125,7 +125,7 @@ class CompanySettingController extends ApiController
             'penalty_value' => $validated['penart'],
         ], $request);
 
-        return $this->message('Penart Setting Updated successfully');
+        return $this->message('Penalty Setting Updated successfully');
     }
 
     public function reserve(): JsonResponse

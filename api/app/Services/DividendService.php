@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Enums\Account;
-use App\Models\Capital;
 use App\Models\DividendAllocation;
 use App\Models\DividendDeclaration;
 use App\Models\Employee;
@@ -29,7 +28,10 @@ class DividendService
 
     public const DIVIDEND_PERCENT = 30.0;
 
-    public function __construct(private readonly Ledger $ledger) {}
+    public function __construct(
+        private readonly Ledger $ledger,
+        private readonly ShareholderOwnership $ownership,
+    ) {}
 
     /**
      * Undistributed profit (balance of the Profit account across all branches).
@@ -48,24 +50,18 @@ class DividendService
     }
 
     /**
-     * Inferred: a shareholder's percentage is their share of total capital contributed (the live system stores
-     * no explicit share percentage).
+     * Each shareholder's percentage is their share of all historical capital contributions, taken from the single
+     * ownership source {@see ShareholderOwnership} (never from balances, the CAPITAL ACCOUNT ledger or profit).
      *
      * @return Collection<int, array{share_holder: ShareHolder, capital: float, percent: float}>
      */
     public function shares(int $companyId): Collection
     {
-        $capitals = Capital::where('company_id', $companyId)
-            ->selectRaw('share_holder_id, SUM(amount) AS total')
-            ->groupBy('share_holder_id')
-            ->pluck('total', 'share_holder_id');
-        $total = (float) $capitals->sum();
-
-        return ShareHolder::where('company_id', $companyId)->orderBy('id')->get()
-            ->map(fn (ShareHolder $holder): array => [
-                'share_holder' => $holder,
-                'capital' => (float) ($capitals[$holder->id] ?? 0),
-                'percent' => $total > 0 ? round((float) ($capitals[$holder->id] ?? 0) / $total * 100, 4) : 0.0,
+        return $this->ownership->summary($companyId)
+            ->map(fn (array $row): array => [
+                'share_holder' => $row['share_holder'],
+                'capital' => $row['total_contributed'],
+                'percent' => $row['ownership_percent'],
             ]);
     }
 
@@ -96,7 +92,7 @@ class DividendService
 
         $shares = $this->shares($companyId)->filter(fn (array $share): bool => $share['percent'] > 0)->values();
         if ($shares->isEmpty()) {
-            throw ValidationException::withMessages(['profit_amount' => 'No share holder has capital to receive dividend']);
+            throw ValidationException::withMessages(['profit_amount' => 'No shareholder has contributed capital to receive a dividend']);
         }
 
         $dividend = round($profit * self::DIVIDEND_PERCENT / 100, 2);

@@ -144,7 +144,7 @@ export default function CustomerSavingPage() {
       >
         <div className="row clearfix">
           <Field label="Amount" className="col-md-12 col-12" error={deposit.fieldError("dep_sav")}>
-            <input type="number" className="form-control" placeholder="Enter  Amount" min={1} required style={{ color: "green" }} value={depSav} onChange={(e) => setDepSav(e.target.value)} />
+            <input type="number" className="form-control" placeholder="Enter  Amount" min={1} required style={{ color: "var(--mf-positive)" }} value={depSav} onChange={(e) => setDepSav(e.target.value)} />
           </Field>
         </div>
       </Modal>

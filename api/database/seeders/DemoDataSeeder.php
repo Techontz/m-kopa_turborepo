@@ -39,7 +39,7 @@ class DemoDataSeeder extends Seeder
         $branches = $company->branches()->get();
         $today = CarbonImmutable::today();
 
-        $shareHolder = ShareHolder::firstOrCreate(['company_id' => $company->id, 'name' => 'JOHN SHAREHOLDER'], [
+        $shareHolder = ShareHolder::firstOrCreate(['company_id' => $company->id, 'first_name' => 'JOHN', 'last_name' => 'SHAREHOLDER'], [
             'mobile' => '0777000000', 'email' => 'shareholder@example.com', 'gender' => 'male', 'date_of_birth' => '1985-01-01',
         ]);
         $capital = Capital::create(['company_id' => $company->id, 'share_holder_id' => $shareHolder->id, 'amount' => 50000000, 'pay_method' => 'BANK', 'receipt_number' => '1001']);

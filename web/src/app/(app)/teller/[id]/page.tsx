@@ -243,15 +243,15 @@ export default function TellerCustomerPage() {
             <div className="col-md-2 col-12"><span>Insurelance</span><input type="text" className="form-control" value={money(loan?.insurance)} readOnly /></div>
             <div className="col-md-4 col-12"><span>Remain Debit</span><input type="text" className="form-control" value={money(data.outstanding?.total)} readOnly /></div>
             <div className="col-md-4 col-12"><span>Salary advance</span><input type="text" className="form-control" value={money(data.salary_advance)} readOnly /></div>
-            <div className="col-md-4 col-6"><span>Recovery Amount</span><input type="text" className="form-control" value={data.recovery_amount.toFixed(2)} readOnly style={{ color: "red" }} /></div>
-            <div className="col-md-4 col-6"><span>Penart</span><input type="text" className="form-control" value={data.penalty.toFixed(2)} readOnly style={{ color: "red" }} /></div>
+            <div className="col-md-4 col-6"><span>Recovery Amount</span><input type="text" className="form-control" value={data.recovery_amount.toFixed(2)} readOnly style={{ color: "var(--mf-negative)" }} /></div>
+            <div className="col-md-4 col-6"><span>Penart</span><input type="text" className="form-control" value={data.penalty.toFixed(2)} readOnly style={{ color: "var(--mf-negative)" }} /></div>
             <div className="col-md-6 col-6">
-              <span style={{ color: "green" }}>Deposit Amount </span>
+              <span style={{ color: "var(--mf-positive)" }}>Deposit Amount </span>
               <input
                 className="form-control"
                 autoComplete="off"
                 placeholder="Enter Deposit Amount"
-                style={{ color: "green" }}
+                style={{ color: "var(--mf-positive)" }}
                 value={form.depost}
                 onChange={(e) => {
                   const digits = e.target.value.replace(/[^\d]/g, "");

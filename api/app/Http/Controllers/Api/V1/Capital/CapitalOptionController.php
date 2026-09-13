@@ -17,7 +17,7 @@ class CapitalOptionController extends ApiController
         $this->authorizeAny('capital.view', 'capital.manage');
 
         return response()->json(['data' => ShareHolder::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get()
-            ->map(fn (ShareHolder $holder): array => ['value' => (string) $holder->id, 'label' => $holder->name])]);
+            ->map(fn (ShareHolder $holder): array => ['value' => (string) $holder->id, 'label' => $holder->full_name])]);
     }
 
     public function bankAccounts(): JsonResponse

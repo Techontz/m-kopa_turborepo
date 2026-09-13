@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { notifyError } from "@/components/ui/notify";
 
 export default function LoginPage() {
@@ -32,6 +33,7 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
+      <ThemeToggle />
       <div id="wrapper">
         <div className="vertical-align-wrap">
           <div className="vertical-align-middle auth-main">

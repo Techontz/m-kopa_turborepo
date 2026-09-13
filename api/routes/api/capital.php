@@ -9,9 +9,12 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('capital')->name('capital.')->group(function (): void {
     Route::apiResource('share-holders', ShareHolderController::class);
+    Route::get('share-holders/{share_holder}/photo', [ShareHolderController::class, 'photo'])->name('share-holders.photo');
 
     Route::get('capitals', [CapitalController::class, 'index'])->name('capitals.index');
     Route::post('capitals', [CapitalController::class, 'store'])->name('capitals.store');
+    Route::post('capitals/{capital}/receipt', [CapitalController::class, 'replaceReceipt'])->name('capitals.receipt.update');
+    Route::get('capitals/{capital}/receipt', [CapitalController::class, 'receipt'])->name('capitals.receipt');
 
     Route::controller(DividendController::class)->group(function (): void {
         Route::get('dividends', 'index')->name('dividends.index');

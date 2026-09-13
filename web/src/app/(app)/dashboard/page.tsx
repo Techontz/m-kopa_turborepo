@@ -110,7 +110,7 @@ export default function DashboardPage() {
         <div className="table-responsive">
           <table className="table table-bordered table-custom">
             <tbody>
-              <tr style={{ backgroundColor: "#dddddd" }}>
+              <tr className="mf-row-strong">
                 <th className="c">Customer Type</th>
                 <th className="c">Today Deposit</th>
                 <th className="c">Today withdrawal</th>
@@ -152,7 +152,7 @@ export default function DashboardPage() {
                 <td>Insurelance<span className="badge badge-success">{money(t.insurance_income)}</span></td>
                 <td>Saving withdrawal <span className="badge badge-success">{money(t.saving_withdrawal)}</span></td>
               </tr>
-              <tr style={{ backgroundColor: "#ddddd4" }}>
+              <tr className="mf-row-strong">
                 <th>All customer: {t.all_customers}</th>
                 <th>Total: {money(t.total_deposit)}</th>
                 <th>Total: {money(t.total_withdrawal)}</th>

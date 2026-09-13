@@ -53,12 +53,12 @@ export default function DailyReportPage() {
                   {Object.entries(data.in).map(([label, amount]) => (
                     <tr key={`in-${label}`}><td>{label}</td><td>{money(amount)}</td></tr>
                   ))}
-                  <tr><td><b style={{ color: "green" }}>TOTAL</b></td><td><b style={{ color: "green" }}>{money(data.total_in)}</b></td></tr>
+                  <tr><td><b style={{ color: "var(--mf-positive)" }}>TOTAL</b></td><td><b style={{ color: "var(--mf-positive)" }}>{money(data.total_in)}</b></td></tr>
                   {spacer}
                   {Object.entries(data.out).map(([label, amount]) => (
                     <tr key={`out-${label}`}><td>{label}</td><td>{money(amount)}</td></tr>
                   ))}
-                  <tr><td><b style={{ color: "red" }}>TOTAL</b></td><td><b style={{ color: "red" }}>{money(data.total_out)}</b></td></tr>
+                  <tr><td><b style={{ color: "var(--mf-negative)" }}>TOTAL</b></td><td><b style={{ color: "var(--mf-negative)" }}>{money(data.total_out)}</b></td></tr>
                   {spacer}
                   <tr><td><b>CLOSING</b></td><td><b>{money(data.closing)}</b></td></tr>
                 </>

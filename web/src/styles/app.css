@@ -15,7 +15,7 @@ body.font-ubuntu,
 .mf-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--mf-overlay);
   z-index: 1040;
 }
 .mf-modal {
@@ -32,19 +32,21 @@ body.font-ubuntu,
 /* react-select styled like the live Select2 boxes */
 .mf-select .mf-select__control {
   min-height: 36px;
-  border: 2px solid #ccc;
+  background-color: var(--mf-input-bg);
+  border: 2px solid var(--mf-select-border);
   border-radius: 10px;
   box-shadow: none;
 }
 .mf-select .mf-select__control--is-focused {
-  border-color: #aaa;
+  border-color: var(--mf-select-focus);
 }
 .mf-select .mf-select__value-container {
   padding: 0 10px;
 }
 .mf-select .mf-select__placeholder,
-.mf-select .mf-select__single-value {
-  color: #5a5a5a;
+.mf-select .mf-select__single-value,
+.mf-select .mf-select__input-container {
+  color: var(--mf-select-text);
 }
 .mf-select .mf-select__menu {
   z-index: 60;
@@ -87,14 +89,14 @@ body.font-ubuntu,
 }
 
 .field-error {
-  color: #de4848;
+  color: var(--mf-danger);
   font-size: 12px;
 }
 
 .mf-loading {
   padding: 30px;
   text-align: center;
-  color: #999;
+  color: var(--mf-subtle);
 }
 
 /* Status tracker used by loan workflow screens */
@@ -106,18 +108,18 @@ body.font-ubuntu,
 .mf-steps .step {
   padding: 4px 10px;
   border-radius: 30px;
-  border: 1px solid #eee;
-  color: #777;
+  border: 1px solid var(--mf-border);
+  color: var(--mf-muted);
   font-size: 12px;
 }
 .mf-steps .step.done {
-  background: #01b2c6;
-  border-color: #01b2c6;
-  color: #fff;
+  background: var(--mf-cyan);
+  border-color: var(--mf-cyan);
+  color: var(--mf-on-accent);
 }
 .mf-steps .step.current {
-  border-color: #01b2c6;
-  color: #01b2c6;
+  border-color: var(--mf-cyan);
+  color: var(--mf-cyan);
   font-weight: 600;
 }
 
@@ -125,3 +127,47 @@ body.font-ubuntu,
 .mf-marquee { overflow: hidden; white-space: nowrap; position: relative; z-index: 1; }
 .mf-marquee h5 { display: inline-block; color: #fff; animation: mf-marquee 14s linear infinite; }
 @keyframes mf-marquee { from { transform: translateX(-100%); } to { transform: translateX(100vw); } }
+
+/* Emphasised summary rows (live dashboard used a grey inline background) */
+.table tr.mf-row-strong { background-color: var(--mf-surface-strong); }
+
+/* Passport-size photo field (35 × 45 portrait) */
+.mf-passport { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-top: 2px; }
+.mf-passport-frame {
+  width: 105px;
+  height: 135px;
+  margin: 0;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--mf-surface-muted);
+  border: 2px dashed var(--mf-input-border);
+  border-radius: 4px;
+  transition: border-color .2s;
+}
+.mf-passport-frame:hover { border-color: var(--mf-blue); }
+.mf-passport-frame.has-photo { border-style: solid; }
+.mf-passport-frame img { width: 100%; height: 100%; object-fit: cover; }
+.mf-passport-empty { display: flex; flex-direction: column; align-items: center; color: var(--mf-subtle); }
+.mf-passport-empty i { font-size: 34px; margin-bottom: 6px; }
+.mf-passport-meta { flex: 1 1 120px; min-width: 120px; }
+.mf-passport-thumb { width: 52px; height: 66px; padding: 2px; object-fit: cover; }
+
+/* File upload control */
+.mf-file .mf-file-label { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+.mf-file .mf-file-label i { margin-right: 4px; }
+.mf-file-hint { font-size: 12px; color: var(--mf-muted); margin-top: 3px; }
+.mf-file-name { font-size: 12px; color: var(--mf-heading); word-break: break-all; }
+
+/* Theme toggle (top bar and login page) */
+.mf-theme-toggle { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--mf-nav-icon); padding: 15px; line-height: 1; }
+.mf-theme-toggle i { font-size: 18px; }
+.mf-theme-toggle:focus { outline: 2px solid var(--mf-blue); outline-offset: -6px; }
+.auth-page .mf-theme-toggle { position: fixed; top: 12px; right: 16px; z-index: 5; color: #fff; background: rgba(0, 0, 0, .35); border-radius: 50%; width: 40px; height: 40px; padding: 0; }
+
+/* Not found / forbidden */
+.mf-error-page { max-width: 520px; margin: 80px auto; text-align: center; }
+.mf-error-page h1 { font-size: 64px; color: var(--mf-blue); margin-bottom: 0; }

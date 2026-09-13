@@ -7,7 +7,7 @@
 .chartTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #444;
+  color: var(--mf-heading);
   margin: 4px 0 8px;
 }
 
@@ -20,29 +20,29 @@
 
 .tile {
   flex: 1 1 160px;
-  border: 1px solid #eee;
+  border: 1px solid var(--mf-border);
   border-radius: 4px;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--mf-surface);
 }
 
 .tile span {
   display: block;
   font-size: 12px;
-  color: #777;
+  color: var(--mf-muted);
   text-transform: uppercase;
 }
 
 .tile strong {
   display: block;
   font-size: 18px;
-  color: #444;
+  color: var(--mf-heading);
 }
 
 .subhead {
   font-size: 14px;
   font-weight: 600;
-  color: #444;
+  color: var(--mf-heading);
   margin: 18px 0 8px;
 }
 
@@ -53,7 +53,7 @@
 
 .statement .group td {
   font-weight: 700;
-  background: #f7f9fb;
+  background: var(--mf-surface-muted);
 }
 
 .statement .indent {
@@ -65,11 +65,11 @@
 }
 
 .in {
-  color: green;
+  color: var(--mf-positive);
 }
 
 .out {
-  color: red;
+  color: var(--mf-negative);
 }
 
 .actions {
@@ -80,7 +80,7 @@
 
 .note {
   font-size: 12px;
-  color: #777;
+  color: var(--mf-muted);
   margin-top: 8px;
 }
 

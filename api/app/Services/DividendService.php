@@ -167,7 +167,7 @@ class DividendService
                 throw ValidationException::withMessages(['pay_method' => 'Dividend is already paid']);
             }
 
-            $this->ledger->transfer($allocation->company_id, $source, ['account' => Account::DividendPayable], $amount, 'DIVIDEND PAYMENT '.$allocation->shareHolder->name, $allocation);
+            $this->ledger->transfer($allocation->company_id, $source, ['account' => Account::DividendPayable], $amount, 'DIVIDEND PAYMENT '.$allocation->shareHolder->full_name, $allocation);
 
             $allocation->update([
                 'status' => 'paid',

@@ -7,10 +7,15 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Live "Add Capital" form (admin/create_capital).
+ * Live "Add Capital" form (admin/create_capital), plus the uploaded receipt file ("Import Receipt").
+ * `recept` is the typed receipt number; `receipt_file` is the scanned receipt (PDF or image).
  */
 class CapitalRequest extends FormRequest
 {
+    public const RECEIPT_MIMES = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+
+    public const RECEIPT_MAX_KB = 5120;
+
     public function authorize(): bool
     {
         return true;
@@ -27,6 +32,7 @@ class CapitalRequest extends FormRequest
             'pay_method' => ['required', 'in:CASH,BANK'],
             'recept' => ['nullable', 'string', 'max:50'],
             'chaque_no' => ['nullable', 'string', 'max:50'],
+            'receipt_file' => ['nullable', 'file', 'mimes:'.implode(',', self::RECEIPT_MIMES), 'max:'.self::RECEIPT_MAX_KB],
         ];
     }
 
@@ -35,6 +41,6 @@ class CapitalRequest extends FormRequest
      */
     public function attributes(): array
     {
-        return ['share_id' => 'share holder', 'pay_method' => 'pay method', 'recept' => 'receipt', 'chaque_no' => 'cheque number'];
+        return ['share_id' => 'share holder', 'pay_method' => 'pay method', 'recept' => 'receipt', 'chaque_no' => 'cheque number', 'receipt_file' => 'import receipt'];
     }
 }

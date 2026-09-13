@@ -42,7 +42,7 @@ class DividendController extends ApiController
             'date' => $declaration->created_at?->toDateString(),
             'allocations' => $declaration->allocations->map(fn (DividendAllocation $allocation): array => [
                 'id' => $allocation->id,
-                'share_holder' => $allocation->shareHolder?->name,
+                'share_holder' => $allocation->shareHolder?->full_name,
                 'share_percent' => (float) $allocation->share_percent,
                 'amount' => (float) $allocation->amount,
                 'status' => $allocation->status,

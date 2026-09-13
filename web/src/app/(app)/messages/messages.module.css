@@ -8,16 +8,16 @@
   width: 100%;
   text-align: left;
   border: 0;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--mf-border);
   background: transparent;
   padding: 10px 20px;
   color: inherit;
 }
 .item:hover {
-  background: #f4f7f6;
+  background: var(--mf-surface-hover);
 }
 .itemActive {
-  background: #e8f4fd;
+  background: var(--mf-selected);
 }
 .itemTitle {
   display: flex;
@@ -26,15 +26,15 @@
   font-weight: 600;
 }
 .itemPreview {
-  color: #777;
+  color: var(--mf-muted);
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .unread {
-  background: #de4848;
-  color: #fff;
+  background: var(--mf-danger);
+  color: var(--mf-on-accent);
   border-radius: 10px;
   padding: 0 7px;
   font-size: 12px;
@@ -45,7 +45,7 @@
 .thread {
   height: 440px;
   overflow-y: auto;
-  background: #f4f7f6;
+  background: var(--mf-bg);
   padding: 15px;
   border-radius: 3px;
 }
@@ -58,17 +58,17 @@
 }
 .bubble {
   max-width: 75%;
-  background: #fff;
-  border: 1px solid #e3e3e3;
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border-strong);
   border-radius: 6px;
   padding: 8px 12px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .bubbleMine {
-  background: #3c89da;
-  border-color: #3c89da;
-  color: #fff;
+  background: var(--mf-table-head);
+  border-color: var(--mf-table-head);
+  color: var(--mf-on-accent);
 }
 .meta {
   font-size: 11px;

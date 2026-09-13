@@ -10,6 +10,11 @@ class Capital extends Model
 {
     use Auditable;
 
+    /**
+     * Private disk holding uploaded receipts (served only through the authorised API).
+     */
+    public const DISK = 'local';
+
     protected $guarded = ['id'];
 
     /**

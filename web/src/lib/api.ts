@@ -28,6 +28,11 @@ export interface Paginated<T> {
   links?: Record<string, string | null>;
 }
 
+/** Browser URL for an API path (e.g. a protected file stream) routed through the authenticated proxy. */
+export function backendUrl(path: string): string {
+  return `/api/backend/${path.replace(/^\//, "")}`;
+}
+
 function buildUrl(path: string, query?: Query): string {
   const url = `/api/backend/${path.replace(/^\//, "")}`;
   if (!query) {

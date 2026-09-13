@@ -1,0 +1,135 @@
+/*
+ * Third-party and Bootstrap components mapped onto the design tokens (tokens.css).
+ *
+ * theme.css already uses the tokens for the live-system components (shell, cards, forms, tables,
+ * badges, buttons). Bootstrap 4, react-select, SweetAlert2 and Recharts ship their own light
+ * colours; this file re-points them at the tokens for dark mode only, so light mode keeps the
+ * libraries' exact original appearance.
+ */
+
+:root[data-theme="dark"] body { color: var(--mf-text); background-color: var(--mf-bg); }
+
+/* ---------------------------------------------------------------- Typography & utilities */
+:root[data-theme="dark"] h1, :root[data-theme="dark"] h2, :root[data-theme="dark"] h3,
+:root[data-theme="dark"] h4, :root[data-theme="dark"] h5, :root[data-theme="dark"] h6,
+:root[data-theme="dark"] b, :root[data-theme="dark"] strong { color: var(--mf-heading); }
+:root[data-theme="dark"] .auth-page h5, :root[data-theme="dark"] .text-light, :root[data-theme="dark"] .text-white,
+:root[data-theme="dark"] .dashboard-stat.text-light *, :root[data-theme="dark"] .thead-info th b { color: #fff; }
+:root[data-theme="dark"] .text-muted { color: var(--mf-muted) !important; }
+:root[data-theme="dark"] .text-dark, :root[data-theme="dark"] .text-body { color: var(--mf-heading) !important; }
+:root[data-theme="dark"] .text-success { color: var(--mf-success) !important; }
+:root[data-theme="dark"] .text-danger { color: var(--mf-danger) !important; }
+:root[data-theme="dark"] .text-warning { color: var(--mf-warning) !important; }
+:root[data-theme="dark"] .text-info, :root[data-theme="dark"] .text-primary { color: var(--mf-info) !important; }
+:root[data-theme="dark"] .bg-white, :root[data-theme="dark"] .bg-light { background-color: var(--mf-surface) !important; }
+:root[data-theme="dark"] .border, :root[data-theme="dark"] .border-top, :root[data-theme="dark"] .border-bottom,
+:root[data-theme="dark"] .border-left, :root[data-theme="dark"] .border-right { border-color: var(--mf-border) !important; }
+:root[data-theme="dark"] hr { border-top-color: var(--mf-border); }
+:root[data-theme="dark"] label, :root[data-theme="dark"] legend { color: var(--mf-heading); }
+:root[data-theme="dark"] code, :root[data-theme="dark"] pre { color: #f78fb3; background: var(--mf-surface-muted); }
+
+/* ---------------------------------------------------------------- Forms */
+:root[data-theme="dark"] .custom-select,
+:root[data-theme="dark"] select.form-control,
+:root[data-theme="dark"] .input-group-text { color: var(--mf-input-text); background-color: var(--mf-input-bg); border-color: var(--mf-input-border); }
+:root[data-theme="dark"] .form-control-plaintext { color: var(--mf-text); }
+:root[data-theme="dark"] .custom-control-label::before { background-color: var(--mf-input-bg); border-color: var(--mf-input-border); }
+:root[data-theme="dark"] .form-check-label, :root[data-theme="dark"] .fancy-checkbox span { color: var(--mf-text); }
+:root[data-theme="dark"] input[type="checkbox"], :root[data-theme="dark"] input[type="radio"] { accent-color: var(--mf-blue); }
+/* Native date/time pickers and file inputs follow color-scheme; keep the calendar glyph visible */
+:root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="month"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(.85); }
+:root[data-theme="dark"] input[type="file"]::file-selector-button { color: var(--mf-input-text); background: var(--mf-surface-strong); border: 1px solid var(--mf-input-border); }
+:root[data-theme="dark"] input:-webkit-autofill,
+:root[data-theme="dark"] input:-webkit-autofill:focus { -webkit-text-fill-color: var(--mf-input-text); box-shadow: 0 0 0 1000px var(--mf-input-bg) inset; }
+
+/* ---------------------------------------------------------------- Buttons */
+:root[data-theme="dark"] .btn-secondary { color: #fff; background-color: #4b535e; border-color: #4b535e; }
+:root[data-theme="dark"] .btn-default, :root[data-theme="dark"] .btn-light { color: var(--mf-heading); background-color: var(--mf-surface-strong); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .btn-outline-secondary { color: var(--mf-text); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .btn-outline-secondary:hover { color: #fff; background-color: #4b535e; }
+:root[data-theme="dark"] .btn-outline-primary { color: var(--mf-link); border-color: var(--mf-link); }
+:root[data-theme="dark"] .btn-outline-primary:hover { color: #fff; background-color: var(--mf-btn-primary); }
+:root[data-theme="dark"] .btn-link { color: var(--mf-link); }
+:root[data-theme="dark"] .close { color: var(--mf-heading); text-shadow: none; opacity: .7; }
+:root[data-theme="dark"] .badge-dark { border-color: #5b636e; background: #5b636e; }
+:root[data-theme="dark"] .badge-secondary, :root[data-theme="dark"] .bg-secondary { background-color: #4b535e !important; }
+
+/* ---------------------------------------------------------------- Tables */
+:root[data-theme="dark"] .table { color: var(--mf-heading); }
+:root[data-theme="dark"] .table thead th { border-bottom-color: var(--mf-border); }
+:root[data-theme="dark"] .table-bordered, :root[data-theme="dark"] .table-bordered td, :root[data-theme="dark"] .table-bordered th { border-color: var(--mf-border); }
+:root[data-theme="dark"] .table-striped tbody tr:nth-of-type(odd) { background-color: var(--mf-surface-muted); }
+:root[data-theme="dark"] .table-hover tbody tr:hover, :root[data-theme="dark"] .table-custom.table tbody tr:hover { color: var(--mf-heading); background-color: var(--mf-surface-hover); }
+:root[data-theme="dark"] .table-active, :root[data-theme="dark"] .table-active > td, :root[data-theme="dark"] .table-active > th { background-color: var(--mf-surface-strong); }
+:root[data-theme="dark"] .table tfoot td, :root[data-theme="dark"] .table tfoot th { border-top-color: var(--mf-border-strong); }
+
+/* ---------------------------------------------------------------- Pagination */
+:root[data-theme="dark"] .page-link { color: var(--mf-link); background-color: var(--mf-surface); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .page-link:hover { background-color: var(--mf-surface-hover); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .page-item.active .page-link { color: #fff; background-color: var(--mf-btn-primary); border-color: var(--mf-btn-primary); }
+:root[data-theme="dark"] .page-item.disabled .page-link { color: var(--mf-subtle); background-color: var(--mf-surface); border-color: var(--mf-border-strong); }
+
+/* ---------------------------------------------------------------- Modals, dropdowns, lists, tabs */
+:root[data-theme="dark"] .modal-content { color: var(--mf-text); background-color: var(--mf-surface); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .modal-header, :root[data-theme="dark"] .modal-footer { border-color: var(--mf-border); }
+:root[data-theme="dark"] .dropdown-menu { color: var(--mf-text); background-color: var(--mf-surface); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .dropdown-item { color: var(--mf-text); }
+:root[data-theme="dark"] .dropdown-item:hover, :root[data-theme="dark"] .dropdown-item:focus { color: var(--mf-heading); background-color: var(--mf-surface-hover); }
+:root[data-theme="dark"] .list-group-item { color: var(--mf-text); background-color: var(--mf-surface); border-color: var(--mf-border); }
+:root[data-theme="dark"] .nav-tabs { border-bottom-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .nav-tabs .nav-link { color: var(--mf-tab-text); }
+:root[data-theme="dark"] .nav-tabs .nav-link:hover { border-color: var(--mf-border) var(--mf-border) var(--mf-border-strong); }
+:root[data-theme="dark"] .nav-tabs .nav-link.active, :root[data-theme="dark"] .nav-tabs .nav-item.show .nav-link { color: var(--mf-heading); background-color: var(--mf-surface); border-color: var(--mf-border-strong) var(--mf-border-strong) var(--mf-surface); }
+:root[data-theme="dark"] #left-sidebar .nav-tabs .nav-link.active { background-color: transparent; border-color: var(--mf-border-strong) var(--mf-border-strong) var(--mf-bg); }
+:root[data-theme="dark"] .nav-pills .nav-link { color: var(--mf-text); }
+:root[data-theme="dark"] .breadcrumb-item a { color: var(--mf-link); }
+:root[data-theme="dark"] .img-thumbnail { background-color: var(--mf-surface-muted); border-color: var(--mf-border-strong); }
+
+/* ---------------------------------------------------------------- Alerts & progress */
+:root[data-theme="dark"] .alert-danger { color: #ffb4b4; background-color: #3a1f22; border-color: #5b2a2e; }
+:root[data-theme="dark"] .alert-success { color: #a7ebbd; background-color: #16311f; border-color: #1f4a2d; }
+:root[data-theme="dark"] .alert-warning { color: #f7dc94; background-color: #3a3016; border-color: #594a1d; }
+:root[data-theme="dark"] .alert-info, :root[data-theme="dark"] .alert-primary { color: #aed3f7; background-color: #182c40; border-color: #234261; }
+:root[data-theme="dark"] .alert-secondary, :root[data-theme="dark"] .alert-light { color: var(--mf-text); background-color: var(--mf-surface-muted); border-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .progress { background-color: var(--mf-surface-strong); }
+
+/* ---------------------------------------------------------------- react-select */
+:root[data-theme="dark"] .mf-select__menu { background-color: var(--mf-surface); border: 1px solid var(--mf-border-strong); box-shadow: 0 4px 16px rgba(0, 0, 0, .5); }
+:root[data-theme="dark"] .mf-select__option { color: var(--mf-text); background-color: transparent; }
+:root[data-theme="dark"] .mf-select__option--is-focused { background-color: var(--mf-surface-hover); }
+:root[data-theme="dark"] .mf-select__option--is-selected { color: #fff; background-color: var(--mf-table-head); }
+:root[data-theme="dark"] .mf-select__control--is-disabled { background-color: var(--mf-input-readonly); }
+:root[data-theme="dark"] .mf-select__placeholder, :root[data-theme="dark"] .mf-select__menu-notice { color: var(--mf-input-placeholder); }
+:root[data-theme="dark"] .mf-select__indicator-separator { background-color: var(--mf-border-strong); }
+:root[data-theme="dark"] .mf-select__multi-value { background-color: var(--mf-surface-strong); }
+:root[data-theme="dark"] .mf-select__multi-value__label { color: var(--mf-heading); }
+
+/* ---------------------------------------------------------------- SweetAlert2 */
+:root[data-theme="dark"] .swal2-popup { color: var(--mf-text); background: var(--mf-surface); }
+:root[data-theme="dark"] .swal2-title, :root[data-theme="dark"] .swal2-html-container { color: var(--mf-heading); }
+:root[data-theme="dark"] .swal2-input, :root[data-theme="dark"] .swal2-textarea, :root[data-theme="dark"] .swal2-select { color: var(--mf-input-text); background: var(--mf-input-bg); border-color: var(--mf-input-border); }
+:root[data-theme="dark"] .swal2-validation-message { color: var(--mf-heading); background: var(--mf-surface-muted); }
+:root[data-theme="dark"] div:where(.swal2-container).swal2-backdrop-show { background: var(--mf-overlay); }
+:root[data-theme="dark"] .swal2-icon.swal2-success [class^="swal2-success-circular-line"],
+:root[data-theme="dark"] .swal2-icon.swal2-success .swal2-success-fix { background-color: var(--mf-surface) !important; }
+
+/* ---------------------------------------------------------------- Recharts (colours are SVG attributes, CSS wins) */
+:root[data-theme="dark"] .recharts-cartesian-grid line { stroke: var(--mf-chart-grid); }
+:root[data-theme="dark"] .recharts-cartesian-axis-line, :root[data-theme="dark"] .recharts-cartesian-axis-tick-line { stroke: var(--mf-chart-axis); }
+:root[data-theme="dark"] .recharts-cartesian-axis-tick-value, :root[data-theme="dark"] .recharts-text.recharts-label,
+:root[data-theme="dark"] .recharts-polar-angle-axis-tick-value { fill: var(--mf-chart-text); }
+:root[data-theme="dark"] .recharts-tooltip-cursor { fill: var(--mf-chart-cursor); }
+:root[data-theme="dark"] .recharts-default-tooltip { color: var(--mf-heading); background-color: var(--mf-chart-tooltip-bg) !important; border-color: var(--mf-chart-tooltip-border) !important; }
+:root[data-theme="dark"] .recharts-tooltip-label { color: var(--mf-heading); }
+:root[data-theme="dark"] .recharts-legend-item-text { filter: brightness(1.15); }
+:root[data-theme="dark"] .recharts-pie-sector path, :root[data-theme="dark"] .recharts-sector { stroke: var(--mf-surface); }
+
+/* ---------------------------------------------------------------- Scrollbars */
+:root[data-theme="dark"] .table-responsive::-webkit-scrollbar { height: 8px; }
+:root[data-theme="dark"] .table-responsive::-webkit-scrollbar-thumb { background: var(--mf-border-strong); border-radius: 4px; }
+
+/* ---------------------------------------------------------------- Brand logo (dark lettering) */
+:root[data-theme="dark"] .navbar-brand img { background: #fff; border-radius: 4px; padding: 2px 5px; box-sizing: content-box; }

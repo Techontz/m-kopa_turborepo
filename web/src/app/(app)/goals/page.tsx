@@ -25,7 +25,7 @@ function ProgressBar({ goal }: { goal: Goal }) {
     <div style={{ minWidth: 140 }} title={`Expected by today: ${expected}%`}>
       <div className="progress" style={{ height: 8, position: "relative" }}>
         <div className={`progress-bar ${tone}`} style={{ width: `${Math.min(100, percent)}%` }} />
-        {status !== "upcoming" && status !== "achieved" && <span style={{ position: "absolute", left: `${Math.min(100, expected)}%`, top: -2, bottom: -2, width: 2, background: "#555" }} />}
+        {status !== "upcoming" && status !== "achieved" && <span style={{ position: "absolute", left: `${Math.min(100, expected)}%`, top: -2, bottom: -2, width: 2, background: "var(--mf-muted)" }} />}
       </div>
       <small>{percent}%</small>
     </div>

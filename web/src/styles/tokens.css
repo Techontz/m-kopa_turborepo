@@ -1,0 +1,185 @@
+/*
+ * MikopoFasta design tokens — the single source of colour for the whole app.
+ *
+ * Light values are the live system's measured colours (so light mode looks exactly as before).
+ * Dark values keep the same identity (blue table headers, cyan pills, orange frame, AdminLTE status
+ * colours) on dark neutral surfaces. Components never hard-code neutrals: they use these variables,
+ * and third-party widgets (Bootstrap, react-select, SweetAlert2, Recharts) are mapped to them in
+ * theme-components.css.
+ *
+ * The theme is selected by <html data-theme="light|dark">, set before first paint by the inline
+ * script in app/layout.tsx (see lib/theme.tsx).
+ */
+
+:root,
+:root[data-theme="light"] {
+    color-scheme: light;
+
+    /* Surfaces */
+    --mf-bg: #f4f7f6;
+    --mf-surface: #fff;
+    --mf-surface-muted: #f7f9fb;
+    --mf-surface-hover: #f0f0f0;
+    --mf-surface-strong: #dddddd;
+    --mf-overlay: rgba(0, 0, 0, .5);
+    --mf-shadow: 0 1px 2px 0 rgba(0, 0, 0, .1);
+
+    /* Text */
+    --mf-text: #5a5a5a;
+    --mf-heading: #444;
+    --mf-muted: #777;
+    --mf-subtle: #999;
+    --mf-strong: #000;
+    --mf-dark: #17191c;
+    --mf-on-accent: #fff;
+
+    /* Lines */
+    --mf-border: #eee;
+    --mf-border-strong: #dee2e6;
+
+    /* Navigation */
+    --mf-nav-icon: #666;
+    --mf-tab-text: #495057;
+    --mf-menu-arrow: #b5b5b5;
+    --mf-popover-bg: #17191c;
+    --mf-popover-text: #999;
+    --mf-popover-hover: #fff;
+    --mf-popover-divider: #444;
+
+    /* Forms */
+    --mf-input-bg: #fff;
+    --mf-input-text: #495057;
+    --mf-input-border: #d2d6de;
+    --mf-input-focus: #c1c0c0;
+    --mf-input-readonly: #e9ecef;
+    --mf-input-placeholder: #6c757d;
+    --mf-select-border: #ccc;
+    --mf-select-focus: #aaa;
+    --mf-select-text: #5a5a5a;
+
+    /* Brand / accents (live identity) */
+    --mf-blue: #3c89da;
+    --mf-cyan: #01b2c6;
+    --mf-orange: #ffce4b;
+    --mf-table-head: #3c89da;
+    --mf-table-head-alt: #01b2c6;
+    --mf-link: #3c89da;
+    --mf-selected: #e8f4fd;
+
+    /* Buttons (AdminLTE palette used by the live system) */
+    --mf-btn-primary: #3c8dbc;
+    --mf-btn-primary-border: #367fa9;
+    --mf-btn-primary-hover-border: #204d74;
+    --mf-btn-info: #00c0ef;
+    --mf-btn-info-border: #00acd6;
+    --mf-btn-info-hover-border: #0097bc;
+    --mf-btn-danger: #dd4b39;
+    --mf-btn-danger-border: #d73925;
+    --mf-btn-danger-hover-border: #ac2925;
+    --mf-btn-success: #00a65a;
+    --mf-btn-success-border: #008d4c;
+    --mf-btn-warning: #f39c12;
+    --mf-btn-warning-border: #e08e0b;
+
+    /* Status */
+    --mf-success: #22af46;
+    --mf-warning: #f3ad06;
+    --mf-danger: #de4848;
+    --mf-info: #3c89da;
+    --mf-neutral: #9a9a9a;
+    --mf-positive: green;
+    --mf-negative: red;
+
+    /* Charts */
+    --mf-chart-grid: #eee;
+    --mf-chart-axis: #ddd;
+    --mf-chart-text: #777;
+    --mf-chart-cursor: rgba(0, 0, 0, .04);
+    --mf-chart-tooltip-bg: #fff;
+    --mf-chart-tooltip-border: #ccc;
+
+    /* Login */
+    --mf-auth-bg: #191f28;
+
+    --mf-sidebar-width: 250px;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --mf-bg: #14171c;
+    --mf-surface: #1d2229;
+    --mf-surface-muted: #232932;
+    --mf-surface-hover: #262c35;
+    --mf-surface-strong: #2c333d;
+    --mf-overlay: rgba(0, 0, 0, .7);
+    --mf-shadow: 0 1px 3px 0 rgba(0, 0, 0, .6);
+
+    --mf-text: #c3c9d1;
+    --mf-heading: #e3e7ec;
+    --mf-muted: #939ba6;
+    --mf-subtle: #7d8591;
+    --mf-strong: #f1f3f5;
+    --mf-dark: #d9dee4;
+    --mf-on-accent: #fff;
+
+    --mf-border: #2e343d;
+    --mf-border-strong: #3a414b;
+
+    --mf-nav-icon: #aeb6c0;
+    --mf-tab-text: #b9c0c9;
+    --mf-menu-arrow: #6b737e;
+    --mf-popover-bg: #0f1216;
+    --mf-popover-text: #a3abb5;
+    --mf-popover-hover: #fff;
+    --mf-popover-divider: #2e343d;
+
+    --mf-input-bg: #161a20;
+    --mf-input-text: #dde2e8;
+    --mf-input-border: #3a414b;
+    --mf-input-focus: #56606c;
+    --mf-input-readonly: #232932;
+    --mf-input-placeholder: #7d8591;
+    --mf-select-border: #3a414b;
+    --mf-select-focus: #56606c;
+    --mf-select-text: #dde2e8;
+
+    --mf-blue: #5b9fe6;
+    --mf-cyan: #16c1d4;
+    --mf-orange: #ffce4b;
+    --mf-table-head: #2f6fb5;
+    --mf-table-head-alt: #0a8fa0;
+    --mf-link: #6aa9ec;
+    --mf-selected: #1f3347;
+
+    --mf-btn-primary: #3a82b0;
+    --mf-btn-primary-border: #3176a0;
+    --mf-btn-primary-hover-border: #4d97c6;
+    --mf-btn-info: #0aa9d1;
+    --mf-btn-info-border: #0998bc;
+    --mf-btn-info-hover-border: #33bde0;
+    --mf-btn-danger: #d24a39;
+    --mf-btn-danger-border: #bf3b2b;
+    --mf-btn-danger-hover-border: #e36756;
+    --mf-btn-success: #0a9b58;
+    --mf-btn-success-border: #088a4e;
+    --mf-btn-warning: #e0930f;
+    --mf-btn-warning-border: #c9840d;
+
+    --mf-success: #3ccf65;
+    --mf-warning: #f5bd2e;
+    --mf-danger: #f06262;
+    --mf-info: #5b9fe6;
+    --mf-neutral: #8d949e;
+    --mf-positive: #4ade80;
+    --mf-negative: #ff6b6b;
+
+    --mf-chart-grid: #2e343d;
+    --mf-chart-axis: #3a414b;
+    --mf-chart-text: #a3abb5;
+    --mf-chart-cursor: rgba(255, 255, 255, .06);
+    --mf-chart-tooltip-bg: #1d2229;
+    --mf-chart-tooltip-border: #3a414b;
+
+    --mf-auth-bg: #0f1216;
+}

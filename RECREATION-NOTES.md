@@ -65,6 +65,29 @@ of the method concerned.
 | CRM, Messages, Goals | — | From handwritten notes: call/SMS log, follow-ups, customer reports; chat by position (staff → own head, HQ → anyone, groups and broadcasts); goals with progress charts |
 | Reports | 13 live reports | Portfolio & Risk (portfolio, expected vs actual, arrears & PAR, recovery, DPD behaviour and A–D rating, segmentation, age analysis) and Financial (master cash flow, branch P&L, ranking, expenses, HQ 2% hold, loss carry forward, consolidated P&L, balance sheet, suspense, reversals, daily position) |
 
+## Changes requested after the recreation
+
+- **Share holders:** the live "Full name" field is split into First / Middle (optional) / Last name, stored in
+  separate columns, plus a required passport-size photo. The old `name` column is kept and kept in sync with the
+  full name, so existing records and consumers still work; legacy single names were split without inventing
+  parts (one word → first name only, two → first + last, three or more → first, middle words, last).
+- **Add Capital:** new "Import Receipt" upload (PDF/JPG/PNG/WEBP, max 5 MB) next to the typed Receipt No and
+  Cheque Number. The receipt can be viewed from the capital list and replaced later; the amount and its ledger
+  entry stay immutable.
+- **Files** (passport photos, receipts) are stored on the private `local` disk and streamed only through
+  authorised API endpoints (`capital.view` / `capital.manage`, company-scoped); the browser loads them through the
+  authenticated Next.js proxy.
+- **Dark mode** for the whole application:
+  - `web/src/styles/tokens.css` holds every colour as a design token, for light (the live values, the default)
+    and dark.
+  - `theme.css` / `app.css` / CSS modules use the tokens.
+  - `theme-components.css` maps Bootstrap, react-select, SweetAlert2, Recharts and native controls to the tokens
+    in dark mode.
+  - The choice is saved in `localStorage` (`mf-theme`) and applied by an inline script in `<head>` before first
+    paint, so there is no flash.
+  - The toggle is in the top bar and on the login page; it persists across refresh, navigation,
+    logout/login and tabs.
+
 ## Decisions not fixed by the sources (defaults, configurable where noted)
 
 - Expense approval limit: 500,000 (company setting).

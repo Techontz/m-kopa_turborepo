@@ -260,7 +260,7 @@ class ReportTest extends TestCase
             'customer_id' => $this->customer()->id,
             'amount_approved' => 100000,
             'duration' => Duration::Weekly,
-            'status' => LoanStatus::Disbursed,
+            'status' => LoanStatus::AwaitingDisbursement,
         ]);
 
         app(LoanService::class)->withdraw($loan, CarbonImmutable::today()->subDays($daysAgo), $this->admin);

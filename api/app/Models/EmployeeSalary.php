@@ -17,6 +17,7 @@ class EmployeeSalary extends Model
         return [
             'salary' => 'decimal:2',
             'fee' => 'decimal:2',
+            'commission_eligible' => 'boolean',
         ];
     }
 

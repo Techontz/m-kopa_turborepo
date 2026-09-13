@@ -1,0 +1,741 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\LoanStatus;
+use App\Integrations\BankMandate\BankMandateGateway;
+use App\Integrations\Sms\SmsGateway;
+use App\Integrations\Vodacom\DisbursementCallback;
+use App\Integrations\Vodacom\VodacomGateway;
+use App\Models\AuditLog;
+use App\Models\Customer;
+use App\Models\Employee;
+use App\Models\Loan;
+use App\Models\LoanCategory;
+use App\Models\LoanDisbursement;
+use App\Models\LoanMandate;
+use App\Models\SmsLog;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Loan lifecycle state machine (Documents: 🏦 LOAN PROCESS OVERVIEW and the handwritten "Steps of building").
+ *
+ * APPLY (loan officer) → MANAGER (approve / reject / modify) → E-MANDATE + OTP when the product requires it →
+ * CREDIT OFFICER (Vodacom KYC name/number verification, approve / reject / modify; reference number on approval)
+ * → FINANCE (prepare batch) → VODACOM DISBURSEMENT (callback; retry max 3 with a new batch each, then ESCALATED
+ * → cancel / suspense / other channel) → ACTIVE (ledger + schedules + SMS) → OVERDUE / DEFAULT → CLOSED → freeze.
+ *
+ * Every transition is written to the audit trail (audit_logs, auditable = loan). No ledger entry is posted before a
+ * disbursement succeeds; the posting itself is LoanService::withdraw().
+ */
+class LoanWorkflow
+{
+    public function __construct(
+        private readonly LoanService $loans,
+        private readonly CustomerEligibility $eligibility,
+        private readonly VodacomGateway $vodacom,
+        private readonly BankMandateGateway $bank,
+        private readonly SmsGateway $sms,
+    ) {}
+
+    /**
+     * Whether a customer may apply now: category/KYC rules, one application at a time, freeze period after
+     * closure and top-up conditions when a loan is still running.
+     *
+     * @return array{allowed: bool, reasons: list<string>, frozen_until: string|null, topup: array{loan_id: int, loan_number: string, eligible: bool, paid_percent: float, required_percent: float, outstanding: float, reasons: list<string>}|null, rules: array<string, mixed>}
+     */
+    public function borrowingStatus(Customer $customer, ?int $loanCategoryId = null, ?float $amount = null): array
+    {
+        $reasons = $this->eligibility->violations($customer, $loanCategoryId, $amount);
+        $rules = $this->eligibility->for($customer);
+
+        if ($customer->loans()->status(...LoanStatus::inPipeline())->exists()) {
+            $reasons[] = 'Customer already has a loan waiting for approval or withdrawal';
+        }
+
+        $frozenUntil = $customer->loans()->status(LoanStatus::Closed)->whereDate('frozen_until', '>=', today())->max('frozen_until');
+        if ($frozenUntil !== null) {
+            $reasons[] = 'Customer is in freeze period until '.CarbonImmutable::parse($frozenUntil)->toDateString();
+        }
+
+        $running = $customer->loans()->status(...LoanStatus::repayable())->latest('id')->first();
+        $topup = $running ? $this->topupEligibility($running) : null;
+        if ($topup !== null && ! $topup['eligible']) {
+            $reasons[] = 'NOT ELIGIBLE for top-up: '.implode(', ', $topup['reasons']);
+        }
+
+        return [
+            'allowed' => $reasons === [],
+            'reasons' => array_values(array_unique($reasons)),
+            'frozen_until' => $frozenUntil !== null ? CarbonImmutable::parse($frozenUntil)->toDateString() : null,
+            'topup' => $topup,
+            'rules' => $rules,
+        ];
+    }
+
+    /**
+     * Top-up (Documents: "Paid certain % + No overdue → new loan allowed"). The required share is the
+     * product's topup percent; the paid share is repayments over principal + interest + insurance.
+     *
+     * @return array{loan_id: int, loan_number: string, eligible: bool, paid_percent: float, required_percent: float, outstanding: float, reasons: list<string>}
+     */
+    public function topupEligibility(Loan $loan): array
+    {
+        $totalDue = (float) $loan->amount_approved + (float) $loan->interest_amount + (float) $loan->insurance;
+        $paidPercent = $totalDue > 0 ? round($loan->paid_amount / $totalDue * 100, 2) : 0.0;
+        $required = (float) ($loan->category?->topup_percent ?? 0);
+        $reasons = [];
+
+        if ($loan->status !== LoanStatus::Active || (int) $loan->days_past_due > 0) {
+            $reasons[] = 'the running loan is overdue';
+        }
+        if ($required <= 0) {
+            $reasons[] = 'the product does not allow top-up';
+        } elseif ($paidPercent < $required) {
+            $reasons[] = "paid {$paidPercent}% of required {$required}%";
+        }
+
+        return [
+            'loan_id' => $loan->id,
+            'loan_number' => $loan->loan_number,
+            'eligible' => $reasons === [],
+            'paid_percent' => $paidPercent,
+            'required_percent' => $required,
+            'outstanding' => $this->loans->outstanding($loan)['total'],
+            'reasons' => $reasons,
+        ];
+    }
+
+    /**
+     * @param  array{loan_category_id: int, group_id?: int|null, amount_applied: float, sessions: int, formula: string, fee_deduct: bool, reason: string}  $data
+     */
+    public function apply(Customer $customer, array $data, Employee $employee): Loan
+    {
+        $status = $this->borrowingStatus($customer, $data['loan_category_id'], $data['amount_applied']);
+        if (! $status['allowed']) {
+            throw ValidationException::withMessages(['customer_id' => $status['reasons']]);
+        }
+
+        return DB::transaction(function () use ($customer, $data, $employee, $status): Loan {
+            $loan = $this->loans->apply($customer, $data, $employee);
+            if ($status['topup'] !== null) {
+                $loan->update(['topup_of_loan_id' => $status['topup']['loan_id']]);
+            }
+            $this->record($loan, 'APPLIED', null, $employee, ['amount' => (float) $loan->amount_applied, 'topup_of' => $status['topup']['loan_number'] ?? null]);
+
+            return $loan;
+        });
+    }
+
+    /**
+     * Loan officer edits the application; a returned application goes back to the branch manager.
+     * Handwritten note: "if approved can't edit".
+     *
+     * @param  array{loan_category_id: int, group_id?: int|null, amount_applied: float, sessions: int, formula: string, fee_deduct: bool, reason: string, instalment?: float}  $data
+     */
+    public function update(Loan $loan, array $data, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::PendingManagerApproval, LoanStatus::Returned);
+        $category = LoanCategory::findOrFail($data['loan_category_id']);
+
+        if ($data['amount_applied'] < (float) $category->amount_from || $data['amount_applied'] > (float) $category->amount_to) {
+            throw ValidationException::withMessages(['how_loan' => "Loan amount must be between {$category->level_label}"]);
+        }
+        if ($data['sessions'] < $category->repayment_from || $data['sessions'] > $category->repayment_to) {
+            throw ValidationException::withMessages(['session' => "Number of repayments must be between {$category->repayment_from} - {$category->repayment_to}"]);
+        }
+
+        return DB::transaction(function () use ($loan, $data, $category, $employee): Loan {
+            $from = $loan->status;
+            $loan->fill([
+                'loan_category_id' => $category->id,
+                'group_id' => $data['group_id'] ?? null,
+                'amount_applied' => $data['amount_applied'],
+                'duration' => $category->duration,
+                'sessions' => $data['sessions'],
+                'instalment' => $data['instalment'] ?? 0,
+                'formula' => $data['formula'],
+                'fee_deduct' => $data['fee_deduct'],
+                'reason' => $data['reason'],
+                'interest_rate' => $category->interest_rate,
+                'status' => LoanStatus::PendingManagerApproval,
+            ]);
+            $loan->setRelation('category', $category);
+            $this->loans->price($loan, (float) $data['amount_applied']);
+            $loan->save();
+
+            $this->record($loan, $from === LoanStatus::Returned ? 'RESUBMITTED' : 'MODIFIED', $from, $employee);
+
+            return $loan;
+        });
+    }
+
+    /**
+     * Branch manager approval with the "Approved Loan" amount (live view_Dataloan → Aprove).
+     */
+    public function approveByManager(Loan $loan, float $approvedAmount, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::PendingManagerApproval);
+        $loan->loadMissing(['category', 'customer']);
+
+        if (! $this->eligibility->for($loan->customer)['kyc_complete']) {
+            throw ValidationException::withMessages(['loan_aprove' => 'Please wait for the customer`s KYC to be Verfied!']);
+        }
+        if ($approvedAmount > (float) $loan->category->amount_to) {
+            throw ValidationException::withMessages(['loan_aprove' => 'Approved loan must not exceed '.money($loan->category->amount_to)]);
+        }
+
+        return DB::transaction(function () use ($loan, $approvedAmount, $employee): Loan {
+            $loan->amount_approved = $approvedAmount;
+            $this->loans->price($loan, $approvedAmount);
+            $loan->approved_at = now();
+            $loan->status = $loan->category->requires_mandate ? LoanStatus::MandatePendingOtp : LoanStatus::PendingCreditReview;
+            $loan->save();
+
+            $this->record($loan, 'MANAGER_APPROVED', LoanStatus::PendingManagerApproval, $employee, ['amount_approved' => $approvedAmount]);
+
+            return $loan;
+        });
+    }
+
+    public function reject(Loan $loan, string $reason, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::PendingManagerApproval, LoanStatus::PendingCreditReview, LoanStatus::MandateFailed, LoanStatus::MandatePendingOtp);
+        $from = $loan->status;
+        $loan->update(['status' => LoanStatus::Rejected, 'decision_reason' => $reason]);
+        $this->record($loan, $from === LoanStatus::PendingCreditReview ? 'CREDIT_REJECTED' : 'MANAGER_REJECTED', $from, $employee, ['reason' => $reason]);
+
+        return $loan;
+    }
+
+    /**
+     * "Modify → back to loan officer" (manager, credit officer, or after a mandate failure).
+     */
+    public function returnForModification(Loan $loan, string $reason, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::PendingManagerApproval, LoanStatus::PendingCreditReview, LoanStatus::MandateFailed, LoanStatus::MandatePendingOtp);
+        $from = $loan->status;
+        $loan->update(['status' => LoanStatus::Returned, 'decision_reason' => $reason, 'telco_matched' => null]);
+        $this->record($loan, 'RETURNED_FOR_MODIFICATION', $from, $employee, ['reason' => $reason]);
+
+        return $loan;
+    }
+
+    /**
+     * POST /bank/e-mandate: register the mandate, the bank sends an OTP to the account holder.
+     *
+     * @param  array{bank_name: string, account_number: string, account_name: string}  $details
+     * @return array{success: bool, message: string}
+     */
+    public function createMandate(Loan $loan, array $details, Employee $employee): array
+    {
+        $this->assertStatus($loan, LoanStatus::MandatePendingOtp, LoanStatus::MandateFailed);
+
+        $mandate = LoanMandate::create($details + [
+            'company_id' => $loan->company_id,
+            'loan_id' => $loan->id,
+            'employee_id' => $employee->id,
+            'status' => LoanMandate::PENDING_OTP,
+        ]);
+
+        $result = $this->bank->create($mandate);
+        if (! $result->success) {
+            $mandate->update(['status' => LoanMandate::FAILED, 'failure_reason' => $result->message]);
+            $this->transition($loan, LoanStatus::MandateFailed, 'MANDATE_FAILED', $employee, ['reason' => $result->message]);
+
+            return ['success' => false, 'message' => $result->message ?? 'E-mandate could not be created'];
+        }
+
+        $mandate->update(['mandate_reference' => $result->reference]);
+        $this->transition($loan, LoanStatus::MandatePendingOtp, 'MANDATE_CREATED', $employee, ['mandate_reference' => $result->reference]);
+
+        return ['success' => true, 'message' => 'E-mandate created, OTP sent to the customer'];
+    }
+
+    /**
+     * POST /bank/e-mandate/verify-otp. Failure → MANDATE_FAILED (retry OTP or modify details).
+     *
+     * @return array{success: bool, message: string}
+     */
+    public function verifyMandateOtp(Loan $loan, string $otp, Employee $employee): array
+    {
+        $this->assertStatus($loan, LoanStatus::MandatePendingOtp, LoanStatus::MandateFailed);
+        $mandate = $loan->mandate()->first();
+
+        if ($mandate === null || $mandate->mandate_reference === null) {
+            throw ValidationException::withMessages(['otp' => 'Create the e-mandate first']);
+        }
+
+        $result = $this->bank->verifyOtp($mandate, $otp);
+        $mandate->increment('otp_attempts');
+
+        if (! $result->success) {
+            $mandate->update(['status' => LoanMandate::FAILED, 'failure_reason' => $result->message]);
+            $this->transition($loan, LoanStatus::MandateFailed, 'MANDATE_OTP_FAILED', $employee, ['reason' => $result->message, 'attempt' => $mandate->otp_attempts]);
+
+            return ['success' => false, 'message' => $result->message ?? 'Wrong OTP'];
+        }
+
+        $mandate->update(['status' => LoanMandate::ACTIVE, 'failure_reason' => null, 'activated_at' => now()]);
+        $this->transition($loan, LoanStatus::PendingCreditReview, 'MANDATE_ACTIVE', $employee, ['mandate_reference' => $mandate->mandate_reference]);
+
+        return ['success' => true, 'message' => 'E-mandate activated successfully'];
+    }
+
+    /**
+     * Credit officer: POST /vodacom/kyc-verify — the name registered on the customer's number must match.
+     *
+     * @return array{matched: bool, registered_name: string|null, message: string}
+     */
+    public function verifyTelco(Loan $loan, Employee $employee): array
+    {
+        $this->assertStatus($loan, LoanStatus::PendingCreditReview);
+        $customer = $loan->customer;
+
+        $result = $this->vodacom->kycLookup((string) $customer->phone, $customer->full_name);
+        $matched = $result->found && $this->namesMatch($customer, (string) $result->registeredName);
+
+        $loan->update(['telco_name' => $result->registeredName, 'telco_matched' => $matched, 'telco_verified_at' => now()]);
+        $this->record($loan, $matched ? 'TELCO_VERIFIED' : 'TELCO_NAME_MISMATCH', $loan->status, $employee, [
+            'phone' => $customer->phone,
+            'registered_name' => $result->registeredName,
+            'message' => $result->message,
+        ]);
+
+        return [
+            'matched' => $matched,
+            'registered_name' => $result->registeredName,
+            'message' => $matched ? 'Name and number verified successfully' : ($result->message ?? 'Name mismatch: '.$result->registeredName),
+        ];
+    }
+
+    /**
+     * Credit officer approval → PENDING_FINANCE; the reference number is generated here (handwritten note).
+     */
+    public function approveCredit(Loan $loan, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::PendingCreditReview);
+
+        if ($loan->telco_matched !== true) {
+            throw ValidationException::withMessages(['loan' => $loan->telco_verified_at === null
+                ? 'Verify the customer name and number with Vodacom before approving'
+                : 'Name mismatch: modify or reject the loan']);
+        }
+
+        return DB::transaction(function () use ($loan, $employee): Loan {
+            $loan->update([
+                'status' => LoanStatus::PendingFinance,
+                'reference_number' => $loan->reference_number ?? $this->newReferenceNumber($loan),
+            ]);
+            $this->record($loan, 'CREDIT_APPROVED', LoanStatus::PendingCreditReview, $employee, ['reference_number' => $loan->reference_number]);
+
+            return $loan;
+        });
+    }
+
+    /**
+     * Finance: POST /loans/{id}/prepare-disbursement — generates the batch id.
+     */
+    public function prepareDisbursement(Loan $loan, Employee $employee): LoanDisbursement
+    {
+        return DB::transaction(function () use ($loan, $employee): LoanDisbursement {
+            $loan = Loan::lockForUpdate()->findOrFail($loan->id);
+            $this->assertStatus($loan, LoanStatus::PendingFinance);
+
+            $disbursement = $this->newBatch($loan, 'vodacom', $employee);
+            $this->transition($loan, LoanStatus::AwaitingDisbursement, 'DISBURSEMENT_PREPARED', $employee, ['batch_id' => $disbursement->batch_id, 'amount' => (float) $disbursement->amount]);
+
+            return $disbursement;
+        });
+    }
+
+    /**
+     * Finance taps "Disburse": POST /vodacom/disbursement-request, then completes it in the Vodacom portal.
+     * The result arrives on the callback (the test driver may simulate it immediately).
+     *
+     * @return array{status: LoanStatus, message: string, portal_url: string|null, batch_id: string}
+     */
+    public function requestDisbursement(Loan $loan, Employee $employee): array
+    {
+        $disbursement = DB::transaction(function () use ($loan, $employee): LoanDisbursement {
+            $locked = Loan::lockForUpdate()->findOrFail($loan->id);
+            $this->assertStatus($locked, LoanStatus::AwaitingDisbursement);
+            $disbursement = $locked->latestDisbursement()->lockForUpdate()->first();
+
+            if ($disbursement === null || $disbursement->channel !== 'vodacom' || $disbursement->status !== LoanDisbursement::PREPARED) {
+                throw ValidationException::withMessages(['loan' => 'This disbursement has already been sent to Vodacom']);
+            }
+
+            $disbursement->update(['status' => LoanDisbursement::REQUESTED, 'requested_by' => $employee->id, 'requested_at' => now()]);
+            $this->record($locked, 'DISBURSEMENT_REQUESTED', $locked->status, $employee, ['batch_id' => $disbursement->batch_id, 'attempt' => $disbursement->attempt]);
+
+            return $disbursement;
+        });
+
+        $result = $this->vodacom->requestDisbursement($disbursement);
+        $disbursement->update(['provider_reference' => $result->providerReference]);
+
+        if (! $result->accepted || $result->immediateSuccess === false) {
+            $this->failDisbursement($disbursement, $result->message ?? 'API error', $employee);
+        } elseif ($result->immediateSuccess === true) {
+            $this->completeDisbursement($disbursement, $result->providerReference, $employee);
+        }
+
+        $loan->refresh();
+
+        return [
+            'status' => $loan->status,
+            'batch_id' => $disbursement->batch_id,
+            'portal_url' => $this->vodacom->portalUrl(),
+            'message' => match ($loan->status) {
+                LoanStatus::Active => 'Loan Disbursed successfully',
+                LoanStatus::DisbursementFailed => 'Disbursement failed: '.($result->message ?? 'API error'),
+                LoanStatus::Escalated => 'Disbursement failed 3 times and has been ESCALATED',
+                default => 'Disbursement request sent to Vodacom, complete it in the Vodacom portal',
+            },
+        ];
+    }
+
+    /**
+     * POST /webhooks/vodacom/disbursement-status. Idempotent: a batch that already has a result is ignored.
+     *
+     * @return array{status: string, loan_status: string|null}
+     */
+    public function handleCallback(DisbursementCallback $callback): array
+    {
+        $disbursement = LoanDisbursement::where('batch_id', $callback->batchId)->first();
+        if ($disbursement === null) {
+            return ['status' => 'UNKNOWN_BATCH', 'loan_status' => null];
+        }
+        if (! in_array($disbursement->status, [LoanDisbursement::PREPARED, LoanDisbursement::REQUESTED], true)) {
+            return ['status' => 'ALREADY_PROCESSED', 'loan_status' => $disbursement->loan->status->value];
+        }
+
+        $disbursement->update(['callback_payload' => $callback->payload]);
+
+        if ($callback->success) {
+            $this->completeDisbursement($disbursement, $callback->transactionId, null);
+        } else {
+            $this->failDisbursement($disbursement, $callback->reason ?? 'Disbursement failed', null);
+        }
+
+        return ['status' => 'PROCESSED', 'loan_status' => $disbursement->loan->fresh()->status->value];
+    }
+
+    /**
+     * Documents: "IF status == DISBURSEMENT_FAILED → allow retry ELSE reject"; max 3 attempts; each retry has a new
+     * batch id and an audit record {action: RETRY_DISBURSEMENT, user, timestamp, batch_id, attempt}. Finance edits nothing.
+     *
+     * @return array{status: LoanStatus, message: string, portal_url: string|null, batch_id: string}
+     */
+    public function retryDisbursement(Loan $loan, Employee $employee): array
+    {
+        DB::transaction(function () use ($loan, $employee): void {
+            $locked = Loan::lockForUpdate()->findOrFail($loan->id);
+            $this->assertStatus($locked, LoanStatus::DisbursementFailed);
+
+            if ((int) $locked->disbursement_attempts >= $this->maxAttempts()) {
+                throw ValidationException::withMessages(['loan' => 'Maximum disbursement retries reached']);
+            }
+
+            $disbursement = $this->newBatch($locked, 'vodacom', $employee);
+            $this->transition($locked, LoanStatus::AwaitingDisbursement, 'RETRY_DISBURSEMENT', $employee, [
+                'user' => $employee->full_name,
+                'timestamp' => now()->toIso8601String(),
+                'batch_id' => $disbursement->batch_id,
+                'attempt' => $disbursement->attempt,
+            ]);
+        });
+
+        return $this->requestDisbursement($loan->fresh(), $employee);
+    }
+
+    /**
+     * Manual decision on an ESCALATED disbursement: cancel the loan, move it to suspense, or pay through a
+     * different channel (Airtel, bank or branch cash with a withdrawal code).
+     */
+    public function resolveEscalation(Loan $loan, string $action, ?string $channel, string $reason, Employee $employee): Loan
+    {
+        return DB::transaction(function () use ($loan, $action, $channel, $reason, $employee): Loan {
+            $loan = Loan::lockForUpdate()->findOrFail($loan->id);
+            $this->assertStatus($loan, LoanStatus::Escalated);
+
+            match ($action) {
+                'cancel' => $this->cancel($loan, $reason, $employee),
+                'suspense' => $this->transition($loan, LoanStatus::DisbursementSuspense, 'MOVED_TO_SUSPENSE', $employee, ['reason' => $reason]),
+                'other_channel' => $this->switchChannel($loan, (string) $channel, $reason, $employee),
+                default => throw ValidationException::withMessages(['action' => 'Unknown action']),
+            };
+
+            return $loan->fresh();
+        });
+    }
+
+    /**
+     * Inferred: a loan parked in suspense can be sent back to Finance, which starts a new retry cycle.
+     */
+    public function requeue(Loan $loan, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::DisbursementSuspense);
+        $loan->update(['disbursement_attempts' => 0]);
+        $this->transition($loan, LoanStatus::PendingFinance, 'REQUEUED_FROM_SUSPENSE', $employee);
+
+        return $loan;
+    }
+
+    /**
+     * Finance confirms a disbursement paid through Airtel / bank (other channel) with the transfer reference.
+     */
+    public function confirmManualDisbursement(Loan $loan, string $reference, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::AwaitingDisbursement);
+        $disbursement = $loan->latestDisbursement()->first();
+
+        if ($disbursement === null || ! in_array($disbursement->channel, ['airtel', 'bank'], true) || $disbursement->status !== LoanDisbursement::REQUESTED) {
+            throw ValidationException::withMessages(['reference' => 'This loan is not waiting for a manual disbursement']);
+        }
+
+        $this->completeDisbursement($disbursement, $reference, $employee);
+
+        return $loan->fresh();
+    }
+
+    /**
+     * Branch cash-out with the SMS withdrawal code (live Loan Withdrawal behaviour, used as the "cash" channel).
+     */
+    public function cashOut(Loan $loan, string $code, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, LoanStatus::AwaitingDisbursement);
+        $disbursement = $loan->latestDisbursement()->first();
+
+        if ($disbursement === null || $disbursement->channel !== 'cash' || $disbursement->status !== LoanDisbursement::REQUESTED) {
+            throw ValidationException::withMessages(['code' => 'This loan is not waiting for a cash withdrawal']);
+        }
+        if ($loan->withdrawal_code === null || ! hash_equals($loan->withdrawal_code, $code)) {
+            throw ValidationException::withMessages(['code' => 'Invalid withdrawal code']);
+        }
+
+        $this->completeDisbursement($disbursement, 'CASH-'.$disbursement->batch_id, $employee);
+
+        return $loan->fresh();
+    }
+
+    /**
+     * POST /loans/{id}/close — only when nothing is outstanding.
+     */
+    public function close(Loan $loan, Employee $employee): Loan
+    {
+        $this->assertStatus($loan, ...LoanStatus::repayable());
+        $outstanding = $this->loans->outstanding($loan)['total'];
+
+        if ($outstanding > 0.5) {
+            throw ValidationException::withMessages(['loan' => 'Loan still has an outstanding balance of '.money($outstanding)]);
+        }
+
+        $from = $loan->status;
+        $this->loans->close($loan);
+        $this->record($loan, 'CLOSED', $from, $employee, ['frozen_until' => $loan->frozen_until?->toDateString()]);
+
+        return $loan;
+    }
+
+    public function comment(Loan $loan, string $comment, Employee $employee): void
+    {
+        $this->record($loan, 'COMMENT', $loan->status, $employee, ['comment' => $comment]);
+    }
+
+    /**
+     * Net cash sent to the customer: approved principal − deducted loan fee − balance of the loan being topped up.
+     * Inferred: salary advance and penalty deductions shown on the approval screen are informational only.
+     */
+    public function netDisbursement(Loan $loan): float
+    {
+        $fee = $loan->fee_deduct ? (float) $loan->loan_fee : 0.0;
+        $topup = $loan->topupOf && in_array($loan->topupOf->status, LoanStatus::repayable(), true) ? $this->loans->outstanding($loan->topupOf)['total'] : 0.0;
+
+        return round(max(0, (float) $loan->amount_approved - $fee - $topup), 2);
+    }
+
+    public function maxAttempts(): int
+    {
+        return (int) config('integrations.vodacom.max_disbursement_attempts', 3);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    public function record(Loan $loan, string $action, ?LoanStatus $from, ?Employee $employee, array $context = []): void
+    {
+        AuditLog::create([
+            'company_id' => $loan->company_id,
+            'employee_id' => $employee?->id,
+            'action' => $action,
+            'auditable_type' => $loan->getMorphClass(),
+            'auditable_id' => $loan->id,
+            'before' => $from ? ['status' => $from->value] : null,
+            'after' => ['status' => $loan->status->value],
+            'context' => $context === [] ? null : $context,
+            'ip_address' => request()?->ip(),
+        ]);
+    }
+
+    private function completeDisbursement(LoanDisbursement $disbursement, ?string $providerReference, ?Employee $employee): void
+    {
+        DB::transaction(function () use ($disbursement, $providerReference, $employee): void {
+            $disbursement = LoanDisbursement::lockForUpdate()->findOrFail($disbursement->id);
+            if (! in_array($disbursement->status, [LoanDisbursement::PREPARED, LoanDisbursement::REQUESTED], true)) {
+                return;
+            }
+
+            $loan = Loan::lockForUpdate()->with(['topupOf', 'customer', 'company'])->findOrFail($disbursement->loan_id);
+            $today = CarbonImmutable::today();
+            $previous = $loan->topupOf;
+
+            $disbursement->update(['status' => LoanDisbursement::SUCCESS, 'provider_reference' => $providerReference ?? $disbursement->provider_reference, 'completed_at' => now()]);
+            $this->loans->withdraw($loan, $today, $employee, 'LOAN DISBURSEMENT', $disbursement->channel);
+
+            if ($previous !== null && in_array($previous->status, LoanStatus::repayable(), true)) {
+                $balance = $this->loans->outstanding($previous)['total'];
+                if ($balance > 0) {
+                    $this->loans->deposit($previous, $balance, $today, 'TOPUP', $employee);
+                    $this->record($previous->fresh(), 'SETTLED_BY_TOPUP', $previous->status, $employee, ['amount' => $balance, 'new_loan' => $loan->loan_number]);
+                }
+            }
+
+            $loan->refresh();
+            $this->record($loan, 'DISBURSED', LoanStatus::AwaitingDisbursement, $employee, [
+                'batch_id' => $disbursement->batch_id,
+                'attempt' => $disbursement->attempt,
+                'channel' => $disbursement->channel,
+                'amount' => (float) $disbursement->amount,
+                'provider_reference' => $disbursement->provider_reference,
+            ]);
+
+            $this->notify($loan, 'Mkopo wako wa TSH '.money($loan->amount_approved).' umetolewa. Umepokea TSH '.money($disbursement->amount)
+                .'. Kumbukumbu ya malipo: '.($loan->reference_number ?? $loan->loan_number).'. Rejesho la kwanza: '.$loan->schedules()->value('due_date').'.');
+        });
+    }
+
+    private function failDisbursement(LoanDisbursement $disbursement, string $reason, ?Employee $employee): void
+    {
+        DB::transaction(function () use ($disbursement, $reason, $employee): void {
+            $disbursement = LoanDisbursement::lockForUpdate()->findOrFail($disbursement->id);
+            if (! in_array($disbursement->status, [LoanDisbursement::PREPARED, LoanDisbursement::REQUESTED], true)) {
+                return;
+            }
+
+            $loan = Loan::lockForUpdate()->findOrFail($disbursement->loan_id);
+            $disbursement->update(['status' => LoanDisbursement::FAILED, 'failure_reason' => $reason, 'completed_at' => now()]);
+
+            $escalate = $disbursement->attempt >= $this->maxAttempts();
+            $loan->disbursement_attempts = $disbursement->attempt;
+            $this->transition($loan, LoanStatus::DisbursementFailed, 'DISBURSEMENT_FAILED', $employee, ['batch_id' => $disbursement->batch_id, 'attempt' => $disbursement->attempt, 'reason' => $reason]);
+
+            if ($escalate) {
+                $this->transition($loan, LoanStatus::Escalated, 'ESCALATED', $employee, ['attempts' => $disbursement->attempt]);
+            }
+        });
+    }
+
+    private function cancel(Loan $loan, string $reason, Employee $employee): void
+    {
+        $loan->decision_reason = $reason;
+        $loan->latestDisbursement()->whereIn('status', [LoanDisbursement::PREPARED, LoanDisbursement::REQUESTED])->update(['status' => LoanDisbursement::CANCELLED]);
+        $this->transition($loan, LoanStatus::Cancelled, 'CANCELLED', $employee, ['reason' => $reason]);
+    }
+
+    private function switchChannel(Loan $loan, string $channel, string $reason, Employee $employee): void
+    {
+        if (! in_array($channel, ['airtel', 'bank', 'cash'], true)) {
+            throw ValidationException::withMessages(['channel' => 'Select a valid channel']);
+        }
+
+        $disbursement = $this->newBatch($loan, $channel, $employee);
+        $disbursement->update(['status' => LoanDisbursement::REQUESTED, 'requested_by' => $employee->id, 'requested_at' => now()]);
+
+        if ($channel === 'cash') {
+            $loan->withdrawal_code = (string) random_int(1000, 9999);
+        }
+        $loan->disbursement_channel = $channel;
+        $this->transition($loan, LoanStatus::AwaitingDisbursement, 'OTHER_CHANNEL', $employee, ['channel' => $channel, 'batch_id' => $disbursement->batch_id, 'reason' => $reason]);
+
+        if ($channel === 'cash') {
+            $this->loans->sendWithdrawalCode($loan);
+            $this->sms->send((string) $loan->customer->phone, (string) SmsLog::where('customer_id', $loan->customer_id)->latest('id')->value('message'));
+        }
+    }
+
+    private function newBatch(Loan $loan, string $channel, ?Employee $employee): LoanDisbursement
+    {
+        $attempt = (int) $loan->disbursement_attempts + 1;
+        $prefix = match ($channel) {
+            'airtel' => 'AIRT',
+            'bank' => 'BANK',
+            'cash' => 'CASH',
+            default => 'VODA',
+        };
+
+        return LoanDisbursement::create([
+            'company_id' => $loan->company_id,
+            'branch_id' => $loan->branch_id,
+            'loan_id' => $loan->id,
+            'batch_id' => $prefix.now()->format('ymd').strtoupper(Str::random(8)),
+            'attempt' => $channel === 'vodacom' ? $attempt : max(1, (int) $loan->disbursement_attempts),
+            'channel' => $channel,
+            'phone' => $loan->customer->phone,
+            'amount' => $this->netDisbursement($loan),
+            'status' => LoanDisbursement::PREPARED,
+            'prepared_by' => $employee?->id,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function transition(Loan $loan, LoanStatus $to, string $action, ?Employee $employee, array $context = []): void
+    {
+        $from = $loan->status;
+        $loan->status = $to;
+        $loan->save();
+        $this->record($loan, $action, $from, $employee, $context);
+    }
+
+    private function assertStatus(Loan $loan, LoanStatus ...$allowed): void
+    {
+        if (! in_array($loan->status, $allowed, true)) {
+            throw ValidationException::withMessages(['loan' => "This action is not allowed while the loan is {$loan->status->label()}"]);
+        }
+    }
+
+    /**
+     * Inferred: the registered name matches when it contains the customer's first and last names (case and
+     * punctuation insensitive; middle names are often missing or abbreviated on telco records).
+     */
+    private function namesMatch(Customer $customer, string $registeredName): bool
+    {
+        $normalise = fn (?string $value): string => trim((string) preg_replace('/[^A-Z]/', '', strtoupper((string) $value)));
+        $words = array_map($normalise, preg_split('/\s+/', $registeredName) ?: []);
+
+        return $normalise($customer->first_name) !== '' && in_array($normalise($customer->first_name), $words, true)
+            && in_array($normalise($customer->last_name), $words, true);
+    }
+
+    private function notify(Loan $loan, string $message): void
+    {
+        SmsLog::create([
+            'company_id' => $loan->company_id,
+            'customer_id' => $loan->customer_id,
+            'phone' => $loan->customer->phone,
+            'message' => $message,
+        ]);
+        $this->sms->send((string) $loan->customer->phone, $message);
+    }
+
+    private function newReferenceNumber(Loan $loan): string
+    {
+        return 'MF'.now()->format('ym').str_pad((string) $loan->id, 6, '0', STR_PAD_LEFT);
+    }
+}

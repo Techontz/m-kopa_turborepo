@@ -47,7 +47,7 @@ class DashboardStatistics
         return [
             'account_balance' => array_sum($this->accountBalances($company)),
             'loan_withdrawal' => (float) LoanTransaction::where('company_id', $company->id)->where('type', 'withdrawal')->whereDate('transaction_date', $today)->sum('amount'),
-            'receivable' => (float) LoanSchedule::whereHas('loan', fn ($query) => $query->where('company_id', $company->id)->status(LoanStatus::Active, LoanStatus::Default))
+            'receivable' => (float) LoanSchedule::whereHas('loan', fn ($query) => $query->where('company_id', $company->id)->status(...LoanStatus::repayable()))
                 ->whereDate('due_date', $today)->sum('amount'),
             'default_loan' => Loan::where('company_id', $company->id)->status(LoanStatus::Default)->get()->sum(fn (Loan $loan): float => $loan->remaining_amount),
         ];
@@ -165,7 +165,7 @@ class DashboardStatistics
     public function customersWithDuration(Company $company, Duration $duration): Collection
     {
         return Customer::where('company_id', $company->id)
-            ->whereHas('loans', fn ($query) => $query->where('duration', $duration->value)->status(LoanStatus::Active, LoanStatus::Default, LoanStatus::Done, LoanStatus::Disbursed))
+            ->whereHas('loans', fn ($query) => $query->where('duration', $duration->value)->status(LoanStatus::Active, LoanStatus::Overdue, LoanStatus::Default, LoanStatus::Closed, LoanStatus::AwaitingDisbursement))
             ->get();
     }
 }

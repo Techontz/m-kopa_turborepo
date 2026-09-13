@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ExpenseRequest extends Model
 {
+    use Auditable;
+
     protected $guarded = ['id'];
 
     /**
@@ -17,6 +20,7 @@ class ExpenseRequest extends Model
         return [
             'request_date' => 'date',
             'amount' => 'decimal:2',
+            'approved_at' => 'datetime',
         ];
     }
 
@@ -38,5 +42,15 @@ class ExpenseRequest extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'approved_by');
+    }
+
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class);
     }
 }

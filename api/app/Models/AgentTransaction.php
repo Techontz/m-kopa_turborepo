@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AgentTransaction extends Model
 {
+    use Auditable;
+
     protected $guarded = ['id'];
 
     /**
@@ -17,6 +20,8 @@ class AgentTransaction extends Model
         return [
             'transaction_date' => 'date',
             'amount' => 'decimal:2',
+            'loan_amount' => 'decimal:2',
+            'reversed_at' => 'datetime',
         ];
     }
 

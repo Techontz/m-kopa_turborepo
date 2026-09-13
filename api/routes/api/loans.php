@@ -1,0 +1,49 @@
+<?php
+
+use App\Http\Controllers\Api\V1\Loans\LoanController;
+use App\Http\Controllers\Api\V1\Loans\LoanSecurityController;
+use App\Http\Controllers\Api\V1\Loans\LoanWorkflowController;
+use Illuminate\Support\Facades\Route;
+
+Route::prefix('loans')->name('loans.')->group(function (): void {
+    Route::controller(LoanController::class)->group(function (): void {
+        Route::get('/', 'index')->name('index');
+        Route::post('/', 'store')->name('store');
+        Route::post('preview', 'preview')->name('preview');
+        Route::get('withdrawals', 'withdrawals')->name('withdrawals');
+        Route::get('customers/{customer}/categories', 'categories')->whereNumber('customer')->name('categories');
+        Route::get('{loan}', 'show')->whereNumber('loan')->name('show');
+        Route::put('{loan}', 'update')->whereNumber('loan')->name('update');
+        Route::delete('{loan}', 'destroy')->whereNumber('loan')->name('destroy');
+    });
+
+    Route::controller(LoanSecurityController::class)->group(function (): void {
+        Route::post('{loan}/guarantors', 'storeGuarantor')->name('guarantors.store');
+        Route::delete('{loan}/guarantors/{guarantor}', 'destroyGuarantor')->name('guarantors.destroy');
+        Route::post('{loan}/collaterals', 'storeCollateral')->name('collaterals.store');
+        Route::delete('{loan}/collaterals/{collateral}', 'destroyCollateral')->name('collaterals.destroy');
+        Route::post('{loan}/collateral-attachment', 'updateAttachment')->name('collateral-attachment');
+    });
+
+    Route::controller(LoanWorkflowController::class)->group(function (): void {
+        Route::post('overdue/process', 'processOverdue')->name('overdue.process');
+        Route::post('{loan}/approve-manager', 'approveManager')->name('approve-manager');
+        Route::post('{loan}/reject', 'reject')->name('reject');
+        Route::post('{loan}/modify', 'modify')->name('modify');
+        Route::post('{loan}/e-mandate', 'createMandate')->name('mandate.store');
+        Route::post('{loan}/e-mandate/verify-otp', 'verifyMandateOtp')->name('mandate.verify-otp');
+        Route::post('{loan}/kyc-verify', 'verifyTelco')->name('kyc-verify');
+        Route::post('{loan}/approve-credit', 'approveCredit')->name('approve-credit');
+        Route::post('{loan}/prepare-disbursement', 'prepareDisbursement')->name('prepare-disbursement');
+        Route::post('{loan}/disburse', 'disburse')->name('disburse');
+        Route::post('{loan}/retry-disbursement', 'retry')->name('retry-disbursement');
+        Route::post('{loan}/escalation', 'escalation')->name('escalation');
+        Route::post('{loan}/requeue', 'requeue')->name('requeue');
+        Route::post('{loan}/confirm-disbursement', 'confirmDisbursement')->name('confirm-disbursement');
+        Route::post('{loan}/cash-out', 'cashOut')->name('cash-out');
+        Route::post('{loan}/close', 'close')->name('close');
+        Route::post('{loan}/write-off', 'writeOff')->name('write-off');
+        Route::post('{loan}/comments', 'comment')->name('comments');
+        Route::post('{loan}/agreement', 'uploadAgreement')->name('agreement');
+    });
+});

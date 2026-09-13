@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
+use App\Services\AccessControl;
 use Database\Factories\EmployeeFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,7 +17,7 @@ use Laravel\Sanctum\HasApiTokens;
 class Employee extends Authenticatable
 {
     /** @use HasFactory<EmployeeFactory> */
-    use HasApiTokens, HasFactory, Notifiable;
+    use Auditable, HasApiTokens, HasFactory, Notifiable;
 
     /**
      * Privileges an employee can be granted (HRM → privillage page).
@@ -102,7 +104,7 @@ class Employee extends Authenticatable
      */
     public function permissionKeys(): array
     {
-        return app(\App\Services\AccessControl::class)->permissionsFor($this);
+        return app(AccessControl::class)->permissionsFor($this);
     }
 
     public function privileges(): HasMany

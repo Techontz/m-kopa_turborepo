@@ -70,7 +70,7 @@ class RepaymentAllocationTest extends TestCase
         $this->assertEquals(0, $transaction->penalty);
         $this->assertEquals(30000, $transaction->interest);
         $this->assertEquals(6000, $transaction->reserve);
-        $this->assertSame(LoanStatus::Done, $this->loan->fresh()->status);
+        $this->assertSame(LoanStatus::Closed, $this->loan->fresh()->status);
 
         $branch = $this->loan->branch_id;
         $this->assertSame(0.0, $ledger->balance($this->loan->company_id, Account::LoanReceivable, $branch));

@@ -29,7 +29,7 @@ class LoanReports
      *
      * @var list<LoanStatus>
      */
-    public const WITHDRAWN_STATUSES = [LoanStatus::Active, LoanStatus::Default, LoanStatus::Done, LoanStatus::WrittenOff];
+    public const WITHDRAWN_STATUSES = [LoanStatus::Active, LoanStatus::Overdue, LoanStatus::Default, LoanStatus::Closed, LoanStatus::WrittenOff];
 
     /**
      * Cash Transaction: loan deposits and withdrawals in the date range.
@@ -129,7 +129,7 @@ class LoanReports
     {
         $statusValue = match ($status) {
             'ACTIVE' => LoanStatus::Active,
-            'CLOSED' => LoanStatus::Done,
+            'CLOSED' => LoanStatus::Closed,
             'DEFAULT' => LoanStatus::Default,
             default => null,
         };
@@ -217,7 +217,7 @@ class LoanReports
         return Loan::query()
             ->where('company_id', $company->id)
             ->when($branchId, fn (Builder $query, int $id) => $query->where('branch_id', $id))
-            ->status(LoanStatus::Active, LoanStatus::Default)
+            ->status(...LoanStatus::repayable())
             ->with(['customer', 'branch'])
             ->orderBy('withdrawn_at')
             ->get();
@@ -266,12 +266,12 @@ class LoanReports
     public function collection(Company $company, ?int $branchId, ?string $status): Collection
     {
         $statuses = match ($status) {
-            'PENDING' => [LoanStatus::Pending],
-            'APROVED', 'DISBURSED' => [LoanStatus::Disbursed],
+            'PENDING' => [LoanStatus::PendingManagerApproval],
+            'APROVED', 'DISBURSED' => [LoanStatus::PendingFinance, LoanStatus::AwaitingDisbursement],
             'ACTIVE' => [LoanStatus::Active],
-            'DONE' => [LoanStatus::Done],
+            'DONE' => [LoanStatus::Closed],
             'DEFALT' => [LoanStatus::Default],
-            default => [LoanStatus::Active, LoanStatus::Default, LoanStatus::Done],
+            default => [LoanStatus::Active, LoanStatus::Overdue, LoanStatus::Default, LoanStatus::Closed],
         };
 
         return $this->loansWithPayments()
@@ -363,7 +363,7 @@ class LoanReports
     {
         return LoanSchedule::query()
             ->whereHas('loan', fn (Builder $query) => $query->where('company_id', $filter->company->id)
-                ->status(LoanStatus::Active, LoanStatus::Default, LoanStatus::Done)
+                ->status(LoanStatus::Active, LoanStatus::Overdue, LoanStatus::Default, LoanStatus::Closed)
                 ->when($filter->branchId, fn (Builder $loan, int $id) => $loan->where('branch_id', $id)))
             ->whereBetween('due_date', $filter->range())
             ->when($paidStatus === 'paid', fn (Builder $query) => $query->whereColumn('paid_amount', '>=', 'amount'))

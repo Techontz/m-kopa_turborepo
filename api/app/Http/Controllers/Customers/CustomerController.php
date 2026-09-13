@@ -128,7 +128,7 @@ class CustomerController extends Controller
         $durationCase = Duration::from($duration);
 
         $customers = Customer::where('company_id', $this->currentEmployee()->company_id)
-            ->whereHas('loans', fn ($query) => $query->where('duration', $durationCase->value)->whereNotIn('status', [LoanStatus::Pending->value, LoanStatus::Rejected->value]))
+            ->whereHas('loans', fn ($query) => $query->where('duration', $durationCase->value)->whereNotIn('status', [LoanStatus::PendingManagerApproval->value, LoanStatus::Rejected->value]))
             ->when($request->filled('customer_status'), fn ($query) => $query->where('status', $request->string('customer_status')))
             ->latest('id')
             ->get();

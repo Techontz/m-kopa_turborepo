@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HqTransaction extends Model
 {
+    use Auditable;
+
     protected $guarded = ['id'];
 
     /**
@@ -24,5 +27,10 @@ class HqTransaction extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'approved_by');
     }
 }

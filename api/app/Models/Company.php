@@ -23,6 +23,7 @@ class Company extends Model
         return [
             'penalty_value' => 'decimal:2',
             'reserve_percent' => 'decimal:2',
+            'expense_approval_limit' => 'decimal:2',
         ];
     }
 

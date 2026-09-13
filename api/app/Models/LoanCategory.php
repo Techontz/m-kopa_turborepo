@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\Duration;
+use App\Models\Concerns\Auditable;
 use Database\Factories\LoanCategoryFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class LoanCategory extends Model
 {
     /** @use HasFactory<LoanCategoryFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
 
     protected $guarded = ['id'];
 
@@ -29,6 +30,7 @@ class LoanCategory extends Model
             'interest_rate' => 'decimal:2',
             'fee_deduct' => 'boolean',
             'has_penalty' => 'boolean',
+            'requires_mandate' => 'boolean',
             'topup_percent' => 'decimal:2',
             'take_home_percent' => 'decimal:2',
             'fee_value' => 'decimal:2',
@@ -45,6 +47,14 @@ class LoanCategory extends Model
     public function branches(): BelongsToMany
     {
         return $this->belongsToMany(Branch::class);
+    }
+
+    /**
+     * Customer categories allowed to borrow this product (Documents: "Category = Rule Engine").
+     */
+    public function customerCategories(): BelongsToMany
+    {
+        return $this->belongsToMany(CustomerCategory::class);
     }
 
     public function loans(): HasMany

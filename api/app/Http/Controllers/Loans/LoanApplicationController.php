@@ -59,7 +59,7 @@ class LoanApplicationController extends Controller
 
     public function store(LoanApplicationRequest $request, Customer $customer, LoanService $loans): RedirectResponse
     {
-        $hasOpenApplication = $customer->loans()->status(LoanStatus::Pending, LoanStatus::Disbursed)->exists();
+        $hasOpenApplication = $customer->loans()->status(...LoanStatus::inPipeline())->exists();
         if ($hasOpenApplication) {
             return back()->withInput()->with('error', 'Customer already has a loan waiting for approval or withdrawal');
         }

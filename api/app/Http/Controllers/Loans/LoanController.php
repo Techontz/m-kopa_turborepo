@@ -21,8 +21,8 @@ class LoanController extends Controller
     public function pending(): View
     {
         return view('loans.pending', [
-            'loans' => $this->loans()->status(LoanStatus::Pending)->where('is_special', false)->latest('id')->get(),
-            'specialCount' => $this->loans()->status(LoanStatus::Pending)->where('is_special', true)->count(),
+            'loans' => $this->loans()->status(LoanStatus::PendingManagerApproval)->where('is_special', false)->latest('id')->get(),
+            'specialCount' => $this->loans()->status(LoanStatus::PendingManagerApproval)->where('is_special', true)->count(),
             'special' => false,
         ]);
     }
@@ -30,7 +30,7 @@ class LoanController extends Controller
     public function special(): View
     {
         return view('loans.pending', [
-            'loans' => $this->loans()->status(LoanStatus::Pending)->where('is_special', true)->latest('id')->get(),
+            'loans' => $this->loans()->status(LoanStatus::PendingManagerApproval)->where('is_special', true)->latest('id')->get(),
             'specialCount' => 0,
             'special' => true,
         ]);
@@ -59,7 +59,7 @@ class LoanController extends Controller
 
     public function update(LoanApplicationRequest $request, Loan $loan, LoanService $loans): RedirectResponse
     {
-        abort_unless($loan->status === LoanStatus::Pending, 403);
+        abort_unless($loan->status === LoanStatus::PendingManagerApproval, 403);
 
         $data = $request->loanData();
         $category = LoanCategory::findOrFail($data['loan_category_id']);
@@ -92,7 +92,7 @@ class LoanController extends Controller
 
     public function approve(Request $request, Loan $loan, LoanService $loans): RedirectResponse
     {
-        abort_unless($loan->status === LoanStatus::Pending, 403);
+        abort_unless($loan->status === LoanStatus::PendingManagerApproval, 403);
         $validated = $request->validate(['loan_aprove' => ['required', 'numeric', 'min:1', 'lte:'.(float) $loan->category->amount_to]]);
 
         try {
@@ -106,7 +106,7 @@ class LoanController extends Controller
 
     public function reject(Loan $loan, LoanService $loans): RedirectResponse
     {
-        abort_unless($loan->status === LoanStatus::Pending, 403);
+        abort_unless($loan->status === LoanStatus::PendingManagerApproval, 403);
         $loans->reject($loan);
 
         return redirect()->route('loans.pending')->with('success', 'Loan Rejected successfully');
@@ -114,7 +114,7 @@ class LoanController extends Controller
 
     public function destroy(Loan $loan): RedirectResponse
     {
-        if (! in_array($loan->status, [LoanStatus::Pending, LoanStatus::Disbursed, LoanStatus::Rejected], true)) {
+        if (! in_array($loan->status, [LoanStatus::PendingManagerApproval, LoanStatus::AwaitingDisbursement, LoanStatus::Rejected], true)) {
             return back()->with('error', 'Only loans that have not been withdrawn can be deleted');
         }
 
@@ -127,7 +127,7 @@ class LoanController extends Controller
     public function disbursed(): View
     {
         return view('loans.disbursed', [
-            'loans' => $this->loans()->status(LoanStatus::Disbursed, LoanStatus::Active)->with('schedules')->latest('approved_at')->get(),
+            'loans' => $this->loans()->status(LoanStatus::AwaitingDisbursement, LoanStatus::Active)->with('schedules')->latest('approved_at')->get(),
         ]);
     }
 
@@ -174,7 +174,7 @@ class LoanController extends Controller
 
     public function writeOff(Loan $loan, LoanService $loans): RedirectResponse
     {
-        abort_unless(in_array($loan->status, [LoanStatus::Default, LoanStatus::Active], true), 403);
+        abort_unless(in_array($loan->status, [LoanStatus::Default, LoanStatus::Overdue, LoanStatus::Active], true), 403);
         $loans->writeOff($loan, $this->currentEmployee());
 
         return back()->with('success', 'Loan moved to Wright-off successfully');

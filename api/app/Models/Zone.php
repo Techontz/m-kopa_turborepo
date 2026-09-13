@@ -19,4 +19,12 @@ class Zone extends Model
     {
         return $this->hasMany(Branch::class);
     }
+
+    /**
+     * Zone managers assigned to this zone.
+     */
+    public function employees(): HasMany
+    {
+        return $this->hasMany(Employee::class);
+    }
 }

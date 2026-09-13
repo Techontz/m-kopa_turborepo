@@ -3,12 +3,15 @@
 namespace App\Models;
 
 use App\Enums\Account;
+use App\Models\Concerns\Auditable;
 use App\Services\Ledger;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BankAccount extends Model
 {
+    use Auditable;
+
     protected $guarded = ['id'];
 
     public function ledgerAccounts(): HasMany

@@ -27,7 +27,7 @@ class TellerController extends Controller
     public function show(Customer $customer, LoanService $loans, Ledger $ledger): View
     {
         $loan = $customer->loans()
-            ->whereIn('status', [LoanStatus::Active->value, LoanStatus::Default->value, LoanStatus::Disbursed->value])
+            ->whereIn('status', LoanStatus::values(...LoanStatus::repayable(), ...[LoanStatus::AwaitingDisbursement]))
             ->latest('id')
             ->first() ?? $customer->loans()->latest('id')->first();
 

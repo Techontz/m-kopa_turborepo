@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Customer extends Model
 {
     /** @use HasFactory<CustomerFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
 
     /**
      * Customer lifecycle statuses (live values: pending / open / out / close).
@@ -142,6 +144,31 @@ class Customer extends Model
     public function savings(): HasMany
     {
         return $this->hasMany(Saving::class);
+    }
+
+    public function kyc(): HasOne
+    {
+        return $this->hasOne(CustomerKyc::class);
+    }
+
+    public function nextOfKin(): HasOne
+    {
+        return $this->hasOne(CustomerNextOfKin::class);
+    }
+
+    public function residence(): HasOne
+    {
+        return $this->hasOne(CustomerResidence::class);
+    }
+
+    public function bankDetail(): HasOne
+    {
+        return $this->hasOne(CustomerBankDetail::class);
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(CustomerDocument::class);
     }
 
     public function salaryAdvances(): HasMany

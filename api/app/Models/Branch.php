@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Database\Factories\BranchFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Branch extends Model
 {
     /** @use HasFactory<BranchFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
 
     protected $guarded = ['id'];
 

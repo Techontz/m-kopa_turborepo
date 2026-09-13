@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Duration;
 use App\Enums\LoanStatus;
+use App\Models\Concerns\Auditable;
 use App\Services\LoanService;
 use Database\Factories\LoanFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,11 +14,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Loan extends Model
 {
     /** @use HasFactory<LoanFactory> */
-    use HasFactory;
+    use Auditable, HasFactory;
 
     protected $guarded = ['id'];
 
@@ -41,6 +43,11 @@ class Loan extends Model
             'approved_at' => 'datetime',
             'withdrawn_at' => 'date',
             'end_date' => 'date',
+            'telco_matched' => 'boolean',
+            'telco_verified_at' => 'datetime',
+            'disbursed_at' => 'datetime',
+            'closed_at' => 'datetime',
+            'frozen_until' => 'date',
             'status' => LoanStatus::class,
             'duration' => Duration::class,
         ];
@@ -104,6 +111,31 @@ class Loan extends Model
     public function writeOff(): HasOne
     {
         return $this->hasOne(WriteOff::class);
+    }
+
+    public function mandate(): HasOne
+    {
+        return $this->hasOne(LoanMandate::class)->latestOfMany();
+    }
+
+    public function disbursements(): HasMany
+    {
+        return $this->hasMany(LoanDisbursement::class)->orderBy('attempt');
+    }
+
+    public function latestDisbursement(): HasOne
+    {
+        return $this->hasOne(LoanDisbursement::class)->latestOfMany();
+    }
+
+    public function topupOf(): BelongsTo
+    {
+        return $this->belongsTo(Loan::class, 'topup_of_loan_id');
+    }
+
+    public function auditLogs(): MorphMany
+    {
+        return $this->morphMany(AuditLog::class, 'auditable');
     }
 
     /**

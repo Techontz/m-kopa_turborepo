@@ -16,6 +16,10 @@ class StaffSalaryAdvance extends Model
     {
         return [
             'amount' => 'decimal:2',
+            'fee' => 'decimal:2',
+            'recovered_amount' => 'decimal:2',
+            'approved_at' => 'datetime',
+            'disbursed_at' => 'datetime',
         ];
     }
 
@@ -32,5 +36,13 @@ class StaffSalaryAdvance extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(StaffSalaryAdvanceCategory::class, 'staff_salary_advance_category_id');
+    }
+
+    /**
+     * Part of a disbursed advance not yet recovered from salary.
+     */
+    public function outstandingAmount(): float
+    {
+        return max(0, round((float) $this->amount - (float) $this->recovered_amount, 2));
     }
 }

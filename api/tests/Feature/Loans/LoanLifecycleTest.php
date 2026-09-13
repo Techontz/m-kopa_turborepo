@@ -44,7 +44,7 @@ class LoanLifecycleTest extends TestCase
         ])->assertRedirect();
 
         $loan = $this->customer->loans()->firstOrFail();
-        $this->assertSame(LoanStatus::Pending, $loan->status);
+        $this->assertSame(LoanStatus::PendingManagerApproval, $loan->status);
         $this->assertEquals(130000, $loan->total_payable);
         $this->assertEquals(130000, $loan->restoration);
 
@@ -53,7 +53,7 @@ class LoanLifecycleTest extends TestCase
 
         $this->post(route('loans.approve', $loan), ['loan_aprove' => 100000])->assertRedirect(route('loans.disbursed'));
         $loan->refresh();
-        $this->assertSame(LoanStatus::Disbursed, $loan->status);
+        $this->assertSame(LoanStatus::AwaitingDisbursement, $loan->status);
         $this->assertNotNull($loan->withdrawal_code);
         $this->assertDatabaseHas('sms_logs', ['customer_id' => $this->customer->id]);
 
@@ -71,7 +71,7 @@ class LoanLifecycleTest extends TestCase
         $this->post(route('teller.deposit', $loan), ['depost' => '130,000', 'p_method' => 'CASH'])->assertSessionHas('success');
 
         $loan->refresh();
-        $this->assertSame(LoanStatus::Done, $loan->status);
+        $this->assertSame(LoanStatus::Closed, $loan->status);
         $this->assertSame('close', $this->customer->fresh()->status);
         $this->assertEquals(1000000, $ledger->balance($loan->company_id, Account::Principal, $loan->branch_id));
         $this->assertEquals(24000, $ledger->balance($loan->company_id, Account::Interest, $loan->branch_id));
@@ -85,7 +85,7 @@ class LoanLifecycleTest extends TestCase
 
         $this->post(route('loans.approve', $loan), ['loan_aprove' => 100000])
             ->assertSessionHas('error', 'Please wait for the customer`s KYC to be Verfied!');
-        $this->assertSame(LoanStatus::Pending, $loan->fresh()->status);
+        $this->assertSame(LoanStatus::PendingManagerApproval, $loan->fresh()->status);
     }
 
     public function test_loan_amount_must_be_within_category_range(): void

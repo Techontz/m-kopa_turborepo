@@ -36,6 +36,11 @@ enum Account: string
     case SalaryAdvanceReceivable = 'salary_advance_receivable';
     case StaffLoanReceivable = 'staff_loan_receivable';
     case StaffAdvanceReceivable = 'staff_advance_receivable';
+    case StaffFundCash = 'staff_fund_cash';
+    /** ACCOUNT OVERVIEW 17: top-up adjustments (clearing account). */
+    case Offset = 'offset';
+    /** ACCOUNT OVERVIEW 19: interest due but not yet paid. */
+    case OutstandingInterest = 'outstanding_interest';
 
     // Liabilities
     case Suspense = 'suspense';
@@ -91,7 +96,8 @@ enum Account: string
             self::HqDisbursement => '1210', self::HqPenalty => '1220', self::HqInterest => '1230',
             self::HqReserve => '1240', self::HqLoanFee => '1250', self::HqSaving => '1260',
             self::LoanReceivable => '1300', self::LoanArrears => '1310', self::LoanDefault => '1320',
-            self::SalaryAdvanceReceivable => '1330', self::StaffLoanReceivable => '1340', self::StaffAdvanceReceivable => '1350',
+            self::SalaryAdvanceReceivable => '1330', self::StaffLoanReceivable => '1340', self::StaffAdvanceReceivable => '1350', self::StaffFundCash => '1360',
+            self::Offset => '1370', self::OutstandingInterest => '1380',
             self::Suspense => '2000', self::SavingsDeposits => '2010', self::StaffPayable => '2020',
             self::StaffFund => '2030', self::DividendPayable => '2040',
             self::Capital => '3000', self::RetainedProfit => '3100',
@@ -128,6 +134,9 @@ enum Account: string
             self::SalaryAdvanceReceivable => 'SALARY ADVANCE RECEIVABLE',
             self::StaffLoanReceivable => 'STAFF LOAN RECEIVABLE',
             self::StaffAdvanceReceivable => 'STAFF ADVANCE RECEIVABLE',
+            self::StaffFundCash => 'STAFF FUND A/C',
+            self::Offset => 'OFFSET ACCOUNT',
+            self::OutstandingInterest => 'OUTSTANDING INTEREST',
             self::Suspense => 'SUSPENSE ACCOUNT',
             self::SavingsDeposits => 'CUSTOMER SAVINGS',
             self::StaffPayable => 'STAFF PAYABLE',

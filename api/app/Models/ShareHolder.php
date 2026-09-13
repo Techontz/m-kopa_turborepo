@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ShareHolder extends Model
 {
+    use Auditable;
+
     protected $guarded = ['id'];
 
     /**
@@ -22,5 +25,10 @@ class ShareHolder extends Model
     public function capitals(): HasMany
     {
         return $this->hasMany(Capital::class);
+    }
+
+    public function dividendAllocations(): HasMany
+    {
+        return $this->hasMany(DividendAllocation::class);
     }
 }

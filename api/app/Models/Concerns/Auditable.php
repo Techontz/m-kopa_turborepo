@@ -37,7 +37,7 @@ trait Auditable
     protected static function writeAudit(Model $model, string $action, ?array $before, ?array $after): void
     {
         $clean = fn (?array $values): ?array => $values === null ? null : array_diff_key($values, array_flip(static::$auditExcluded));
-        $user = auth()->user();
+        $user = request()?->user() ?? auth()->user() ?? auth('sanctum')->user();
 
         AuditLog::create([
             'company_id' => $model->getAttribute('company_id') ?? $user?->company_id,

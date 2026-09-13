@@ -37,7 +37,7 @@ class LoanFactory extends Factory
             'total_payable' => 130000,
             'loan_fee' => 5000,
             'restoration' => 130000,
-            'status' => LoanStatus::Pending,
+            'status' => LoanStatus::PendingManagerApproval,
         ];
     }
 }

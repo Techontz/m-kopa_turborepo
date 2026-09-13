@@ -20,6 +20,9 @@ class StaffLoan extends Model
             'amount_approved' => 'decimal:2',
             'total_payable' => 'decimal:2',
             'restoration' => 'decimal:2',
+            'fee' => 'decimal:2',
+            'approved_at' => 'datetime',
+            'disbursed_at' => 'datetime',
         ];
     }
 

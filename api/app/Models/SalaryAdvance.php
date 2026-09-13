@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SalaryAdvance extends Model
 {
+    use Auditable;
+
     protected $guarded = ['id'];
 
     /**
@@ -20,6 +23,7 @@ class SalaryAdvance extends Model
             'amount' => 'decimal:2',
             'total_payable' => 'decimal:2',
             'approved_at' => 'datetime',
+            'reversed_at' => 'datetime',
         ];
     }
 
@@ -36,6 +40,11 @@ class SalaryAdvance extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(SalaryAdvanceCategory::class, 'salary_advance_category_id');
+    }
+
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class);
     }
 
     public function payments(): HasMany

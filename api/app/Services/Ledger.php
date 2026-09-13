@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\Account;
+use App\Models\AccountingPeriod;
 use App\Models\BankAccount;
 use App\Models\Branch;
 use App\Models\Company;
@@ -15,6 +16,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 /**
@@ -54,6 +56,8 @@ class Ledger
         if ($lines === [] || abs($debits - $credits) > 0.001) {
             throw new InvalidArgumentException("Unbalanced journal entry \"{$description}\": debits {$debits} ≠ credits {$credits}.");
         }
+
+        $this->assertPeriodOpen($companyId, $date ?? now());
 
         return DB::transaction(function () use ($companyId, $description, $lines, $source, $date, $branch, $employee): JournalEntry {
             $entry = JournalEntry::create([
@@ -128,6 +132,8 @@ class Ledger
         if ($entry->reversal_of_id !== null) {
             throw new InvalidArgumentException('A reversal entry cannot itself be reversed.');
         }
+
+        $this->assertPeriodOpen((int) $entry->company_id, now());
 
         return DB::transaction(function () use ($entry, $reason): JournalEntry {
             $reversal = JournalEntry::create([
@@ -251,6 +257,28 @@ class Ledger
             'name' => $key->label(),
             'type' => $key->type(),
         ]);
+    }
+
+    /**
+     * Closed accounting periods are locked: no entry may be dated inside one. Corrections of a
+     * closed period are reversals, which always post on today's date.
+     *
+     * @throws ValidationException
+     */
+    public function assertPeriodOpen(int $companyId, CarbonInterface $date): void
+    {
+        $closed = AccountingPeriod::query()
+            ->where('company_id', $companyId)
+            ->closed()
+            ->whereDate('period_start', '<=', $date->toDateString())
+            ->whereDate('period_end', '>=', $date->toDateString())
+            ->first();
+
+        if ($closed !== null) {
+            throw ValidationException::withMessages([
+                'entry_date' => "The accounting period {$closed->period_start->format('Y-m')} is closed; entries dated {$date->toDateString()} are not allowed.",
+            ]);
+        }
     }
 
     private function newReference(): string

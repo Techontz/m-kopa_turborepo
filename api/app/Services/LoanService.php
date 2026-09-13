@@ -54,7 +54,7 @@ class LoanService
             'fee_deduct' => $data['fee_deduct'],
             'reason' => $data['reason'],
             'interest_rate' => $category->interest_rate,
-            'status' => LoanStatus::Pending,
+            'status' => LoanStatus::PendingManagerApproval,
         ]);
 
         $this->price($loan, $amount);
@@ -91,7 +91,7 @@ class LoanService
         $customer = $loan->customer;
         $remainLoan = $customer->loans()
             ->whereKeyNot($loan->id)
-            ->status(LoanStatus::Active, LoanStatus::Default)
+            ->status(...LoanStatus::repayable())
             ->get()
             ->sum(fn (Loan $other): float => $other->remaining_amount);
 
@@ -124,7 +124,7 @@ class LoanService
         DB::transaction(function () use ($loan, $approvedAmount): void {
             $loan->amount_approved = $approvedAmount;
             $this->price($loan, $approvedAmount);
-            $loan->status = LoanStatus::Disbursed;
+            $loan->status = LoanStatus::AwaitingDisbursement;
             $loan->approved_at = now();
             $loan->withdrawal_code = (string) random_int(1000, 9999);
             $loan->save();
@@ -153,15 +153,16 @@ class LoanService
     }
 
     /**
-     * Teller cash-out of a disbursed loan: starts the repayment schedule.
+     * Money reaches the customer (teller cash-out, or a successful Vodacom / other-channel disbursement):
+     * posts the disbursement to the ledger and starts the repayment schedule.
      */
-    public function withdraw(Loan $loan, CarbonImmutable $date, ?Employee $employee = null): void
+    public function withdraw(Loan $loan, CarbonImmutable $date, ?Employee $employee = null, string $description = 'CASH WITHDRAWALS', string $channel = 'cash'): void
     {
-        if ($loan->status !== LoanStatus::Disbursed) {
+        if ($loan->status !== LoanStatus::AwaitingDisbursement) {
             throw ValidationException::withMessages(['withdrow' => 'Only disbursed loans can be withdrawn.']);
         }
 
-        DB::transaction(function () use ($loan, $date, $employee): void {
+        DB::transaction(function () use ($loan, $date, $employee, $description, $channel): void {
             $principal = (float) $loan->amount_approved;
             $fee = $loan->fee_deduct ? (float) $loan->loan_fee : 0;
 
@@ -179,7 +180,8 @@ class LoanService
                 'loan_id' => $loan->id,
                 'employee_id' => $employee?->id,
                 'type' => 'withdrawal',
-                'description' => 'CASH WITHDRAWALS',
+                'description' => $description,
+                'method' => strtoupper($channel),
                 'amount' => $principal,
                 'transaction_date' => $date->toDateString(),
             ]);
@@ -195,6 +197,8 @@ class LoanService
 
             $loan->update([
                 'status' => LoanStatus::Active,
+                'disbursement_channel' => $channel,
+                'disbursed_at' => now(),
                 'withdrawn_at' => $date->toDateString(),
                 'end_date' => $duration->addPeriods($date, $loan->sessions)->toDateString(),
             ]);
@@ -209,7 +213,7 @@ class LoanService
      */
     public function deposit(Loan $loan, float $amount, CarbonImmutable $date, string $method = 'CASH', ?Employee $employee = null): LoanTransaction
     {
-        if (! in_array($loan->status, [LoanStatus::Active, LoanStatus::Default], true)) {
+        if (! in_array($loan->status, LoanStatus::repayable(), true)) {
             throw ValidationException::withMessages(['depost' => 'This loan is not active.']);
         }
 
@@ -256,10 +260,7 @@ class LoanService
             $this->allocateToSchedules($loan, $allocation['principal'] + $allocation['interest'] + $allocation['insurance']);
 
             if ($this->outstanding($loan->fresh())['total'] <= 0.5) {
-                $loan->update(['status' => LoanStatus::Done]);
-                if (! $loan->customer->loans()->status(LoanStatus::Active, LoanStatus::Default)->exists()) {
-                    $loan->customer->update(['status' => 'close']);
-                }
+                $this->close($loan, $date);
             }
 
             return $transaction;
@@ -337,14 +338,24 @@ class LoanService
     }
 
     /**
-     * Charge penalties on overdue schedules and flag loans past their end date as default.
+     * Overdue processing (Documents: "Cron Job POST /loans/overdue/process — missed payment → pending, apply penalty").
+     * For every repayable loan: one penalty per missed instalment (company penalty setting: percentage of the unpaid
+     * instalment or a fixed amount, only for products with penalty = YES), days past due from the oldest unpaid
+     * instalment, ACTIVE ⇄ OVERDUE, and DEFAULT once the loan end date has passed with a balance (live behaviour).
      * Penalty basis (the overdue instalment) is inferred; the live calculation is server-side only.
+     *
+     * @return array{processed: int, penalties: int, penalty_amount: float, overdue: int, defaulted: int}
      */
-    public function applyPenaltiesAndDefaults(CarbonImmutable $today): void
+    public function applyPenaltiesAndDefaults(CarbonImmutable $today): array
     {
-        Loan::query()->status(LoanStatus::Active)->with(['company', 'category'])->each(function (Loan $loan) use ($today): void {
+        $summary = ['processed' => 0, 'penalties' => 0, 'penalty_amount' => 0.0, 'overdue' => 0, 'defaulted' => 0];
+
+        Loan::query()->status(...LoanStatus::repayable())->with(['company', 'category', 'customer'])->each(function (Loan $loan) use ($today, &$summary): void {
+            $summary['processed']++;
+            $unpaid = $loan->schedules()->whereDate('due_date', '<', $today->toDateString())->whereColumn('paid_amount', '<', 'amount')->get();
+
             if ($loan->category?->has_penalty) {
-                foreach ($loan->schedules()->whereDate('due_date', '<', $today->toDateString())->whereColumn('paid_amount', '<', 'amount')->get() as $schedule) {
+                foreach ($unpaid as $schedule) {
                     $alreadyCharged = Penalty::where('loan_id', $loan->id)->whereDate('penalty_date', $schedule->due_date)->exists();
                     if ($alreadyCharged) {
                         continue;
@@ -361,15 +372,57 @@ class LoanService
                             'amount' => round($penalty, 2),
                             'penalty_date' => $schedule->due_date,
                         ]);
+                        $summary['penalties']++;
+                        $summary['penalty_amount'] += round($penalty, 2);
                     }
                 }
             }
 
+            $oldestDue = $unpaid->min('due_date');
+            $daysPastDue = $oldestDue !== null ? (int) CarbonImmutable::parse($oldestDue)->diffInDays($today) : 0;
+            $status = $loan->status;
+
             if ($loan->end_date !== null && $loan->end_date->lt($today) && $loan->remaining_amount > 0) {
-                $loan->update(['status' => LoanStatus::Default]);
+                $status = LoanStatus::Default;
+            } elseif ($status !== LoanStatus::Default) {
+                $status = $daysPastDue > 0 ? LoanStatus::Overdue : LoanStatus::Active;
+            }
+
+            if ($status === LoanStatus::Default && $loan->status !== LoanStatus::Default) {
+                $summary['defaulted']++;
                 $loan->customer->update(['status' => 'out']);
             }
+            if ($status === LoanStatus::Overdue) {
+                $summary['overdue']++;
+            }
+
+            if ($status !== $loan->status || $daysPastDue !== (int) $loan->days_past_due) {
+                $loan->update(['status' => $status, 'days_past_due' => $daysPastDue]);
+            }
         });
+
+        return $summary;
+    }
+
+    /**
+     * Loan closure once fully paid (Documents: "LOAN CLOSURE → CLOSED", then "FREEZE PERIOD → cannot borrow").
+     * The freeze length is the company setting loan_freeze_days (0 = no freeze).
+     */
+    public function close(Loan $loan, ?CarbonImmutable $date = null): void
+    {
+        $date ??= CarbonImmutable::today();
+        $freezeDays = (int) ($loan->company?->loan_freeze_days ?? 0);
+
+        $loan->update([
+            'status' => LoanStatus::Closed,
+            'days_past_due' => 0,
+            'closed_at' => now(),
+            'frozen_until' => $freezeDays > 0 ? $date->addDays($freezeDays)->toDateString() : null,
+        ]);
+
+        if (! $loan->customer->loans()->status(...LoanStatus::repayable())->exists()) {
+            $loan->customer->update(['status' => 'close']);
+        }
     }
 
     public function payPenalty(Penalty $penalty, float $amount, CarbonImmutable $date): void
@@ -399,7 +452,7 @@ class LoanService
                 'employee_id' => $employee?->id,
                 'written_off_on' => now()->toDateString(),
             ]);
-            $loan->update(['status' => LoanStatus::WrittenOff]);
+            $loan->update(['status' => LoanStatus::WrittenOff, 'days_past_due' => 0]);
         });
     }
 

@@ -14,6 +14,12 @@ function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { isLoading, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarPath, setSidebarPath] = useState(pathname);
+
+  if (sidebarPath !== pathname) {
+    setSidebarPath(pathname);
+    setSidebarOpen(false);
+  }
 
   useEffect(() => {
     const orange = ORANGE_THEME.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
@@ -21,8 +27,6 @@ function Shell({ children }: { children: ReactNode }) {
     document.body.classList.toggle("font-ubuntu", orange);
     document.body.classList.toggle("offcanvas-active", sidebarOpen);
   }, [pathname, sidebarOpen]);
-
-  useEffect(() => setSidebarOpen(false), [pathname]);
 
   if (isLoading || !user) {
     return <div className="mf-loading" style={{ marginTop: 120 }}>Loading...</div>;

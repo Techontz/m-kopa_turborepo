@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useAuth } from "@/lib/auth";
 import { menu, type MenuItem, type MenuLink } from "@/lib/menu";
@@ -35,15 +35,18 @@ export function Sidebar() {
     tabs.find((tab) => tab.items.some((item) => (item.href && isActive(pathname, item.href)) || item.children?.some((child) => isActive(pathname, child.href))))?.key ??
     tabs[0]?.key;
 
-  const [activeTab, setActiveTab] = useState<string | undefined>(tabForPath);
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const groupForPath = tabs.flatMap((tab) => tab.items).find((item) => item.children?.some((child) => isActive(pathname, child.href)))?.label ?? null;
 
-  useEffect(() => {
+  const [activeTab, setActiveTab] = useState<string | undefined>(tabForPath);
+  const [openGroup, setOpenGroup] = useState<string | null>(groupForPath);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [syncedPath, setSyncedPath] = useState(`${pathname}|${tabForPath}`);
+
+  if (syncedPath !== `${pathname}|${tabForPath}`) {
+    setSyncedPath(`${pathname}|${tabForPath}`);
     setActiveTab(tabForPath);
-    const group = tabs.flatMap((tab) => tab.items).find((item) => item.children?.some((child) => isActive(pathname, child.href)));
-    setOpenGroup(group?.label ?? null);
-  }, [pathname, tabForPath, tabs]);
+    setOpenGroup(groupForPath);
+  }
 
   return (
     <div id="left-sidebar" className="sidebar">

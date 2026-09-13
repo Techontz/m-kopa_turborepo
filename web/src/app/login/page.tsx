@@ -58,7 +58,6 @@ export default function LoginPage() {
                 </div>
               </div>
             </div>
-            {/* eslint-disable-next-line @next/next/no-deprecated-marquee */}
             <div className="mf-marquee"><h5>FASTAMIKOPO MICROFINANCE &copy; {new Date().getFullYear()}</h5></div>
           </div>
         </div>

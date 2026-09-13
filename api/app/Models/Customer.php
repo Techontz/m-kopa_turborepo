@@ -109,6 +109,11 @@ class Customer extends Model
         return $this->belongsTo(Employee::class);
     }
 
+    public function customerCategory(): BelongsTo
+    {
+        return $this->belongsTo(CustomerCategory::class);
+    }
+
     public function region(): BelongsTo
     {
         return $this->belongsTo(Region::class);

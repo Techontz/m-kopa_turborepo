@@ -6,6 +6,7 @@ use App\Enums\Duration;
 use App\Models\BankAccount;
 use App\Models\Branch;
 use App\Models\Company;
+use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\ExpenseType;
 use App\Models\Group;
@@ -137,6 +138,8 @@ class MasterDataSeeder extends Seeder
             $category->branches()->syncWithoutDetaching($branches->pluck('id'));
         }
 
+        $this->seedCustomerCategories($company);
+
         Group::firstOrCreate(['company_id' => $company->id, 'name' => 'WAZURI']);
 
         foreach (['NMB', 'CRDB'] as $bank) {
@@ -154,6 +157,39 @@ class MasterDataSeeder extends Seeder
         SalaryAdvanceCategory::firstOrCreate(['company_id' => $company->id, 'name' => 'WATUMISHI'], ['interest_rate' => 20, 'amount_from' => 10000, 'amount_to' => 30000, 'fee' => 200]);
         StaffLoanCategory::firstOrCreate(['company_id' => $company->id, 'name' => 'TEST1'], ['amount_from' => 1000, 'amount_to' => 10000, 'interest_rate' => 20, 'duration' => 'monthly', 'repayment_from' => 1, 'repayment_to' => 3, 'fee' => 0]);
         StaffSalaryAdvanceCategory::firstOrCreate(['company_id' => $company->id, 'name' => 'SALARY ADVANCE STAFF'], ['amount_from' => 10000, 'amount_to' => 100000, 'fee' => 200]);
+    }
+
+    /**
+     * The five customer categories and their dynamic forms (Documents/customer-types.json).
+     * Loan limits, allowed products, required documents and risk levels are defaults the
+     * business can change under Settings.
+     */
+    private function seedCustomerCategories(Company $company): void
+    {
+        $definition = json_decode((string) file_get_contents(database_path('data/customer-types.json')), true);
+        $rules = [
+            'mtumishi_umma' => ['risk' => 'low', 'min' => 100000, 'max' => 10000000, 'products' => ['WATUMISHI 2', 'WATUMISHI 3', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'NEW WATUMISHI 3', 'VIP DESK', 'VVIP DESK', 'WATUMISHI LOAN'], 'documents' => ['Salary slip', 'Employment ID', 'NIDA']],
+            'sekta_binafsi' => ['risk' => 'medium', 'min' => 100000, 'max' => 5000000, 'products' => ['WATUMISHI 2', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN'], 'documents' => ['Salary slip', 'Employment contract', 'Employment ID', 'NIDA']],
+            'mjasiriamali' => ['risk' => 'high', 'min' => 20000, 'max' => 2000000, 'products' => ['WAJASILIAMALI', 'GROUP LOAN', 'VIKUNDI 1', 'VIKUNDI 2'], 'documents' => ['Business licence', 'TIN certificate', 'Collateral (Dhamana)', 'NIDA']],
+            'mwanafunzi' => ['risk' => 'high', 'min' => 20000, 'max' => 500000, 'products' => ['WAJASILIAMALI'], 'documents' => ['Student ID', 'Admission letter', 'Guarantor NIDA', 'NIDA']],
+            'mstaafu' => ['risk' => 'medium', 'min' => 100000, 'max' => 3000000, 'products' => ['NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN'], 'documents' => ['Pension statement', 'Retirement letter', 'NIDA']],
+        ];
+
+        foreach ($definition['types'] as $type) {
+            $rule = $rules[$type['key']];
+            $category = CustomerCategory::updateOrCreate(['company_id' => $company->id, 'key' => $type['key']], [
+                'name' => $type['label'],
+                'icon' => $type['icon'] ?? null,
+                'section_title' => $type['sectionTitle'] ?? null,
+                'risk_level' => $rule['risk'],
+                'min_loan_amount' => $rule['min'],
+                'max_loan_amount' => $rule['max'],
+                'required_documents' => $rule['documents'],
+                'form_schema' => $type['fields'],
+            ]);
+
+            $category->loanCategories()->sync(LoanCategory::where('company_id', $company->id)->whereIn('name', $rule['products'])->pluck('id'));
+        }
     }
 
     private function region(string $name): int

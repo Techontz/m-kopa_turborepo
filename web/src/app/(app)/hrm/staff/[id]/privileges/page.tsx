@@ -1,15 +1,30 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { groupPermissions, privilegeChanges, privilegeSource, type PermissionItem, type PrivilegeSource } from "@/components/hrm/staffActions";
-import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import {
+  applyPrivilegeChange,
+  assignedPrivilegeRows,
+  PRIVILEGE_MESSAGES,
+  privilegeItemSource,
+  privilegeItemStatus,
+  privilegeKeysNotHeld,
+  privilegeRows,
+  type PermissionItem,
+  type PrivilegeGroup,
+  type PrivilegeRow,
+} from "@/components/hrm/staffActions";
+import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { DataTable, type Column } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
+import { confirmAction, notifyError, notifySuccess } from "@/components/ui/notify";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox, type Option } from "@/components/ui/SelectBox";
+import { api } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 
 interface StaffPrivileges {
@@ -25,6 +40,7 @@ interface StaffPrivileges {
     role: { id: number; key: string; name: string; scope: string } | null;
     zone_id: number | null;
   };
+  privilege_groups: PrivilegeGroup[];
   catalogue: PermissionItem[];
   role_permissions: string[];
   granted: string[];
@@ -35,12 +51,6 @@ interface StaffPrivileges {
   actor_permissions: string[];
   can_change_role: boolean;
 }
-
-const SOURCE_BADGE: Record<Exclude<PrivilegeSource, "none">, [BadgeTone, string]> = {
-  role: ["default", "Role"],
-  granted: ["success", "Granted"],
-  revoked: ["danger", "Revoked"],
-};
 
 function RoleCard({ data }: { data: StaffPrivileges }) {
   const { employee } = data;
@@ -67,116 +77,179 @@ function RoleCard({ data }: { data: StaffPrivileges }) {
             </button>
           </div>
         </div>
-        <small className="text-muted">Changing the role replaces the role permissions; the per-employee grants and revocations below are kept.</small>
+        <small className="text-muted">The role gives the default privileges; privileges added or removed on this page are kept when the role changes.</small>
       </form>
     </Card>
   );
 }
 
-function PrivilegesEditor({ data }: { data: StaffPrivileges }) {
-  const [selected, setSelected] = useState<string[]>(data.permissions);
-  const save = useAction<{ permissions: string[] }>("put", `hrm/staff/${data.employee.id}/privileges`);
-  const groups = useMemo(() => groupPermissions(data.catalogue), [data.catalogue]);
-  const pending = privilegeChanges(data.permissions, selected);
-  const dirty = pending.granted.length + pending.revoked.length > 0;
-
-  const toggle = (key: string) => setSelected((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+function StaffInfo({ employee }: { employee: StaffPrivileges["employee"] }) {
+  const rows: [string, string][] = [
+    ["Employee ID", employee.employee_number ?? "—"],
+    ["Name", employee.full_name],
+    ["Username", employee.username || "—"],
+    ["Phone", employee.phone],
+    ["Role", employee.role?.name ?? "—"],
+    ["Branch", employee.branch ?? "—"],
+    ["Position", employee.position],
+  ];
 
   return (
-    <Card
-      title={<>Privileges <small className="text-muted">({data.permissions.length} of {data.catalogue.length} effective)</small></>}
-      actions={data.can_edit && (
-        <>
-          {dirty && <button type="button" className="btn btn-default btn-sm mr-1" onClick={() => setSelected(data.permissions)}>Discard</button>}
-          <button type="button" className="btn btn-primary btn-sm" disabled={save.isPending || !dirty} onClick={() => save.mutate({ permissions: selected })}>
-            <i className="icon-drawer" /> Save{dirty ? ` (${pending.granted.length + pending.revoked.length})` : ""}
-          </button>
-        </>
-      )}
-    >
-      {data.read_only_reason && <div className="alert alert-info">{data.read_only_reason}</div>}
-      <p className="text-muted mb-3">
-        Effective privileges = role permissions + <Badge tone="success">Granted</Badge> − <Badge tone="danger">Revoked</Badge>.
-        {data.can_edit && " You can only grant or revoke privileges you hold yourself."}
-      </p>
+    <Card>
       <div className="row">
-        {groups.map(([group, permissions]) => (
-          <div key={group} className="col-md-6 col-lg-4 mb-3">
-            <h6 className="text-uppercase mb-1">{group.replace("_", " ")}</h6>
-            {permissions.map((permission) => {
-              const held = data.actor_permissions.includes(permission.key);
-              const source = privilegeSource(permission.key, data.role_permissions, data.granted, data.revoked);
-              const changed = pending.granted.includes(permission.key) || pending.revoked.includes(permission.key);
-              return (
-                <div key={permission.key} className="d-flex align-items-start">
-                  <label className="fancy-checkbox mb-0" title={held || !data.can_edit ? permission.key : `${permission.key} — you do not hold this privilege`}>
-                    <input
-                      type="checkbox"
-                      disabled={!data.can_edit || !held || save.isPending}
-                      checked={selected.includes(permission.key)}
-                      onChange={() => toggle(permission.key)}
-                    />{" "}
-                    <span>{permission.label}</span>
-                  </label>
-                  <span className="ml-1 text-nowrap">
-                    {source !== "none" && <Badge tone={SOURCE_BADGE[source][0]}>{SOURCE_BADGE[source][1]}</Badge>}
-                    {changed && <> <Badge tone="warning">Unsaved</Badge></>}
-                  </span>
-                </div>
-              );
-            })}
+        {rows.map(([label, value]) => (
+          <div key={label} className="col-6 col-md-4 col-lg mb-2 mb-lg-0">
+            <small className="text-muted d-block">{label}</small>
+            <strong className={label === "Name" || label === "Branch" ? "text-uppercase" : undefined}>{value}</strong>
           </div>
         ))}
+        <div className="col-6 col-md-4 col-lg-auto">
+          <small className="text-muted d-block">Status</small>
+          <Badge tone={employee.status === "active" ? "success" : "danger"}>{employee.status.toUpperCase()}</Badge>
+        </div>
       </div>
-      {save.fieldError("permissions") && <div className="field-error">{save.fieldError("permissions")}</div>}
     </Card>
   );
 }
 
-/** HRM → All Active Staff → Privilege (live admin/privillage/:id): one employee's effective permissions. */
-export default function StaffPrivilegesPage() {
-  const { id } = useParams<{ id: string }>();
-  const { data, isLoading, error } = useApi<StaffPrivileges>(`hrm/staff/${id}/privileges`);
-  const employee = data?.employee;
+function PrivilegeTables({ data }: { data: StaffPrivileges }) {
+  const client = useQueryClient();
+  const [permissions, setPermissions] = useState<string[]>(data.permissions);
+  const [pending, setPending] = useState<string | null>(null);
 
-  const rows: [string, string][] = employee
-    ? [
-        ["Employee ID", employee.employee_number ?? "—"],
-        ["Name", employee.full_name],
-        ["Username", employee.username || "—"],
-        ["Phone", employee.phone],
-        ["Branch", employee.branch ?? "—"],
-        ["Position", employee.position],
-        ["Role", employee.role?.name ?? "—"],
-      ]
-    : [];
+  const rows = useMemo(() => privilegeRows(data.privilege_groups), [data.privilege_groups]);
+  const assigned = assignedPrivilegeRows(data.privilege_groups, permissions);
+
+  const change = async (item: PrivilegeRow, add: boolean) => {
+    if (!add && !(await confirmAction(PRIVILEGE_MESSAGES.confirmRemove))) return;
+    setPending(item.key);
+    const ok = await applyPrivilegeChange(permissions, item, add, {
+      send: (next) => api.put<{ data: StaffPrivileges }>(`hrm/staff/${data.employee.id}/privileges`, { permissions: next }).then((response) => response.data.permissions),
+      setPermissions,
+      onSuccess: notifySuccess,
+      onError: notifyError,
+    });
+    setPending(null);
+    if (ok) await client.invalidateQueries();
+  };
+
+  const blockedTitle = (item: PrivilegeRow, add: boolean): string | undefined => {
+    if (!data.can_edit) return data.read_only_reason ?? undefined;
+    const notHeld = privilegeKeysNotHeld(permissions, item, add, data.actor_permissions);
+    return notHeld.length ? `You do not hold: ${notHeld.join(", ")}` : undefined;
+  };
+
+  const label = (item: PrivilegeRow) => (
+    <>
+      <span className="text-uppercase">{item.label}</span>
+      {item.group !== data.privilege_groups[0]?.key && <small className="d-block text-muted">{item.groupLabel}</small>}
+    </>
+  );
+
+  const listColumns: Column<PrivilegeRow>[] = [
+    { key: "label", header: "Privilege", value: (item) => `${item.label} ${item.groupLabel}`, render: label, sortable: false },
+    {
+      key: "action",
+      header: "Action",
+      sortable: false,
+      className: "text-nowrap",
+      render: (item) => {
+        const { status } = privilegeItemStatus(item, permissions);
+        const blocked = blockedTitle(item, true);
+        return (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={status === "full" || !!blocked || pending !== null}
+            title={status === "full" ? "Already added" : blocked ?? `Add ${item.label}`}
+            onClick={() => change(item, true)}
+          >
+            <i className={pending === item.key ? "fa fa-spinner fa-spin" : "icon-pencil"} /> {status === "full" ? "Added" : "Add"}
+          </button>
+        );
+      },
+    },
+  ];
+
+  const assignedColumns: Column<PrivilegeRow>[] = [
+    { key: "sno", header: "S/No.", sortable: false, render: (_item, index) => `${index + 1}.` },
+    {
+      key: "label",
+      header: "Privilege",
+      sortable: false,
+      value: (item) => `${item.label} ${item.groupLabel}`,
+      render: (item) => {
+        const { status, held, total } = privilegeItemStatus(item, permissions);
+        const source = privilegeItemSource(item, permissions, data.role_permissions, data.granted);
+        return (
+          <>
+            {label(item)}
+            <span className="mf-priv-badges">
+              {source === "role" ? <Badge tone="default">Role</Badge> : source === "granted" ? <Badge tone="success">Added</Badge> : <Badge tone="info">Role + Added</Badge>}
+              {status === "partial" && <Badge tone="warning">Partial {held}/{total}</Badge>}
+            </span>
+          </>
+        );
+      },
+    },
+    {
+      key: "action",
+      header: "Action",
+      sortable: false,
+      render: (item) => {
+        const blocked = blockedTitle(item, false);
+        return (
+          <button type="button" className="btn btn-danger btn-sm" disabled={!!blocked || pending !== null} title={blocked ?? `Remove ${item.label}`} aria-label={`Remove ${item.label}`} onClick={() => change(item, false)}>
+            <i className={pending === item.key ? "fa fa-spinner fa-spin" : "icon-trash"} />
+          </button>
+        );
+      },
+    },
+  ];
+
+  const firstName = data.employee.full_name.split(" ")[0];
 
   return (
     <>
-      <PageHeader crumbs={["All Employee", "Staff Privileges"]} right={<Link href="/hrm/staff" className="btn btn-primary btn-sm">Back</Link>} />
-
-      {error && <div className="alert alert-danger">{error instanceof Error ? error.message : "Unable to load privileges"}</div>}
-      {isLoading && <Card><p className="mb-0 text-muted">Loading…</p></Card>}
-
-      {data && employee && (
-        <>
-          <Card title={<>Staff Privileges <Badge tone={employee.status === "active" ? "success" : "danger"}>{employee.status.toUpperCase()}</Badge></>}>
-            <div className="table-responsive">
-              <table className="table table-bordered mb-0">
-                <tbody>
-                  {rows.map(([label, value]) => (
-                    <tr key={label}>
-                      <th style={{ width: "30%" }}>{label}</th>
-                      <td className={label === "Name" || label === "Branch" ? "text-uppercase" : undefined}>{value}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {data.read_only_reason && <div className="alert alert-info">{data.read_only_reason}</div>}
+      <div className="row clearfix">
+        <div className="col-lg-6">
+          <Card title="Privilege List" actions={<Link href="/hrm/staff" className="btn btn-primary btn-sm"><i className="icon-logout" /> Back</Link>}>
+            <DataTable columns={listColumns} rows={rows} rowKey={(item) => item.key} />
           </Card>
+        </div>
+        <div className="col-lg-6">
+          <Card title={`Privileges For (${firstName})`}>
+            <DataTable columns={assignedColumns} rows={assigned} rowKey={(item) => item.key} emptyMessage="No privileges assigned" />
+          </Card>
+        </div>
+      </div>
+    </>
+  );
+}
 
-          {data.can_change_role && <RoleCard key={`role-${employee.role?.id ?? 0}`} data={data} />}
-          <PrivilegesEditor key={data.permissions.join(",")} data={data} />
+/** HRM → All Active Staff → Privilege (live admin/privillage/:id): add or remove one employee's privileges. */
+export default function StaffPrivilegesPage() {
+  const { id } = useParams<{ id: string }>();
+  const { data, isLoading, error } = useApi<StaffPrivileges>(`hrm/staff/${id}/privileges`);
+
+  return (
+    <>
+      <PageHeader crumbs={["Employee Privilege"]} />
+
+      {error && (
+        <Card>
+          <div className="alert alert-danger mb-2">{error instanceof Error ? error.message : "Unable to load privileges"}</div>
+          <Link href="/hrm/staff" className="btn btn-primary btn-sm"><i className="icon-logout" /> Back</Link>
+        </Card>
+      )}
+      {isLoading && <Card><p className="mb-0 mf-loading">Loading...</p></Card>}
+
+      {data && (
+        <>
+          <StaffInfo employee={data.employee} />
+          <PrivilegeTables key={data.permissions.join(",")} data={data} />
+          {data.can_change_role && <RoleCard key={`role-${data.employee.role?.id ?? 0}`} data={data} />}
         </>
       )}
     </>

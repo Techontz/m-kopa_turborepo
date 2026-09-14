@@ -13,8 +13,10 @@ use Illuminate\Support\Facades\Gate;
 /**
  * HRM → All Active Staff → Privilege (live admin/privillage/:id): the permissions one employee holds.
  *
- * Live grants privileges per user; here they are per-employee overrides on top of the role's permissions, resolved by
- * AccessControl (effective = role + granted − revoked) so every Gate check honours them. Guards: nobody edits their
+ * Live adds/removes module privileges per user (a fixed list of 16 items). Here each item (config permissions.privileges)
+ * maps to real permission keys; the employee's role supplies the defaults and the page stores per-employee overrides,
+ * resolved by AccessControl (effective = role + granted − revoked) so every Gate check honours them. A save sends the
+ * complete effective set and replaces the override set atomically. Guards: nobody edits their
  * own privileges, the Super Admin always has full access, and an administrator can only grant or revoke permissions
  * they hold themselves.
  */
@@ -45,7 +47,10 @@ class StaffPrivilegeController extends HrmController
         abort_if($notHeld !== [], 403, 'You cannot grant or revoke privileges you do not hold: '.implode(', ', $notHeld).'.');
 
         if ($changed !== []) {
+            // One transaction replaces the employee's whole override set (and writes the audit row): any failure rolls
+            // everything back, so the previous privileges stay intact. The row lock serialises concurrent saves.
             DB::transaction(function () use ($employee, $actor, $before, $desired, $request): void {
+                Employee::query()->whereKey($employee->id)->lockForUpdate()->first();
                 $this->access->syncEmployeePermissions($employee, $desired);
 
                 AuditLog::create([
@@ -99,6 +104,18 @@ class StaffPrivilegeController extends HrmController
                 'role' => $employee->role ? ['id' => $employee->role->id, 'key' => $employee->role->key, 'name' => $employee->role->name, 'scope' => $employee->role->scope] : null,
                 'zone_id' => $employee->zone_id,
             ],
+            // Live privilege list structure (groups → items → permission keys) from config/permissions.php.
+            'privilege_groups' => collect(config('permissions.privileges'))
+                ->map(fn (array $group): array => [
+                    'key' => $group['key'],
+                    'label' => $group['label'],
+                    'items' => collect($group['items'])->map(fn (array $item): array => [
+                        'key' => $item['key'],
+                        'label' => $item['label'],
+                        'permissions' => array_values($item['permissions']),
+                    ])->values(),
+                ])
+                ->values(),
             'catalogue' => collect(config('permissions.permissions'))
                 ->map(fn (string $label, string $key): array => ['key' => $key, 'label' => $label, 'group' => explode('.', $key)[0]])
                 ->values(),

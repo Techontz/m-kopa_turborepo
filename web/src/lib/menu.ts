@@ -100,7 +100,7 @@ export const menu: MenuTab[] = [
       {
         label: "Loan Fee",
         icon: "icon-wallet",
-        children: [{ label: "Deducted Income", href: "/loan-fees/income", permission: "reports.financial" }],
+        children: [{ label: "Deducted Income", href: "/loan-fees/income", permission: "income.view" }],
       },
       {
         label: "Expenses",
@@ -141,7 +141,7 @@ export const menu: MenuTab[] = [
       {
         label: "Group",
         icon: "icon-people",
-        children: [{ label: "All groups", href: "/groups", permission: "customers.view" }],
+        children: [{ label: "All groups", href: "/groups", permission: ["groups.view", "groups.manage"] }],
       },
       {
         label: "Loan",

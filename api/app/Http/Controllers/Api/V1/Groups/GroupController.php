@@ -11,12 +11,14 @@ use Illuminate\Http\Request;
 
 /**
  * Group → All groups (admin/group) and the group customer list (admin/view_customer_group/{id}).
+ * Gated by the live GROUP privilege (groups.view / groups.manage); the select options stay available to customer
+ * registration and loan application.
  */
 class GroupController extends ApiController
 {
     public function index(): JsonResponse
     {
-        $this->authorizeAny('customers.view');
+        $this->authorizeAny('groups.view', 'groups.manage');
 
         $groups = Group::where('company_id', $this->currentEmployee()->company_id)->withCount('customers')->orderBy('id')->get();
 
@@ -25,7 +27,7 @@ class GroupController extends ApiController
 
     public function options(): JsonResponse
     {
-        $this->authorizeAny('customers.view', 'loans.apply');
+        $this->authorizeAny('groups.view', 'customers.view', 'loans.apply');
 
         $groups = Group::where('company_id', $this->currentEmployee()->company_id)->orderBy('name')->get(['id', 'name']);
 
@@ -34,7 +36,7 @@ class GroupController extends ApiController
 
     public function store(Request $request): JsonResponse
     {
-        $this->authorizeAny('customers.manage');
+        $this->authorizeAny('groups.manage');
         $data = $request->validate(['group_name' => ['required', 'string', 'max:255']]);
 
         $group = Group::create(['company_id' => $this->currentEmployee()->company_id, 'name' => $data['group_name']]);
@@ -44,7 +46,7 @@ class GroupController extends ApiController
 
     public function update(Request $request, Group $group): JsonResponse
     {
-        $this->authorizeAny('customers.manage');
+        $this->authorizeAny('groups.manage');
         $data = $request->validate(['group_name' => ['required', 'string', 'max:255']]);
 
         $group->update(['name' => $data['group_name']]);
@@ -54,7 +56,7 @@ class GroupController extends ApiController
 
     public function destroy(Group $group): JsonResponse
     {
-        $this->authorizeAny('customers.manage');
+        $this->authorizeAny('groups.manage');
 
         $group->delete();
 
@@ -66,7 +68,7 @@ class GroupController extends ApiController
      */
     public function show(Request $request, Group $group): JsonResponse
     {
-        $this->authorizeAny('customers.view');
+        $this->authorizeAny('groups.view', 'groups.manage');
 
         $loans = $this->applyFilters($this->scoped(Loan::query()), $request)
             ->where(fn (Builder $query) => $query

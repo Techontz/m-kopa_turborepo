@@ -21,7 +21,7 @@ class LoanFeeIncomeController extends ApiController
      */
     public function __invoke(Request $request): JsonResponse
     {
-        $this->authorizeAny('reports.financial');
+        $this->authorizeAny('income.view');
 
         $validated = $request->validate([
             'branch_id' => ['nullable', 'string'],

@@ -171,3 +171,6 @@ body.font-ubuntu,
 /* Not found / forbidden */
 .mf-error-page { max-width: 520px; margin: 80px auto; text-align: center; }
 .mf-error-page h1 { font-size: 64px; color: var(--mf-blue); margin-bottom: 0; }
+
+/* Staff privileges (HRM → All Active Staff → Privilege) */
+.mf-priv-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }

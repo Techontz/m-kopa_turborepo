@@ -39,6 +39,14 @@ class DividendPayment extends Model
         return $this->belongsTo(DividendAllocation::class, 'dividend_allocation_id');
     }
 
+    /**
+     * The PAY ALL OUTSTANDING batch that posted this payment, if any.
+     */
+    public function batch(): BelongsTo
+    {
+        return $this->belongsTo(DividendPaymentBatch::class, 'dividend_payment_batch_id');
+    }
+
     public function shareHolder(): BelongsTo
     {
         return $this->belongsTo(ShareHolder::class);

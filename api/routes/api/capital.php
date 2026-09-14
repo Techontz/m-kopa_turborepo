@@ -47,6 +47,8 @@ Route::prefix('capital')->name('capital.')->group(function (): void {
         Route::get('dividends/{declaration}/allocations', 'allocations')->whereNumber('declaration')->name('dividends.allocations');
         Route::get('dividends/allocations/{allocation}/payments', 'allocationPayments')->name('dividends.allocations.payments');
         Route::post('dividends/allocations/{allocation}/pay', 'pay')->name('dividends.pay');
+        Route::get('dividends/{declaration}/pay-all/preview', 'payAllPreview')->whereNumber('declaration')->name('dividends.pay-all.preview');
+        Route::post('dividends/{declaration}/pay-all', 'payAll')->whereNumber('declaration')->name('dividends.pay-all');
         Route::post('dividends/payments/{payment}/reverse', 'reverse')->name('dividends.payments.reverse');
     });
 

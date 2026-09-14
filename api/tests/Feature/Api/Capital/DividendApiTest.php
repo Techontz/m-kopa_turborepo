@@ -575,6 +575,307 @@ class DividendApiTest extends TestCase
         $this->assertSame(2, DividendAllocation::where('status', 'unpaid')->count());
     }
 
+    public function test_status_is_derived_from_posted_payments_including_after_reversal(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $url = "/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/allocations";
+
+        $this->getJson($url)->assertOk()->assertJsonPath('data.1.status', 'unpaid')->assertJsonPath('data.1.status_label', 'UNPAID');
+
+        $first = $this->pay($allocation, ['amount' => 400000])->json('data.id');
+        $this->getJson($url)->assertJsonPath('data.1.status_label', 'PARTIALLY PAID')->assertJsonPath('data.1.paid_amount', 400000);
+        $this->assertAllocationMatchesPayments($allocation);
+
+        $this->pay($allocation, ['amount' => 500000])->assertCreated();
+        $this->getJson($url)->assertJsonPath('data.1.status_label', 'PAID')->assertJsonPath('data.1.balance', 0);
+        $this->assertAllocationMatchesPayments($allocation);
+
+        $this->postJson("/api/v1/capital/dividends/payments/{$first}/reverse", ['reason' => 'Wrong shareholder'])->assertOk();
+        $this->getJson($url)->assertJsonPath('data.1.status_label', 'PARTIALLY PAID')->assertJsonPath('data.1.paid_amount', 500000)->assertJsonPath('data.1.balance', 400000);
+        $this->assertAllocationMatchesPayments($allocation);
+
+        // The payments table is the source of truth: a tampered stored column does not change what the API reports.
+        DB::table('dividend_allocations')->where('id', $allocation->id)->update(['paid_amount' => 900000, 'status' => 'paid']);
+        $this->getJson($url)->assertJsonPath('data.1.status', 'partially_paid')->assertJsonPath('data.1.paid_amount', 500000)->assertJsonPath('data.1.balance', 400000);
+        $this->getJson("/api/v1/capital/dividends/allocations/{$allocation->id}/payments")->assertJsonPath('allocation.status_label', 'PARTIALLY PAID');
+        $this->getJson("/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/pay-all/preview")->assertJsonPath('data.total_outstanding', 2500000);
+    }
+
+    public function test_remaining_balance_and_last_payment_date_follow_posted_payments(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $url = "/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/allocations";
+        $this->getJson($url)->assertJsonPath('data.1.last_payment_date', null)->assertJsonPath('data.1.balance', 900000);
+
+        $this->pay($allocation, ['amount' => 150000])->assertCreated();
+        $this->travelTo(CarbonImmutable::parse('2026-09-20 09:00:00'));
+        $late = $this->pay($allocation, ['amount' => 50000.25])->assertCreated()->assertJsonPath('data.allocation.balance', 699999.75)->json('data.id');
+
+        $this->getJson($url)->assertJsonPath('data.1.balance', 699999.75)->assertJsonPath('data.1.last_payment_date', '2026-09-20');
+
+        $this->postJson("/api/v1/capital/dividends/payments/{$late}/reverse", ['reason' => 'Duplicate receipt'])->assertOk();
+        $this->getJson($url)->assertJsonPath('data.1.balance', 750000)->assertJsonPath('data.1.last_payment_date', '2026-09-13');
+    }
+
+    public function test_payments_never_change_the_allocation_snapshot(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $snapshot = fn (): array => DividendAllocation::orderBy('id')->get(['id', 'share_holder_id', 'shares_held', 'total_shares', 'share_percent', 'contribution_total', 'amount'])->toArray();
+        $before = $snapshot();
+        $declaration = $allocation->declaration->only(['profit_amount', 'dividend_amount', 'reinvest_amount', 'total_shares']);
+
+        $paymentId = $this->pay($allocation, ['amount' => 300000])->json('data.id');
+        $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Test reversal'])->assertOk();
+        $this->payAll($allocation->declaration, 3000000)->assertCreated();
+
+        $this->assertSame($before, $snapshot());
+        $this->assertSame($declaration, $allocation->declaration->fresh()->only(['profit_amount', 'dividend_amount', 'reinvest_amount', 'total_shares']));
+    }
+
+    public function test_pay_all_preview_lists_the_outstanding_shareholders_of_the_declaration(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $this->pay($allocation, ['amount' => 900000])->assertCreated();
+
+        $this->getJson("/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/pay-all/preview")->assertOk()
+            ->assertJsonPath('data.period_label', 'September 2026')
+            ->assertJsonPath('data.shareholders', 2)
+            ->assertJsonPath('data.paid_shareholders', 1)
+            ->assertJsonPath('data.total_entitlement', 3000000)
+            ->assertJsonPath('data.total_paid', 900000)
+            ->assertJsonPath('data.total_outstanding', 2100000)
+            ->assertJsonPath('data.rows.0.share_holder', 'ALPHA HOLDER')
+            ->assertJsonPath('data.rows.0.balance', 1500000)
+            ->assertJsonPath('data.rows.1.balance', 600000);
+        $this->getJson("/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/allocations")->assertOk()
+            ->assertJsonPath('totals.shareholders', 2)
+            ->assertJsonPath('totals.total_outstanding', 2100000);
+    }
+
+    public function test_pay_all_pays_every_outstanding_balance_with_balanced_journals(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $declaration = $allocation->declaration;
+        $companyId = $this->admin->company_id;
+        $cashBefore = $this->ledger()->balance($companyId, Account::Company);
+        $entriesBefore = JournalEntry::count();
+
+        $response = $this->payAll($declaration, '3,000,000', ['reference' => 'BATCH-1'])->assertCreated()
+            ->assertJsonPath('message', 'Dividends Paid successfully to 3 shareholder(s)')
+            ->assertJsonPath('data.payments_count', 3)
+            ->assertJsonPath('data.total_amount', 3000000)
+            ->assertJsonPath('data.totals.total_outstanding', 0);
+        $batchReference = $response->json('data.batch_reference');
+        $this->assertSame('DIVB-202609-'.str_pad((string) $response->json('data.id'), 6, '0', STR_PAD_LEFT), $batchReference);
+
+        $payments = DividendPayment::orderBy('dividend_allocation_id')->get();
+        $this->assertCount(3, $payments);
+        $this->assertSame(['1500000.00', '900000.00', '600000.00'], $payments->pluck('amount')->all());
+        $this->assertSame([$this->a->id, $this->b->id, $this->c->id], $payments->pluck('share_holder_id')->all());
+        $this->assertSame(1, $payments->pluck('dividend_payment_batch_id')->unique()->count());
+        $this->assertSame(['BATCH-1'], $payments->pluck('reference')->unique()->values()->all());
+        $this->assertSame([DividendAllocation::STATUS_PAID], DividendAllocation::pluck('status')->unique()->values()->all());
+
+        // One balanced journal entry per payment: Dr DIVIDEND ACCOUNT / Cr COMPANY ACCOUNT.
+        $this->assertSame($entriesBefore + 3, JournalEntry::count());
+        foreach ($payments as $payment) {
+            $this->assertEntry($payment->journal_entry_id, [
+                [Account::DividendPayable, null, (float) $payment->amount, 0],
+                [Account::Company, null, 0, (float) $payment->amount],
+            ]);
+        }
+        $this->assertSame(3000000.0, round((float) JournalEntry::whereIn('id', $payments->pluck('journal_entry_id'))->with('lines')->get()->sum(fn (JournalEntry $entry): float => (float) $entry->lines->sum('debit')), 2));
+        $this->assertSame(0.0, $this->ledger()->balance($companyId, Account::DividendPayable));
+        $this->assertSame($cashBefore - 3000000, $this->ledger()->balance($companyId, Account::Company));
+
+        $this->getJson("/api/v1/capital/dividends/{$declaration->id}/allocations")->assertOk()
+            ->assertJsonPath('data.0.status_label', 'PAID')
+            ->assertJsonPath('data.2.status_label', 'PAID')
+            ->assertJsonPath('declaration.status', 'FULLY PAID');
+        $this->getJson("/api/v1/capital/dividends/allocations/{$allocation->id}/payments")->assertOk()
+            ->assertJsonPath('data.0.batch_reference', $batchReference);
+    }
+
+    public function test_pay_all_by_bank_reduces_the_bank_account(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $companyId = $this->admin->company_id;
+        $bankBefore = $this->ledger()->balance($companyId, Account::Bank, bankAccount: $this->bank);
+
+        $this->payAll($allocation->declaration, 3000000, ['pay_method' => 'BANK'])->assertUnprocessable()->assertJsonValidationErrors('bank_account_id');
+        $this->payAll($allocation->declaration, 3000000, ['pay_method' => 'BANK', 'bank_account_id' => $this->bank->id])->assertCreated();
+
+        $this->assertSame($bankBefore - 3000000, $this->ledger()->balance($companyId, Account::Bank, bankAccount: $this->bank));
+        $this->assertSame(['BANK'], DividendPayment::pluck('pay_method')->unique()->values()->all());
+        $this->assertSame([$this->bank->id], DividendPayment::pluck('bank_account_id')->unique()->values()->all());
+    }
+
+    public function test_pay_all_skips_paid_allocations_and_pays_only_remaining_balances(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $alpha = DividendAllocation::where('share_holder_id', $this->a->id)->firstOrFail();
+        $this->pay($allocation, ['amount' => 900000])->assertCreated();
+        $this->pay($alpha, ['amount' => 1000000])->assertCreated();
+
+        $batchId = $this->payAll($allocation->declaration, 1100000)->assertCreated()->assertJsonPath('data.payments_count', 2)->json('data.id');
+
+        $batchPayments = DividendPayment::where('dividend_payment_batch_id', $batchId)->orderBy('dividend_allocation_id')->get();
+        $this->assertSame([$this->a->id, $this->c->id], $batchPayments->pluck('share_holder_id')->all());
+        $this->assertSame(['500000.00', '600000.00'], $batchPayments->pluck('amount')->all());
+        $this->assertSame(1, DividendPayment::where('dividend_allocation_id', $allocation->id)->count());
+        $this->assertSame(['1500000.00', '900000.00', '600000.00'], DividendAllocation::orderBy('id')->pluck('paid_amount')->all());
+    }
+
+    public function test_pay_all_cannot_overpay_after_a_concurrent_individual_payment(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $url = "/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/pay-all/preview";
+        $confirmed = $this->getJson($url)->json('data.total_outstanding');
+        $this->assertSame(3000000, $confirmed);
+
+        // An individual payment commits after the user reviewed the Pay All total.
+        $this->pay($allocation, ['amount' => 200000])->assertCreated();
+
+        $this->payAll($allocation->declaration, $confirmed)->assertUnprocessable()
+            ->assertJsonPath('errors.expected_total.0', 'Outstanding balances changed — review and try again.');
+        $this->payAll($allocation->declaration, null)->assertUnprocessable()->assertJsonValidationErrors('expected_total');
+        $this->assertSame(1, DividendPayment::count());
+
+        $this->payAll($allocation->declaration, $this->getJson($url)->json('data.total_outstanding'))->assertCreated();
+        $this->assertSame('700000.00', DividendPayment::where('dividend_allocation_id', $allocation->id)->latest('id')->value('amount'));
+        $this->assertSame(0.0, $this->ledger()->balance($this->admin->company_id, Account::DividendPayable));
+        $this->assertSame(['1500000.00', '900000.00', '600000.00'], DividendAllocation::orderBy('id')->pluck('paid_amount')->all());
+    }
+
+    public function test_pay_all_duplicate_submission_returns_the_original_batch(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $declaration = $allocation->declaration;
+
+        $first = $this->payAll($declaration, 3000000, ['idempotency_key' => 'batch-key-1'])->assertCreated()->json('data');
+        $entries = JournalEntry::count();
+
+        $this->payAll($declaration, 3000000, ['idempotency_key' => 'batch-key-1'])->assertOk()
+            ->assertJsonPath('message', 'Dividend batch already recorded')
+            ->assertJsonPath('data.id', $first['id'])
+            ->assertJsonPath('data.batch_reference', $first['batch_reference'])
+            ->assertJsonPath('data.payment_ids', $first['payment_ids'])
+            ->assertJsonPath('data.created', false);
+        $this->assertSame(3, DividendPayment::count());
+        $this->assertSame($entries, JournalEntry::count());
+
+        $this->payAll($declaration, 0)->assertUnprocessable()
+            ->assertJsonPath('errors.expected_total.0', 'All dividends for September 2026 are already paid; there is no outstanding balance.');
+        $this->assertSame(3, DividendPayment::count());
+        $this->assertSame(1, DB::table('dividend_payment_batches')->count());
+    }
+
+    public function test_pay_all_only_touches_the_selected_declaration(): void
+    {
+        $this->establish([[$this->a, 500], [$this->b, 300], [$this->c, 200]]);
+        $this->profit(1000000);
+        $this->declare(['period' => '2026-07'])->assertCreated();
+        $this->profit(2000000);
+        $this->declare(['period' => '2026-08'])->assertCreated();
+        $july = DividendDeclaration::whereDate('period', '2026-07-01')->firstOrFail();
+        $august = DividendDeclaration::whereDate('period', '2026-08-01')->firstOrFail();
+
+        $this->getJson("/api/v1/capital/dividends/{$august->id}/pay-all/preview")->assertJsonPath('data.total_outstanding', 600000)->assertJsonPath('data.period_label', 'August 2026');
+        $this->payAll($august, 300000)->assertUnprocessable();
+        $this->payAll($august, 600000)->assertCreated()->assertJsonPath('data.payments_count', 3);
+
+        $this->assertSame(0, DividendPayment::whereHas('allocation', fn ($query) => $query->where('dividend_declaration_id', $july->id))->count());
+        $this->assertSame(['unpaid'], $july->allocations()->pluck('status')->unique()->values()->all());
+        $this->getJson("/api/v1/capital/dividends/{$july->id}/pay-all/preview")->assertJsonPath('data.total_outstanding', 300000)->assertJsonPath('data.shareholders', 3);
+        $this->getJson("/api/v1/capital/dividends/{$july->id}/allocations")->assertJsonPath('data.0.paid_amount', 0);
+        $this->assertSame(300000.0, $this->ledger()->balance($this->admin->company_id, Account::DividendPayable));
+    }
+
+    public function test_pay_all_rolls_back_everything_when_a_journal_fails_mid_batch(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $entries = JournalEntry::count();
+        $this->partialMock(Ledger::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('journal')->once()->passthru();
+            $mock->shouldReceive('journal')->andReturnUsing(function (): never {
+                // Inside the batch transaction: the first payment is fully posted, the second row awaits its journal.
+                $this->assertSame(2, DividendPayment::count());
+                $this->assertSame(1, DividendPayment::whereNotNull('journal_entry_id')->count());
+
+                throw new RuntimeException('Ledger unavailable');
+            });
+        });
+
+        $this->withoutExceptionHandling();
+        try {
+            $this->payAll($allocation->declaration, 3000000, ['idempotency_key' => 'rollback-key']);
+            $this->fail('The ledger failure should propagate.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Ledger unavailable', $exception->getMessage());
+        }
+
+        $this->assertSame(0, DividendPayment::count());
+        $this->assertSame(0, DB::table('dividend_payment_batches')->count());
+        $this->assertSame($entries, JournalEntry::count());
+        $this->assertSame(['0.00'], DividendAllocation::pluck('paid_amount')->unique()->values()->all());
+        $this->assertSame([DividendAllocation::STATUS_UNPAID], DividendAllocation::pluck('status')->unique()->values()->all());
+    }
+
+    public function test_pay_all_checks_the_source_balance_for_the_whole_batch(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $this->ledger()->transfer($this->admin->company_id, ['account' => Account::Company], ['account' => Account::Bank, 'bank' => $this->bank->id], $this->ledger()->balance($this->admin->company_id, Account::Company) - 2000000, 'MOVE CASH TO BANK');
+
+        $this->payAll($allocation->declaration, 3000000)->assertUnprocessable()->assertJsonValidationErrors('pay_method');
+        $this->assertSame(0, DividendPayment::count());
+    }
+
+    public function test_view_only_users_read_dividends_but_cannot_pay(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $declarationId = $allocation->dividend_declaration_id;
+
+        $viewer = $this->employeeWithRole($this->admin, 'finance', ['capital.view']);
+        $this->actingAs($viewer);
+        $this->getJson("/api/v1/capital/dividends/{$declarationId}/allocations")->assertOk();
+        $this->getJson("/api/v1/capital/dividends/{$declarationId}/pay-all/preview")->assertOk()->assertJsonPath('data.total_outstanding', 3000000);
+        $this->getJson("/api/v1/capital/dividends/allocations/{$allocation->id}/payments")->assertOk();
+        $this->postJson("/api/v1/capital/dividends/allocations/{$allocation->id}/pay", ['amount' => 1000, 'pay_method' => 'CASH'])->assertForbidden();
+        $this->payAll($allocation->declaration, 3000000)->assertForbidden();
+
+        $this->actingAs($this->employeeWithRole($this->admin, 'teller'));
+        $this->getJson("/api/v1/capital/dividends/{$declarationId}/pay-all/preview")->assertForbidden();
+        $this->payAll($allocation->declaration, 3000000)->assertForbidden();
+
+        $this->assertSame(0, DividendPayment::count());
+    }
+
+    public function test_another_company_cannot_preview_or_pay_all(): void
+    {
+        $allocation = $this->declaredAllocation();
+
+        $this->signInAdmin();
+        $this->getJson("/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/pay-all/preview")->assertNotFound();
+        $this->payAll($allocation->declaration, 3000000)->assertNotFound();
+        $this->assertSame(0, DividendPayment::count());
+    }
+
+    private function assertAllocationMatchesPayments(DividendAllocation $allocation): void
+    {
+        $allocation->refresh();
+        $posted = app(DividendService::class)->postedCents($allocation);
+        $this->assertSame($posted, (int) round((float) $allocation->paid_amount * 100));
+        $this->assertSame(DividendAllocation::statusFor((int) round((float) $allocation->amount * 100), $posted), $allocation->status);
+    }
+
+    /**
+     * @param  array<string, mixed>  $body
+     */
+    private function payAll(DividendDeclaration $declaration, string|int|float|null $expectedTotal, array $body = []): TestResponse
+    {
+        return $this->postJson("/api/v1/capital/dividends/{$declaration->id}/pay-all", $body + ['expected_total' => $expectedTotal, 'pay_method' => 'CASH']);
+    }
+
     private function ledger(): Ledger
     {
         return app(Ledger::class);

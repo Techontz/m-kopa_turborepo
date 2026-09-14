@@ -1,12 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
+import { AllocationActions } from "@/components/dividends/AllocationActions";
 import { DividendPaymentsTable } from "@/components/dividends/DividendPaymentsTable";
+import { PayAllDividendsModal } from "@/components/dividends/PayAllDividendsModal";
 import { PayDividendModal } from "@/components/dividends/PayDividendModal";
-import { allocationBadge, currentMonth, declarationBadge, loadState, mapPreview, periodLabel, profitSourceLabel, tzs } from "@/components/dividends/dividends";
-import type { DividendAllocation, DividendDeclaration, DividendPayment, DividendPreview, DividendSummary } from "@/components/dividends/types";
+import {
+  ALLOCATION_COLUMNS,
+  allocationBadge,
+  currentMonth,
+  declarationBadge,
+  loadState,
+  mapPreview,
+  outstandingTile,
+  payAllEnabled,
+  periodLabel,
+  profitSourceLabel,
+  shortDate,
+  toCents,
+  tzs,
+} from "@/components/dividends/dividends";
+import dividendStyles from "@/components/dividends/dividends.module.css";
+import type { DividendAllocation, DividendDeclaration, DividendPayment, DividendPreview, DividendSummary, PayAllPreview } from "@/components/dividends/types";
 import { SummaryTiles, styles } from "@/components/financial-reports/ReportShell";
 import { sharesLabel } from "@/components/shares/shares";
 import { Badge } from "@/components/ui/Badge";
@@ -30,6 +47,7 @@ function ErrorOrLoading({ isLoading, error }: { isLoading: boolean; error: unkno
 
 function AllocationHistoryModal({ allocation, onClose }: { allocation: DividendAllocation; onClose: () => void }) {
   const { data, isLoading, error } = useApi<DividendPayment[]>(`capital/dividends/allocations/${allocation.id}/payments`);
+  const badge = allocationBadge(allocation.status);
 
   return (
     <Modal open onClose={onClose} size="xl" title={`Payment History / ${allocation.share_holder ?? ""}`}>
@@ -37,11 +55,9 @@ function AllocationHistoryModal({ allocation, onClose }: { allocation: DividendA
         items={[
           { label: "Dividend Entitlement", value: tzs(allocation.entitlement) },
           { label: "Amount Paid", value: tzs(allocation.paid_amount) },
-          { label: "Outstanding Balance", value: tzs(allocation.balance) },
-          {
-            label: "Payment Status",
-            value: allocationBadge(allocation.status).label,
-          },
+          { label: "Remaining Balance", value: tzs(allocation.balance) },
+          { label: "Status", value: badge.label },
+          { label: "Last Payment", value: shortDate(allocation.last_payment_date) },
         ]}
       />
       <DividendPaymentsTable rows={data} isLoading={isLoading} error={error} single pageSize={25} />
@@ -185,98 +201,100 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
   );
 }
 
-function AllocationsCard({ declarationId, canManage }: { declarationId: number; canManage: boolean }) {
+interface AllocationsCardProps {
+  declarationId: number;
+  declaration: DividendDeclaration | undefined;
+  declarations: DividendDeclaration[];
+  totals: PayAllPreview | undefined;
+  canManage: boolean;
+  onSelect: (id: number) => void;
+}
+
+function AllocationsCard({ declarationId, declaration, declarations, totals, canManage, onSelect }: AllocationsCardProps) {
   const { data, isLoading, error } = useApi<DividendAllocation[]>(`capital/dividends/${declarationId}/allocations`);
-  const [paying, setPaying] = useState<DividendAllocation | null>(null);
-  const [history, setHistory] = useState<DividendAllocation | null>(null);
+  const [payingId, setPayingId] = useState<number | null>(null);
+  const [historyId, setHistoryId] = useState<number | null>(null);
+  const [payAll, setPayAll] = useState(false);
   const status = loadState({ isLoading, error, count: data?.length }, "No allocations");
+  const label = declaration?.period_label ?? totals?.period_label ?? "";
+  // Modals read the latest row after every refetch, so balances shown there are never stale.
+  const paying = data?.find((row) => row.id === payingId) ?? null;
+  const history = data?.find((row) => row.id === historyId) ?? null;
+  const sum = (pick: (row: DividendAllocation) => number | null) => (data ?? []).reduce((total, row) => total + toCents(pick(row) ?? 0), 0) / 100;
+  const cell: Record<string, (row: DividendAllocation, index: number) => ReactNode> = {
+    serial: (_row, index) => `${index + 1}.`,
+    share_holder: (row) => row.share_holder ?? "-",
+    shares_held: (row) => (row.shares_held === null ? "-" : sharesLabel(row.shares_held)),
+    ownership_percent: (row) => percent(row.ownership_percent),
+    contribution_total: (row) => (row.contribution_total === null ? "-" : tzs(row.contribution_total)),
+    entitlement: (row) => tzs(row.entitlement),
+    paid_amount: (row) => tzs(row.paid_amount),
+    balance: (row) => <b>{tzs(row.balance)}</b>,
+    status: (row) => <Badge tone={allocationBadge(row.status).tone}>{allocationBadge(row.status).label}</Badge>,
+    last_payment_date: (row) => <span className="text-nowrap">{shortDate(row.last_payment_date)}</span>,
+    actions: (row) => <AllocationActions row={row} canManage={canManage} onPay={() => setPayingId(row.id)} onHistory={() => setHistoryId(row.id)} />,
+  };
+  const money = new Set(["shares_held", "ownership_percent", "contribution_total", "entitlement", "paid_amount", "balance"]);
 
   return (
-    <Card title="Shareholder Dividend Allocation">
-      {status.state === "error" ? (
-        <div className="alert alert-danger mb-0">{status.message}</div>
-      ) : (
-        <DataTable
-          rows={data}
-          loading={isLoading}
-          rowKey={(row) => row.id}
-          searchable={false}
-          pageSize={100}
-          columns={[
-            {
-              key: "serial",
-              header: "S/No.",
-              sortable: false,
-              render: (_row, index) => `${index + 1}.`,
-            },
-            { key: "share_holder", header: "Shareholder" },
-            {
-              key: "shares_held",
-              header: "Shares",
-              className: "text-right",
-              render: (row) => (row.shares_held === null ? "-" : sharesLabel(row.shares_held)),
-            },
-            {
-              key: "ownership_percent",
-              header: "Ownership %",
-              className: "text-right",
-              render: (row) => percent(row.ownership_percent),
-            },
-            {
-              key: "entitlement",
-              header: "Dividend Entitlement",
-              className: "text-right",
-              render: (row) => tzs(row.entitlement),
-            },
-            {
-              key: "paid_amount",
-              header: "Amount Paid",
-              className: "text-right",
-              render: (row) => (
-                <button type="button" className="btn btn-link btn-sm p-0" title="Payment history" onClick={() => setHistory(row)}>
-                  {tzs(row.paid_amount)}
-                </button>
-              ),
-            },
-            {
-              key: "balance",
-              header: "Outstanding Balance",
-              className: "text-right",
-              render: (row) => tzs(row.balance),
-            },
-            {
-              key: "status",
-              header: "Payment Status",
-              render: (row) => <Badge tone={allocationBadge(row.status).tone}>{allocationBadge(row.status).label}</Badge>,
-            },
-            {
-              key: "last_payment_date",
-              header: "Last Payment Date",
-              render: (row) => row.last_payment_date ?? "-",
-            },
-            {
-              key: "actions",
-              header: "Action",
-              sortable: false,
-              render: (row) => (
-                <div className="text-nowrap">
-                  {canManage && row.balance > 0 && (
-                    <button type="button" className="btn btn-sm btn-success mr-1" onClick={() => setPaying(row)}>
-                      <i className="icon-wallet" /> PAY
-                    </button>
-                  )}
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setHistory(row)}>
-                    <i className="icon-list" /> History
-                  </button>
-                </div>
-              ),
-            },
-          ]}
-        />
-      )}
-      {paying && <PayDividendModal allocation={paying} onClose={() => setPaying(null)} />}
-      {history && <AllocationHistoryModal allocation={history} onClose={() => setHistory(null)} />}
-    </Card>
+    <div id="dividend-allocations">
+      <Card
+        title={`Shareholder Dividend Allocation — ${label}`}
+        actions={
+          <div className={dividendStyles.selector}>
+            <label htmlFor="dividend-declaration" className="mb-0 small text-muted">Declaration:</label>
+            <select id="dividend-declaration" className="form-control form-control-sm" value={declarationId} onChange={(e) => onSelect(Number(e.target.value))}>
+              {declarations.map((item) => (
+                <option key={item.id} value={item.id}>{item.period_label}</option>
+              ))}
+            </select>
+            {canManage && (
+              <button type="button" className="btn btn-sm btn-primary" disabled={!payAllEnabled(totals, canManage)} onClick={() => setPayAll(true)} title={payAllEnabled(totals, canManage) ? undefined : "Nothing outstanding"}>
+                <i className="icon-wallet" /> PAY ALL OUTSTANDING
+              </button>
+            )}
+          </div>
+        }
+      >
+        {status.state === "error" ? (
+          <div className="alert alert-danger mb-0">{status.message}</div>
+        ) : (
+          <div className={dividendStyles.compact}>
+          <DataTable
+            rows={data}
+            loading={isLoading}
+            rowKey={(row) => row.id}
+            searchable={false}
+            pageSize={100}
+            columns={ALLOCATION_COLUMNS.map((column) => ({
+              key: column.key,
+              header: column.header,
+              sortable: column.key !== "serial" && column.key !== "actions",
+              className: money.has(column.key) ? dividendStyles.money : undefined,
+              render: cell[column.key],
+            }))}
+            footer={
+              data && data.length > 0 && (
+                <tr>
+                  <th colSpan={2}>TOTAL — {label}</th>
+                  <th className={dividendStyles.money}>{sharesLabel(data.reduce((total, row) => total + (row.shares_held ?? 0), 0))}</th>
+                  <th className={dividendStyles.money}>{percent(Math.round(data.reduce((total, row) => total + row.ownership_percent, 0) * 100) / 100)}</th>
+                  <th className={dividendStyles.money}>{tzs(sum((row) => row.contribution_total))}</th>
+                  <th className={dividendStyles.money}>{tzs(totals?.total_entitlement ?? sum((row) => row.entitlement))}</th>
+                  <th className={dividendStyles.money}>{tzs(totals?.total_paid ?? sum((row) => row.paid_amount))}</th>
+                  <th className={dividendStyles.money}>{tzs(totals?.total_outstanding ?? sum((row) => row.balance))}</th>
+                  <th colSpan={3} />
+                </tr>
+              )
+            }
+          />
+          </div>
+        )}
+        {paying && <PayDividendModal key={paying.id} allocation={paying} onClose={() => setPayingId(null)} />}
+        {history && <AllocationHistoryModal allocation={history} onClose={() => setHistoryId(null)} />}
+        {payAll && <PayAllDividendsModal declarationId={declarationId} periodLabel={label} onClose={() => setPayAll(false)} />}
+      </Card>
+    </div>
   );
 }
 
@@ -298,6 +316,12 @@ export default function DividendsPage() {
 
   const declarationId = selected ?? summary.data?.declaration_id ?? declarations.data?.[0]?.id ?? null;
   const shown = declarations.data?.find((declaration) => declaration.id === declarationId);
+  const selectedTotals = useApi<PayAllPreview>(canView && declarationId !== null ? `capital/dividends/${declarationId}/pay-all/preview` : null);
+  const tile = outstandingTile(selectedTotals.data);
+  const viewAllocations = (id: number) => {
+    setSelected(id);
+    window.requestAnimationFrame(() => document.getElementById("dividend-allocations")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
   if (!canView) {
     return (
@@ -318,6 +342,24 @@ export default function DividendsPage() {
       <PageHeader crumbs={["Capital", "Dividends"]} />
 
       <Card title={`Dividends — ${data?.period_label ?? periodLabel(period)}`}>
+        {declarationId !== null && (
+          <div className={`${dividendStyles.outstanding} ${tile.settled ? dividendStyles.settled : ""}`} role="status" aria-label="Selected declaration outstanding">
+            <div>
+              <span>
+                {tile.label} · {shown?.period_label ?? selectedTotals.data?.period_label ?? ""}
+              </span>
+              <strong>{selectedTotals.error ? "—" : tile.value}</strong>
+              <small>{tile.caption}</small>
+            </div>
+            {selectedTotals.data && (
+              <div className="text-right">
+                <small>Declared {tzs(selectedTotals.data.total_entitlement)}</small>
+                <small>Paid {tzs(selectedTotals.data.total_paid)}</small>
+                {data && <small>All periods outstanding {tzs(data.total_outstanding)}</small>}
+              </div>
+            )}
+          </div>
+        )}
         {summary.error ? (
           <ErrorOrLoading isLoading={false} error={summary.error} />
         ) : (
@@ -353,14 +395,10 @@ export default function DividendsPage() {
                     },
                   ]),
               {
-                label: "Total Declared",
+                label: "Total Declared (All Periods)",
                 value: data ? tzs(data.total_declared) : "…",
               },
-              { label: "Total Paid", value: data ? tzs(data.total_paid) : "…" },
-              {
-                label: "Total Outstanding",
-                value: data ? tzs(data.total_outstanding) : "…",
-              },
+              { label: "Total Paid (All Periods)", value: data ? tzs(data.total_paid) : "…" },
             ]}
           />
         )}
@@ -374,17 +412,25 @@ export default function DividendsPage() {
         }}
         canManage={canManage}
         canSettings={can("settings.manage")}
-        onView={setSelected}
+        onView={viewAllocations}
       />
 
       {declarationId !== null && (
         <>
           {shown && (
             <p className={`${styles.note} mb-2`}>
-              Showing <b>{shown.period_label}</b>: profit {tzs(shown.profit_amount)}, pool {tzs(shown.dividend_amount)} ({percent(shown.dividend_percent)}), ownership as of {shown.as_of_date ?? "-"}.
+              Showing <b>{shown.period_label}</b>: profit {tzs(shown.profit_amount)}, pool {tzs(shown.dividend_amount)} ({percent(shown.dividend_percent)}), ownership as of {shortDate(shown.as_of_date)}.
             </p>
           )}
-          <AllocationsCard key={declarationId} declarationId={declarationId} canManage={canManage} />
+          <AllocationsCard
+            key={declarationId}
+            declarationId={declarationId}
+            declaration={shown}
+            declarations={declarations.data ?? []}
+            totals={selectedTotals.data}
+            canManage={canManage}
+            onSelect={setSelected}
+          />
         </>
       )}
 
@@ -438,7 +484,7 @@ export default function DividendsPage() {
                 header: "Declared Date",
                 render: (row) => (
                   <>
-                    {row.declared_at?.slice(0, 10) ?? "-"}
+                    {shortDate(row.declared_at)}
                     <div className="text-muted small">{row.declared_by ?? ""}</div>
                   </>
                 ),
@@ -458,7 +504,7 @@ export default function DividendsPage() {
                 header: "Actions",
                 sortable: false,
                 render: (row) => (
-                  <button type="button" className={`btn btn-sm ${row.id === declarationId ? "btn-info" : "btn-outline-info"}`} onClick={() => setSelected(row.id)}>
+                  <button type="button" className={`btn btn-sm ${row.id === declarationId ? "btn-info" : "btn-outline-info"}`} onClick={() => viewAllocations(row.id)}>
                     <i className="icon-eye" /> View allocations
                   </button>
                 ),

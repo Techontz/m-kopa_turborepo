@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Capital;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Capital\DividendDeclarationRequest;
+use App\Http\Requests\Api\Capital\DividendPayAllRequest;
 use App\Http\Requests\Api\Capital\DividendPaymentRequest;
 use App\Models\DividendAllocation;
 use App\Models\DividendDeclaration;
@@ -120,6 +121,7 @@ class DividendController extends ApiController
         $allocations = $declaration->allocations()
             ->with('shareHolder')
             ->withMax(['payments as last_payment_at' => fn ($query) => $query->where('status', DividendPayment::STATUS_POSTED)], 'paid_at')
+            ->withSum(['payments as posted_total' => fn ($query) => $query->where('status', DividendPayment::STATUS_POSTED)], 'amount')
             ->withCount('payments')
             ->orderBy('id')
             ->get();
@@ -127,7 +129,54 @@ class DividendController extends ApiController
         return response()->json([
             'declaration' => $this->declarationData($declaration->loadMissing(['declaredBy', 'journalEntry'])->loadCount('allocations')->loadSum(['payments as paid_total' => fn ($query) => $query->where('dividend_payments.status', DividendPayment::STATUS_POSTED)], 'dividend_payments.amount')),
             'data' => $allocations->map(fn (DividendAllocation $allocation): array => $this->allocationData($allocation))->values(),
+            'totals' => collect($this->dividends->payAllPreview($declaration))->except('rows')->all(),
         ]);
+    }
+
+    /**
+     * PAY ALL OUTSTANDING preview of one declaration: shareholders awaiting payment, their balances and the total
+     * (computed from the posted payments by the server).
+     */
+    public function payAllPreview(DividendDeclaration $declaration): JsonResponse
+    {
+        $this->authorizeAny('capital.manage', 'capital.view');
+        $this->ensureCompany($declaration->company_id);
+
+        return response()->json(['data' => $this->dividends->payAllPreview($declaration)]);
+    }
+
+    /**
+     * PAY ALL OUTSTANDING: pays every remaining balance of the declaration in one transaction (one payment and journal
+     * entry per shareholder, grouped in a batch).
+     */
+    public function payAll(DividendPayAllRequest $request, DividendDeclaration $declaration): JsonResponse
+    {
+        $this->ensureCompany($declaration->company_id);
+
+        $result = $this->dividends->payAll(
+            $declaration,
+            $request->string('expected_total')->toString(),
+            $request->string('pay_method')->toString(),
+            $request->filled('bank_account_id') ? $request->integer('bank_account_id') : null,
+            $request->input('reference'),
+            $this->currentEmployee(),
+            $request->input('idempotency_key'),
+        );
+        $batch = $result['batch'];
+
+        return $this->message(
+            $result['created'] ? "Dividends Paid successfully to {$batch->payments_count} shareholder(s)" : 'Dividend batch already recorded',
+            $result['created'] ? 201 : 200,
+            ['data' => [
+                'id' => $batch->id,
+                'batch_reference' => $batch->batch_reference,
+                'total_amount' => (float) $batch->total_amount,
+                'payments_count' => $batch->payments_count,
+                'payment_ids' => $batch->payments()->orderBy('id')->pluck('id')->all(),
+                'created' => $result['created'],
+                'totals' => collect($this->dividends->payAllPreview($declaration))->except('rows')->all(),
+            ]],
+        );
     }
 
     /**
@@ -138,7 +187,10 @@ class DividendController extends ApiController
         $this->authorizeAny('capital.manage', 'capital.view');
         $this->ensureCompany($allocation->company_id);
 
-        $allocation->load('shareHolder')->loadMax(['payments as last_payment_at' => fn ($query) => $query->where('status', DividendPayment::STATUS_POSTED)], 'paid_at')->loadCount('payments');
+        $allocation->load('shareHolder')
+            ->loadMax(['payments as last_payment_at' => fn ($query) => $query->where('status', DividendPayment::STATUS_POSTED)], 'paid_at')
+            ->loadSum(['payments as posted_total' => fn ($query) => $query->where('status', DividendPayment::STATUS_POSTED)], 'amount')
+            ->loadCount('payments');
 
         return response()->json([
             'allocation' => $this->allocationData($allocation),
@@ -175,6 +227,8 @@ class DividendController extends ApiController
         );
 
         $allocation->refresh();
+        $paid = $this->dividends->postedCents($allocation);
+        $entitlement = DividendMath::toCents((string) $allocation->amount);
 
         return $this->message($result['created'] ? 'Dividend Paid successfully' : 'Dividend payment already recorded', $result['created'] ? 201 : 200, ['data' => [
             'id' => $result['payment']->id,
@@ -182,9 +236,9 @@ class DividendController extends ApiController
             'created' => $result['created'],
             'allocation' => [
                 'id' => $allocation->id,
-                'paid_amount' => (float) $allocation->paid_amount,
-                'balance' => $this->balance($allocation),
-                'status' => $allocation->status,
+                'paid_amount' => DividendMath::centsToFloat($paid),
+                'balance' => DividendMath::centsToFloat(max(0, $entitlement - $paid)),
+                'status' => DividendAllocation::statusFor($entitlement, $paid),
             ],
         ]]);
     }
@@ -225,11 +279,6 @@ class DividendController extends ApiController
         return $period;
     }
 
-    private function balance(DividendAllocation $allocation): float
-    {
-        return DividendMath::centsToFloat(DividendMath::toCents((string) $allocation->amount) - DividendMath::toCents((string) $allocation->paid_amount));
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -266,6 +315,10 @@ class DividendController extends ApiController
      */
     private function allocationData(DividendAllocation $allocation): array
     {
+        $entitlement = DividendMath::toCents((string) $allocation->amount);
+        $paid = DividendMath::toCents((string) ($allocation->posted_total ?? 0));
+        $status = DividendAllocation::statusFor($entitlement, $paid);
+
         return [
             'id' => $allocation->id,
             'declaration_id' => $allocation->dividend_declaration_id,
@@ -276,10 +329,10 @@ class DividendController extends ApiController
             'ownership_percent' => (float) $allocation->share_percent,
             'contribution_total' => $allocation->contribution_total === null ? null : (float) $allocation->contribution_total,
             'entitlement' => (float) $allocation->amount,
-            'paid_amount' => (float) $allocation->paid_amount,
-            'balance' => $this->balance($allocation),
-            'status' => $allocation->status,
-            'status_label' => DividendAllocation::STATUS_LABELS[$allocation->status] ?? strtoupper((string) $allocation->status),
+            'paid_amount' => DividendMath::centsToFloat($paid),
+            'balance' => DividendMath::centsToFloat(max(0, $entitlement - $paid)),
+            'status' => $status,
+            'status_label' => DividendAllocation::STATUS_LABELS[$status],
             'last_payment_date' => $allocation->last_payment_at === null ? null : CarbonImmutable::parse($allocation->last_payment_at)->toDateString(),
             'payments_count' => (int) ($allocation->payments_count ?? 0),
         ];
@@ -291,7 +344,7 @@ class DividendController extends ApiController
      */
     private function paymentRows($query): array
     {
-        return $query->with(['shareHolder', 'bankAccount', 'paidBy', 'reversedBy', 'journalEntry', 'reversalJournalEntry', 'allocation.declaration'])
+        return $query->with(['shareHolder', 'bankAccount', 'paidBy', 'reversedBy', 'journalEntry', 'reversalJournalEntry', 'allocation.declaration', 'batch'])
             ->orderByDesc('paid_at')
             ->orderByDesc('id')
             ->get()
@@ -312,6 +365,8 @@ class DividendController extends ApiController
                 'journal_entry_id' => $payment->journal_entry_id,
                 'journal_reference' => $payment->journalEntry?->reference,
                 'status' => $payment->status,
+                'batch_id' => $payment->dividend_payment_batch_id,
+                'batch_reference' => $payment->batch?->batch_reference,
                 'reversed_at' => $payment->reversed_at?->toDateTimeString(),
                 'reversed_by' => $payment->reversedBy?->full_name,
                 'reversal_reason' => $payment->reversal_reason,

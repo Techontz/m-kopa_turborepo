@@ -6,7 +6,7 @@
 
 import type { BadgeTone } from "@/components/ui/Badge";
 
-import type { AllocationStatus, DividendPayment, DividendPreview, PreviewRow, ProfitSource } from "./types";
+import type { AllocationStatus, DividendAllocation, DividendPayment, DividendPreview, PayAllPreview, PreviewRow, ProfitSource } from "./types";
 
 /** "TZS 1,500,000" — cents are shown only when present ("TZS 7,000,000.01"). */
 export function tzs(value: number | string | null | undefined): string {
@@ -167,6 +167,131 @@ export function declarationBadge(status: string): { label: string; tone: BadgeTo
 
 export function paymentBadge(status: DividendPayment["status"] | string): { label: string; tone: BadgeTone } {
   return status === "reversed" ? { label: "REVERSED", tone: "danger" } : { label: "POSTED", tone: "success" };
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-09-14" or "2026-09-14 10:53:18" → "14 Sep 2026"; "—" when empty. */
+export function shortDate(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value ?? ""));
+  if (!match || !MONTHS[Number(match[2]) - 1]) {
+    return "—";
+  }
+  return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1]} ${match[1]}`;
+}
+
+/** Outstanding balance = entitlement − paid, never negative (cent-exact). */
+export function allocationBalance(entitlement: number, paid: number): number {
+  return Math.max(0, toCents(entitlement) - toCents(paid)) / 100;
+}
+
+/** UNPAID (nothing paid) / PARTIALLY PAID / PAID (paid ≥ entitlement) — the server derives the same from posted payments. */
+export function allocationStatus(entitlement: number, paid: number): AllocationStatus {
+  const paidCents = toCents(paid);
+  if (paidCents <= 0) {
+    return "unpaid";
+  }
+  return paidCents >= toCents(entitlement) ? "paid" : "partially_paid";
+}
+
+/** The allocation table's columns, in order. */
+export const ALLOCATION_COLUMNS = [
+  { key: "serial", header: "S/No." },
+  { key: "share_holder", header: "Shareholder" },
+  { key: "shares_held", header: "Shares" },
+  { key: "ownership_percent", header: "Ownership %" },
+  { key: "contribution_total", header: "Contributions" },
+  { key: "entitlement", header: "Dividend Entitlement" },
+  { key: "paid_amount", header: "Amount Paid" },
+  { key: "balance", header: "Balance" },
+  { key: "status", header: "Status" },
+  { key: "last_payment_date", header: "Last Payment" },
+  { key: "actions", header: "Action" },
+] as const;
+
+export type PayControl = "pay" | "paid" | "none";
+
+/** PAY DIVIDEND when the user can manage and a balance remains; a disabled PAID when fully paid; nothing for view-only users. */
+export function payControl(row: Pick<DividendAllocation, "balance">, canManage: boolean): PayControl {
+  if (!canManage) {
+    return "none";
+  }
+  return toCents(row.balance) > 0 ? "pay" : "paid";
+}
+
+export interface PayFormValues {
+  amount: string;
+  pay_method: "CASH" | "BANK";
+  bank_account_id: string;
+  reference: string;
+}
+
+/** Individual payment form check: amount (> 0, ≤ outstanding) and the bank account when paying by Bank. */
+export function validatePayForm(form: PayFormValues, outstanding: number): Partial<Record<"amount" | "bank_account_id", string>> {
+  const errors: Partial<Record<"amount" | "bank_account_id", string>> = {};
+  const amountError = validatePayAmount(form.amount, outstanding);
+  if (amountError) {
+    errors.amount = amountError;
+  }
+  if (form.pay_method === "BANK" && !form.bank_account_id) {
+    errors.bank_account_id = "Select the company bank account to pay from.";
+  }
+  return errors;
+}
+
+export type PayStep = "form" | "confirm";
+
+/** Step 1 → step 2 only with a valid form; Back / Cancel return to the form. */
+export function nextPayStep(step: PayStep, action: "continue" | "back", form: PayFormValues, outstanding: number): PayStep {
+  if (action === "back") {
+    return "form";
+  }
+  return step === "form" && Object.keys(validatePayForm(form, outstanding)).length > 0 ? "form" : "confirm";
+}
+
+/** "Confirm Dividend Payment" summary rows. */
+export function payConfirmationRows(
+  allocation: Pick<DividendAllocation, "share_holder" | "entitlement" | "paid_amount" | "balance">,
+  form: PayFormValues,
+  accountLabel: string | null,
+): Array<{ label: string; value: string }> {
+  const payment = toCents(form.amount) / 100;
+  return [
+    { label: "Shareholder", value: allocation.share_holder ?? "-" },
+    { label: "Dividend Entitlement", value: tzs(allocation.entitlement) },
+    { label: "Amount Already Paid", value: tzs(allocation.paid_amount) },
+    { label: "Payment", value: tzs(payment) },
+    { label: "Remaining After Payment", value: tzs(allocationBalance(allocation.balance, payment)) },
+    { label: "Payment Method", value: form.pay_method === "BANK" ? "Bank" : "Cash (Company Account)" },
+    { label: "Account", value: form.pay_method === "BANK" ? accountLabel || "-" : "COMPANY ACCOUNT" },
+    { label: "Reference / Receipt", value: form.reference.trim() || "-" },
+  ];
+}
+
+/** "Pay TZS 1,250,000 to 4 shareholders?" */
+export function payAllConfirmText(total: number, shareholders: number): string {
+  return `Pay ${tzs(total)} to ${shareholders} shareholder${shareholders === 1 ? "" : "s"}?`;
+}
+
+/** PAY ALL OUTSTANDING is available to managers while the server reports an outstanding total. */
+export function payAllEnabled(totals: Pick<PayAllPreview, "total_outstanding" | "shareholders"> | undefined, canManage: boolean): boolean {
+  return canManage && Boolean(totals) && toCents(totals?.total_outstanding) > 0 && (totals?.shareholders ?? 0) > 0;
+}
+
+/** The prominent TOTAL OUTSTANDING tile for the selected declaration. */
+export function outstandingTile(totals: Pick<PayAllPreview, "total_outstanding" | "shareholders"> | undefined): { label: string; value: string; caption: string; settled: boolean } {
+  if (!totals) {
+    return { label: "TOTAL OUTSTANDING", value: "…", caption: "", settled: false };
+  }
+  if (toCents(totals.total_outstanding) <= 0) {
+    return { label: "ALL DIVIDENDS PAID", value: "TZS 0 outstanding", caption: "Every shareholder has been paid", settled: true };
+  }
+  return {
+    label: "TOTAL OUTSTANDING",
+    value: tzs(totals.total_outstanding),
+    caption: `${totals.shareholders} shareholder${totals.shareholders === 1 ? "" : "s"} awaiting payment`,
+    settled: false,
+  };
 }
 
 export type LoadState = "loading" | "error" | "empty" | "ready";

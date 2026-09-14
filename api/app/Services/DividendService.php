@@ -9,6 +9,7 @@ use App\Models\Company;
 use App\Models\DividendAllocation;
 use App\Models\DividendDeclaration;
 use App\Models\DividendPayment;
+use App\Models\DividendPaymentBatch;
 use App\Models\Employee;
 use App\Models\ShareHolder;
 use App\Services\Dividends\DividendMath;
@@ -305,47 +306,8 @@ class DividendService
             $payment = DB::transaction(function () use ($allocation, $cents, $method, $source, $reference, $employee, $idempotencyKey): DividendPayment {
                 /** @var DividendAllocation $locked */
                 $locked = DividendAllocation::whereKey($allocation->id)->lockForUpdate()->firstOrFail();
-                $locked->loadMissing('shareHolder', 'declaration');
 
-                $entitlement = DividendMath::toCents((string) $locked->amount);
-                $remaining = $entitlement - $this->postedCents($locked);
-                if ($remaining <= 0) {
-                    throw ValidationException::withMessages(['amount' => 'This dividend entitlement is already fully paid.']);
-                }
-                if ($cents > $remaining) {
-                    throw ValidationException::withMessages(['amount' => 'The amount to pay cannot exceed the outstanding balance of TZS '.number_format(DividendMath::centsToFloat($remaining), 2).'.']);
-                }
-
-                $amount = DividendMath::centsToFloat($cents);
-                $balance = $this->ledger->balance($locked->company_id, $source['account'], bankAccount: $source['bank'] ?? null);
-                if ($balance + 0.001 < $amount) {
-                    throw ValidationException::withMessages(['pay_method' => 'Insufficient balance in '.$source['label']]);
-                }
-
-                $payment = DividendPayment::create([
-                    'company_id' => $locked->company_id,
-                    'dividend_allocation_id' => $locked->id,
-                    'share_holder_id' => $locked->share_holder_id,
-                    'amount' => DividendMath::fromCents($cents),
-                    'pay_method' => $method === 'BANK' ? 'BANK' : 'CASH',
-                    'source_account' => $source['account']->value,
-                    'bank_account_id' => $source['bank'] ?? null,
-                    'reference' => $reference,
-                    'paid_at' => now(),
-                    'paid_by' => $employee->id,
-                    'idempotency_key' => $idempotencyKey,
-                    'status' => DividendPayment::STATUS_POSTED,
-                ]);
-
-                $entry = $this->ledger->journal($locked->company_id, 'DIVIDEND PAYMENT '.$locked->declaration->period->format('Y-m').' - '.$locked->shareHolder->full_name, [
-                    ['account' => Account::DividendPayable, 'debit' => $amount],
-                    ['account' => $source['account'], 'bank' => $source['bank'] ?? null, 'credit' => $amount],
-                ], $payment, employee: $employee);
-
-                $payment->update(['journal_entry_id' => $entry->id]);
-                $this->refreshAllocation($locked);
-
-                return $payment;
+                return $this->postPayment($locked, $cents, $method, $source, $reference, $employee, $idempotencyKey);
             });
         } catch (UniqueConstraintViolationException $exception) {
             $previous = $this->replayPayment($allocation, $cents, $idempotencyKey);
@@ -357,6 +319,114 @@ class DividendService
         }
 
         return ['payment' => $payment, 'created' => true];
+    }
+
+    /**
+     * What PAY ALL OUTSTANDING would pay for a declaration right now: every allocation with a balance, its balance and
+     * the total — read from the posted payments.
+     *
+     * @return array{declaration_id: int, period: string, period_label: string, shareholders: int, paid_shareholders: int, total_entitlement: float, total_paid: float, total_outstanding: float, rows: list<array{allocation_id: int, share_holder_id: int, share_holder: ?string, entitlement: float, paid_amount: float, balance: float}>}
+     */
+    public function payAllPreview(DividendDeclaration $declaration): array
+    {
+        $allocations = $declaration->allocations()->with('shareHolder')->orderBy('id')->get();
+
+        return $this->outstandingSummary($declaration, $allocations);
+    }
+
+    /**
+     * PAY ALL OUTSTANDING: in ONE transaction, lock the declaration and all its allocations (ordered by id), re-read each
+     * paid total from the posted payments and pay exactly each remaining balance through the same posting path as
+     * {@see pay()} (one payment row and one journal entry per shareholder), grouped in a batch. Fully paid allocations are
+     * skipped. Any failure rolls the whole batch back. The client's expected total must match the server's total, but
+     * the server-computed balances are what gets paid. A repeated idempotency key returns the original batch.
+     *
+     * @return array{batch: DividendPaymentBatch, created: bool}
+     *
+     * @throws ValidationException
+     */
+    public function payAll(
+        DividendDeclaration $declaration,
+        string|float|null $expectedTotal,
+        string $method,
+        ?int $bankAccountId,
+        ?string $reference,
+        Employee $employee,
+        ?string $idempotencyKey = null,
+    ): array {
+        $previous = $this->replayBatch($declaration, $idempotencyKey);
+        if ($previous !== null) {
+            return ['batch' => $previous, 'created' => false];
+        }
+
+        $companyId = (int) $declaration->company_id;
+        $source = $this->sourceAccount($companyId, $method, $bankAccountId);
+
+        try {
+            $batch = DB::transaction(function () use ($declaration, $companyId, $expectedTotal, $method, $source, $reference, $employee, $idempotencyKey): DividendPaymentBatch {
+                /** @var DividendDeclaration $lockedDeclaration */
+                $lockedDeclaration = DividendDeclaration::whereKey($declaration->id)->lockForUpdate()->firstOrFail();
+                $allocations = DividendAllocation::where('dividend_declaration_id', $lockedDeclaration->id)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+                $allocations->load('shareHolder');
+
+                $summary = $this->outstandingSummary($lockedDeclaration, $allocations);
+                $totalCents = DividendMath::toCents($summary['total_outstanding']);
+                if ($totalCents <= 0) {
+                    throw ValidationException::withMessages(['expected_total' => "All dividends for {$summary['period_label']} are already paid; there is no outstanding balance."]);
+                }
+                if ($expectedTotal === null || DividendMath::toCents(is_float($expectedTotal) ? $expectedTotal : (string) $expectedTotal) !== $totalCents) {
+                    throw ValidationException::withMessages(['expected_total' => 'Outstanding balances changed — review and try again.']);
+                }
+
+                $total = DividendMath::centsToFloat($totalCents);
+                $available = $this->ledger->balance($companyId, $source['account'], bankAccount: $source['bank'] ?? null);
+                if ($available + 0.001 < $total) {
+                    throw ValidationException::withMessages(['pay_method' => 'Insufficient balance in '.$source['label']]);
+                }
+
+                $batch = DividendPaymentBatch::create([
+                    'company_id' => $companyId,
+                    'dividend_declaration_id' => $lockedDeclaration->id,
+                    'pay_method' => $method === 'BANK' ? 'BANK' : 'CASH',
+                    'bank_account_id' => $source['bank'] ?? null,
+                    'reference' => $reference,
+                    'total_amount' => DividendMath::fromCents($totalCents),
+                    'payments_count' => 0,
+                    'idempotency_key' => $idempotencyKey,
+                    'paid_by' => $employee->id,
+                    'paid_at' => now(),
+                ]);
+                $batch->update(['batch_reference' => sprintf('DIVB-%s-%06d', $lockedDeclaration->period->format('Ym'), $batch->id)]);
+
+                $balances = collect($summary['rows'])->keyBy('allocation_id');
+                $count = 0;
+                foreach ($allocations as $allocation) {
+                    $balanceCents = DividendMath::toCents($balances[$allocation->id]['balance'] ?? 0);
+                    if ($balanceCents <= 0) {
+                        continue;
+                    }
+                    $allocation->setRelation('declaration', $lockedDeclaration);
+                    $this->postPayment($allocation, $balanceCents, $method, $source, $reference, $employee, null, $batch->id);
+                    $count++;
+                }
+
+                $batch->update(['payments_count' => $count]);
+
+                return $batch;
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            $previous = $this->replayBatch($declaration, $idempotencyKey);
+            if ($previous === null) {
+                throw $exception;
+            }
+
+            return ['batch' => $previous, 'created' => false];
+        }
+
+        return ['batch' => $batch, 'created' => true];
     }
 
     /**
@@ -460,6 +530,162 @@ class DividendService
         }
 
         return ['account' => Account::Bank, 'bank' => $bank->id, 'label' => $bank->name];
+    }
+
+    /**
+     * Post one payment of a LOCKED allocation (the caller holds the row lock inside a transaction): re-check the balance
+     * from the posted payments, check the source balance, write the payment row and its journal entry (Dr DIVIDEND
+     * ACCOUNT / Cr COMPANY ACCOUNT or bank), then rewrite the allocation's paid amount and status.
+     *
+     * @param  array{account: Account, bank?: int, label: string}  $source
+     *
+     * @throws ValidationException
+     */
+    private function postPayment(
+        DividendAllocation $locked,
+        int $cents,
+        string $method,
+        array $source,
+        ?string $reference,
+        Employee $employee,
+        ?string $idempotencyKey,
+        ?int $batchId = null,
+    ): DividendPayment {
+        $locked->loadMissing('shareHolder', 'declaration');
+
+        $entitlement = DividendMath::toCents((string) $locked->amount);
+        $remaining = $entitlement - $this->postedCents($locked);
+        if ($remaining <= 0) {
+            throw ValidationException::withMessages(['amount' => 'This dividend entitlement is already fully paid.']);
+        }
+        if ($cents > $remaining) {
+            throw ValidationException::withMessages(['amount' => 'The amount to pay cannot exceed the outstanding balance of TZS '.number_format(DividendMath::centsToFloat($remaining), 2).'.']);
+        }
+
+        $amount = DividendMath::centsToFloat($cents);
+        $balance = $this->ledger->balance($locked->company_id, $source['account'], bankAccount: $source['bank'] ?? null);
+        if ($balance + 0.001 < $amount) {
+            throw ValidationException::withMessages(['pay_method' => 'Insufficient balance in '.$source['label']]);
+        }
+
+        $payment = DividendPayment::create([
+            'company_id' => $locked->company_id,
+            'dividend_allocation_id' => $locked->id,
+            'share_holder_id' => $locked->share_holder_id,
+            'dividend_payment_batch_id' => $batchId,
+            'amount' => DividendMath::fromCents($cents),
+            'pay_method' => $method === 'BANK' ? 'BANK' : 'CASH',
+            'source_account' => $source['account']->value,
+            'bank_account_id' => $source['bank'] ?? null,
+            'reference' => $reference,
+            'paid_at' => now(),
+            'paid_by' => $employee->id,
+            'idempotency_key' => $idempotencyKey,
+            'status' => DividendPayment::STATUS_POSTED,
+        ]);
+
+        $entry = $this->ledger->journal($locked->company_id, 'DIVIDEND PAYMENT '.$locked->declaration->period->format('Y-m').' - '.$locked->shareHolder->full_name, [
+            ['account' => Account::DividendPayable, 'debit' => $amount],
+            ['account' => $source['account'], 'bank' => $source['bank'] ?? null, 'credit' => $amount],
+        ], $payment, employee: $employee);
+
+        $payment->update(['journal_entry_id' => $entry->id]);
+        $this->refreshAllocation($locked);
+
+        return $payment;
+    }
+
+    /**
+     * Entitlement, posted payments and balance of each allocation (one grouped query on the payments table) and the
+     * declaration totals.
+     *
+     * @param  Collection<int, DividendAllocation>  $allocations
+     * @return array{declaration_id: int, period: string, period_label: string, shareholders: int, paid_shareholders: int, total_entitlement: float, total_paid: float, total_outstanding: float, rows: list<array{allocation_id: int, share_holder_id: int, share_holder: ?string, entitlement: float, paid_amount: float, balance: float}>}
+     */
+    private function outstandingSummary(DividendDeclaration $declaration, Collection $allocations): array
+    {
+        $posted = $this->postedCentsByAllocation($allocations->pluck('id')->all());
+        $rows = [];
+        $entitlementTotal = 0;
+        $paidTotal = 0;
+        $outstandingTotal = 0;
+        $paidShareholders = 0;
+
+        foreach ($allocations as $allocation) {
+            $entitlement = DividendMath::toCents((string) $allocation->amount);
+            $paid = $posted[$allocation->id] ?? 0;
+            $balance = max(0, $entitlement - $paid);
+            $entitlementTotal += $entitlement;
+            $paidTotal += $paid;
+            if ($balance <= 0) {
+                $paidShareholders++;
+
+                continue;
+            }
+            $outstandingTotal += $balance;
+            $rows[] = [
+                'allocation_id' => $allocation->id,
+                'share_holder_id' => (int) $allocation->share_holder_id,
+                'share_holder' => $allocation->shareHolder?->full_name,
+                'entitlement' => DividendMath::centsToFloat($entitlement),
+                'paid_amount' => DividendMath::centsToFloat($paid),
+                'balance' => DividendMath::centsToFloat($balance),
+            ];
+        }
+
+        return [
+            'declaration_id' => $declaration->id,
+            'period' => $declaration->period->format('Y-m'),
+            'period_label' => $declaration->periodLabel(),
+            'shareholders' => count($rows),
+            'paid_shareholders' => $paidShareholders,
+            'total_entitlement' => DividendMath::centsToFloat($entitlementTotal),
+            'total_paid' => DividendMath::centsToFloat($paidTotal),
+            'total_outstanding' => DividendMath::centsToFloat($outstandingTotal),
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * Posted (not reversed) payment totals in cents, keyed by allocation id.
+     *
+     * @param  list<int>  $allocationIds
+     * @return array<int, int>
+     */
+    public function postedCentsByAllocation(array $allocationIds): array
+    {
+        if ($allocationIds === []) {
+            return [];
+        }
+
+        return DividendPayment::whereIn('dividend_allocation_id', $allocationIds)
+            ->where('status', DividendPayment::STATUS_POSTED)
+            ->groupBy('dividend_allocation_id')
+            ->selectRaw('dividend_allocation_id, SUM(amount) as total')
+            ->pluck('total', 'dividend_allocation_id')
+            ->map(fn ($total): int => DividendMath::toCents((string) $total))
+            ->all();
+    }
+
+    /**
+     * The batch already recorded under this idempotency key, if any.
+     */
+    private function replayBatch(DividendDeclaration $declaration, ?string $idempotencyKey): ?DividendPaymentBatch
+    {
+        if ($idempotencyKey === null || $idempotencyKey === '') {
+            return null;
+        }
+
+        $previous = DividendPaymentBatch::where('idempotency_key', $idempotencyKey)->first();
+        if ($previous === null) {
+            return null;
+        }
+
+        if ((int) $previous->dividend_declaration_id !== (int) $declaration->id) {
+            throw ValidationException::withMessages(['idempotency_key' => 'This request key was already used for a different dividend batch.']);
+        }
+
+        return $previous;
     }
 
     /**

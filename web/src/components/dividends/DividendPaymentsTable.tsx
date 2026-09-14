@@ -6,7 +6,7 @@ import { promptReason } from "@/components/ui/notify";
 import { useAuth } from "@/lib/auth";
 import { useAction } from "@/lib/hooks";
 
-import { loadState, paymentBadge, tzs } from "./dividends";
+import { loadState, paymentBadge, shortDate, tzs } from "./dividends";
 import type { DividendPayment } from "./types";
 
 interface Props {
@@ -40,9 +40,18 @@ export function DividendPaymentsTable({ rows, isLoading, error, single, pageSize
       pageSize={pageSize}
       emptyMessage={status.message || undefined}
       columns={[
-        { key: "paid_at", header: "Payment Date", render: (row) => row.paid_at?.slice(0, 16) ?? "-" },
+        {
+          key: "paid_at",
+          header: "Payment Date",
+          render: (row) => (
+            <span className="text-nowrap">
+              {shortDate(row.paid_at)}
+              <div className="text-muted small">{row.paid_at?.slice(11, 16) ?? ""}</div>
+            </span>
+          ),
+        },
         ...(single ? [] : [{ key: "share_holder", header: "Shareholder", render: (row: DividendPayment) => <>{row.share_holder}<div className="text-muted small">{row.period_label}</div></> }]),
-        { key: "amount", header: "Amount", className: "text-right", render: (row) => tzs(row.amount) },
+        { key: "amount", header: "Amount", className: "text-right text-nowrap", render: (row) => tzs(row.amount) },
         { key: "pay_method", header: "Payment Method", render: (row) => (row.pay_method === "BANK" ? "Bank" : "Cash") },
         { key: "account", header: "Account" },
         { key: "reference", header: "Receipt / Reference", render: (row) => row.reference ?? "-" },
@@ -53,6 +62,7 @@ export function DividendPaymentsTable({ rows, isLoading, error, single, pageSize
           render: (row) => (
             <>
               {row.journal_reference ?? "-"}
+              {row.batch_reference && <div className="text-muted small">Pay All batch: {row.batch_reference}</div>}
               {row.reversal_reference && <div className="text-muted small">Reversal: {row.reversal_reference}</div>}
             </>
           ),
@@ -63,7 +73,7 @@ export function DividendPaymentsTable({ rows, isLoading, error, single, pageSize
           render: (row) => (
             <>
               <Badge tone={paymentBadge(row.status).tone}>{paymentBadge(row.status).label}</Badge>
-              {row.status === "reversed" && <div className="text-muted small" title={row.reversal_reason ?? ""}>{row.reversed_at?.slice(0, 10)} by {row.reversed_by ?? "-"}</div>}
+              {row.status === "reversed" && <div className="text-muted small" title={row.reversal_reason ?? ""}>{shortDate(row.reversed_at)} by {row.reversed_by ?? "-"}</div>}
             </>
           ),
         },

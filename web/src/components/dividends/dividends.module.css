@@ -1,0 +1,67 @@
+.outstanding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--mf-btn-warning);
+  border-left-width: 6px;
+  border-radius: 4px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  background: var(--mf-surface);
+}
+
+.outstanding.settled {
+  border-color: var(--mf-success);
+}
+
+.outstanding span {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mf-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.outstanding strong {
+  display: block;
+  font-size: 26px;
+  line-height: 1.2;
+  color: var(--mf-heading);
+}
+
+.outstanding.settled strong {
+  color: var(--mf-success);
+}
+
+.outstanding small {
+  display: block;
+  color: var(--mf-muted);
+}
+
+.selector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.selector select {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.money {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.compact :global(.table) th,
+.compact :global(.table) td {
+  padding-left: 8px;
+  padding-right: 8px;
+}

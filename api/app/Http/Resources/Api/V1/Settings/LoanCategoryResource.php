@@ -19,12 +19,11 @@ class LoanCategoryResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'main_category_id' => $this->main_category_id,
-            'main_category' => $this->whenLoaded('mainCategory', fn () => $this->mainCategory?->display_name),
-            'customer_type' => $this->whenLoaded('mainCategory', fn () => $this->mainCategory?->customerType ? [
-                'id' => $this->mainCategory->customerType->id,
-                'code' => $this->mainCategory->customerType->code,
-                'name' => $this->mainCategory->customerType->name,
+            'customer_type_id' => $this->customer_category_id,
+            'customer_type' => $this->whenLoaded('customerType', fn () => $this->customerType ? [
+                'id' => $this->customerType->id,
+                'code' => $this->customerType->code,
+                'name' => $this->customerType->name,
             ] : null),
             'amount_from' => (float) $this->amount_from,
             'amount_to' => (float) $this->amount_to,

@@ -9,8 +9,8 @@ use Illuminate\Validation\Rule;
 
 /**
  * Live loan category form plus the Documents additions: requires_mandate (E-MANDATE vs NORMAL flow) and Freeze Time (Days) —
- * the re-borrowing freeze. The loan category's customer type is its main loan category (main_category_id); customer types
- * are no longer attached one by one (customer_category_ids is refused).
+ * the re-borrowing freeze. Each loan category belongs to exactly one customer type, sent as `customer_type_id` (the canonical
+ * key; main_category_id, main_id, customer_category_id and customer_category_ids are refused).
  */
 class LoanCategoryRequest extends BaseLoanCategoryRequest
 {
@@ -23,7 +23,6 @@ class LoanCategoryRequest extends BaseLoanCategoryRequest
             'formular' => ['required', Rule::in(InterestFormula::where('is_enabled', true)->pluck('code')->all())],
             'requires_mandate' => ['required', 'in:YES,NO'],
             'freeze_time_days' => ['nullable', 'integer', 'min:0', 'max:365'],
-            'customer_category_ids' => ['prohibited'],
         ]);
     }
 
@@ -32,7 +31,7 @@ class LoanCategoryRequest extends BaseLoanCategoryRequest
      */
     public function attributes(): array
     {
-        return ['main_category_id' => 'customer type', 'freeze_time_days' => 'freeze time (days)'];
+        return ['customer_type_id' => 'customer type', 'freeze_time_days' => 'freeze time (days)'];
     }
 
     /**

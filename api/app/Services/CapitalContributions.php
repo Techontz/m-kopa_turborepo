@@ -59,6 +59,61 @@ class CapitalContributions
 
         $receiving = $this->receivingAccount((int) $holder->company_id, $payMethod, $bankAccountId);
 
+        return $this->record($holder, $amount, $payMethod, $receiving, $recordedBy, $receiptNumber, $chequeNumber, $contributedAt, $idempotencyKey, $afterCreate, $description);
+    }
+
+    /**
+     * An asset contributed as capital: one `capitals` row (pay method ASSET, receiving account = the fixed-asset account)
+     * and one balanced journal Dr the fixed-asset account / Cr CAPITAL ACCOUNT — cash and bank never move. The asset row
+     * itself is written by `$afterCreate` inside the same transaction.
+     *
+     * @param  Closure(Capital): void  $afterCreate
+     * @return array{capital: Capital, created: bool}
+     */
+    public function contributeAsset(
+        ShareHolder $holder,
+        float $amount,
+        Account $assetAccount,
+        Employee $recordedBy,
+        CarbonImmutable $contributedAt,
+        ?string $idempotencyKey,
+        Closure $afterCreate,
+        string $description,
+    ): array {
+        $amount = round($amount, 2);
+
+        if ($amount <= 0) {
+            throw ValidationException::withMessages(['unit_value' => 'The contribution value must be greater than zero']);
+        }
+        if (! in_array($assetAccount, Account::fixedAssets(), true)) {
+            throw ValidationException::withMessages(['asset_type' => 'An asset contribution must be posted to a fixed-asset account']);
+        }
+
+        $previous = $this->replay($holder, $amount, $idempotencyKey);
+        if ($previous !== null) {
+            return ['capital' => $previous, 'created' => false];
+        }
+
+        return $this->record($holder, $amount, 'ASSET', ['account' => $assetAccount], $recordedBy, null, null, $contributedAt, $idempotencyKey, $afterCreate, $description);
+    }
+
+    /**
+     * @param  array{account: Account, bank?: int}  $receiving
+     * @return array{capital: Capital, created: bool}
+     */
+    private function record(
+        ShareHolder $holder,
+        float $amount,
+        string $payMethod,
+        array $receiving,
+        Employee $recordedBy,
+        ?string $receiptNumber,
+        ?string $chequeNumber,
+        CarbonImmutable $contributedAt,
+        ?string $idempotencyKey,
+        ?Closure $afterCreate,
+        ?string $description,
+    ): array {
         try {
             $capital = DB::transaction(function () use ($holder, $amount, $payMethod, $receiving, $recordedBy, $receiptNumber, $chequeNumber, $contributedAt, $idempotencyKey, $afterCreate, $description): Capital {
                 $capital = Capital::create([

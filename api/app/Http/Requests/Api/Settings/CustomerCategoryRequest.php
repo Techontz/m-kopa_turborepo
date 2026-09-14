@@ -15,7 +15,7 @@ use Illuminate\Validation\Validator;
 /**
  * Create / update a customer type (CUSTOMER_MODULE_IMPLEMENTATION.md §3.3). Super Admin only; authorization
  * runs before validation. Customer types hold no loan configuration: loan limits and loan products are refused here
- * (they belong to the loan categories of the customer type's main loan category).
+ * (they belong to the loan categories of the customer type).
  */
 class CustomerCategoryRequest extends FormRequest
 {

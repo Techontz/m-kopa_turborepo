@@ -174,3 +174,13 @@ body.font-ubuntu,
 
 /* Staff privileges (HRM → All Active Staff → Privilege) */
 .mf-priv-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
+
+/* Settings → Loan Categories table: nowrap headers/cells, aligned numbers, compact badges and actions, tooltips on clipped text */
+.mf-loan-category-table .mf-table th,
+.mf-loan-category-table .mf-table td { white-space: nowrap; vertical-align: middle; }
+.mf-loan-category-table .mf-table td.mf-num,
+.mf-loan-category-table .mf-table th.mf-num { text-align: right; font-variant-numeric: tabular-nums; }
+.mf-loan-category-table .badge { font-size: 11px; padding: 3px 6px; font-weight: 600; }
+.mf-cell-clip { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.mf-row-actions { display: inline-flex; gap: 4px; }
+.mf-row-actions .btn { padding: 2px 7px; line-height: 1.5; }

@@ -306,6 +306,9 @@ class ShareIssuance
         if ($capital === null) {
             throw ValidationException::withMessages(['capital_id' => 'Select the recorded capital contribution that paid for these shares']);
         }
+        if ($capital->isReversed()) {
+            throw ValidationException::withMessages(['capital_id' => 'The selected capital contribution has been reversed']);
+        }
         if ((int) $capital->share_holder_id !== $holder->id) {
             throw ValidationException::withMessages(['capital_id' => 'The selected capital contribution belongs to another shareholder']);
         }

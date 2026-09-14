@@ -43,6 +43,7 @@ class DailyReport
     public const NON_CASH_ASSETS = [
         Account::Bank, Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::SalaryAdvanceReceivable,
         Account::StaffLoanReceivable, Account::StaffAdvanceReceivable, Account::Offset, Account::OutstandingInterest,
+        Account::MotorVehicles, Account::Equipment, Account::FurnitureFixtures, Account::Buildings, Account::Land, Account::OtherFixedAssets,
     ];
 
     /**
@@ -78,7 +79,7 @@ class DailyReport
             ->whereBetween('transfer_date', $range);
 
         $in = [
-            'CAPITAL' => $allBranches ? (float) Capital::where('company_id', $companyId)->whereBetween('created_at', $timestamps)->sum('amount') : 0.0,
+            'CAPITAL' => $allBranches ? (float) Capital::where('company_id', $companyId)->where('pay_method', '!=', 'ASSET')->whereBetween('created_at', $timestamps)->sum('amount') : 0.0,
             'TRANSFER' => (float) $floats('to_branch_id')->sum('amount'),
             'DEPOSIT' => (float) $scoped(LoanTransaction::query())->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum(DB::raw('amount - penalty')),
             'AGENT' => (float) $notReversed($scoped(AgentTransaction::query()))->whereBetween('transaction_date', $range)->sum('amount'),

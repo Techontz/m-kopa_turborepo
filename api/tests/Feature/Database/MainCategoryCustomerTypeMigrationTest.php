@@ -14,7 +14,8 @@ use Tests\TestCase;
 
 /**
  * 2026_09_14_140000: legacy main categories (ent / ser) are mapped to customer types by code with their ids kept, the other
- * customer types get a main category, names come from the customer type, and running it again changes nothing.
+ * customer types get a main category, names come from the customer type, and running it again changes nothing. Since
+ * 2026_09_14_180000 the main category only carries history: loan categories reference the customer type directly.
  * The migrations run DDL (implicit commit in MySQL), so no wrapping transaction: the schema is rebuilt before the test and
  * the next RefreshDatabase test migrates afresh.
  */
@@ -45,7 +46,9 @@ class MainCategoryCustomerTypeMigrationTest extends TestCase
         $link = $this->migration('2026_09_14_140000_link_main_categories_to_customer_types');
         $requireMain = $this->migration('2026_09_14_140001_require_main_category_on_loan_categories');
         $backfill = $this->migration('2026_09_14_140003_backfill_customer_types_from_loan_categories');
+        $direct = $this->migration('2026_09_14_180000_link_loan_categories_directly_to_customer_types');
 
+        $direct->down();
         $requireMain->down();
         $link->down();
         $this->assertFalse(Schema::hasColumn('main_categories', 'customer_category_id'));
@@ -70,6 +73,7 @@ class MainCategoryCustomerTypeMigrationTest extends TestCase
         $link->up();
         $requireMain->up();
         $backfill->up();
+        $direct->up();
 
         $mains = DB::table('main_categories')->where('company_id', $companyId)->get()->keyBy('customer_category_id');
         $this->assertCount(5, $mains);
@@ -77,7 +81,8 @@ class MainCategoryCustomerTypeMigrationTest extends TestCase
         $this->assertSame($wajasiliamali, (int) $mains[$types['WAJASIRIAMALI']]->id);
         $this->assertSame('Mtumishi wa Umma', $mains[$types['WATUMISHI_WA_UMMA']]->name);
         $this->assertSame('Mjasiriamali/Mfanyabiashara', $mains[$types['WAJASIRIAMALI']]->name);
-        $this->assertSame($wajasiliamali, (int) DB::table('loan_categories')->where('id', $product)->value('main_category_id'));
+        $this->assertSame($types['WAJASIRIAMALI'], (int) DB::table('loan_categories')->where('id', $product)->value('customer_category_id'));
+        $this->assertFalse(Schema::hasColumn('loan_categories', 'main_category_id'));
         $this->assertSame($types['WAJASIRIAMALI'], (int) DB::table('customers')->where('id', $borrower)->value('customer_category_id'));
         $this->assertNull(DB::table('customers')->where('id', $noLoans)->value('customer_category_id'));
         $this->assertFalse(Schema::hasTable('customer_category_loan_category'));

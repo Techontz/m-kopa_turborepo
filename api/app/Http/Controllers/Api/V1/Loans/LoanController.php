@@ -93,7 +93,7 @@ class LoanController extends LoanApiController
         $this->authorizeAny('loans.view');
         $this->ensureVisible($loan);
 
-        $loan->load(['customer.region', 'customer.branch', 'branch', 'category', 'employee', 'group', 'guarantors.region', 'collaterals', 'schedules', 'mandate', 'disbursements.requester', 'disbursements.sourceBankAccount', 'disbursements.branch', 'disbursements.journalEntry.lines.account', 'latestDisbursement.sourceBankAccount', 'latestDisbursement.branch', 'latestDisbursement.journalEntry', 'topupOf', 'writeOff']);
+        $loan->load(['customer.region', 'customer.branch', 'customer.customerCategory', 'branch', 'category.customerType', 'employee', 'group', 'guarantors.region', 'collaterals', 'schedules', 'mandate', 'disbursements.requester', 'disbursements.sourceBankAccount', 'disbursements.branch', 'disbursements.journalEntry.lines.account', 'latestDisbursement.sourceBankAccount', 'latestDisbursement.branch', 'latestDisbursement.journalEntry', 'topupOf', 'writeOff']);
         $customer = $loan->customer;
 
         return response()->json(['data' => [
@@ -116,6 +116,7 @@ class LoanController extends LoanApiController
                 'street' => $customer->street,
                 'id_number' => $customer->id_number,
                 'branch' => $customer->branch?->name,
+                'customer_type' => $customer->customerCategory?->name,
                 'status_label' => $customer->status_label,
                 'kyc_status' => $customer->kyc_status,
                 'created_at' => $customer->created_at?->toDateTimeString(),
@@ -346,9 +347,9 @@ class LoanController extends LoanApiController
     }
 
     /**
-     * Loan categories for the application form: only the ACTIVE loan categories (main loan category enabled, assigned to the
-     * customer's branch) of the customer's customer type → main loan category, as "NAME / from - to". A customer without a
-     * customer type gets none, with the reason in `eligibility`.
+     * Loan categories for the application form: only the ACTIVE loan categories (customer type active, assigned to the
+     * customer's branch) of the customer's customer type, as "NAME / from - to". A customer without a customer type gets
+     * none, with the reason in `eligibility`.
      */
     public function categories(Customer $customer, CustomerEligibility $eligibility): JsonResponse
     {
@@ -379,7 +380,6 @@ class LoanController extends LoanApiController
         return response()->json([
             'data' => $categories->values(),
             'customer_type' => $type ? ['id' => $type->id, 'code' => $type->code, 'name' => $type->name] : null,
-            'main_category' => $status['rules']['main_category'],
             'groups' => Group::where('company_id', $customer->company_id)->orderBy('name')->get()->map(fn (Group $group): array => ['value' => (string) $group->id, 'label' => $group->name])->values(),
             'eligibility' => $status,
         ]);

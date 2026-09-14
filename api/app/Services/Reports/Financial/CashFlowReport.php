@@ -33,6 +33,7 @@ class CashFlowReport
     public const NON_CASH_ASSETS = [
         Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::OutstandingInterest,
         Account::SalaryAdvanceReceivable, Account::StaffLoanReceivable, Account::StaffAdvanceReceivable, Account::Offset,
+        Account::MotorVehicles, Account::Equipment, Account::FurnitureFixtures, Account::Buildings, Account::Land, Account::OtherFixedAssets,
     ];
 
     /**

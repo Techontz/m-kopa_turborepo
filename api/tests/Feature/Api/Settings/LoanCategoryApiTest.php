@@ -10,6 +10,8 @@ use App\Models\InterestFormula;
 use App\Models\LoanCategory;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class LoanCategoryApiTest extends TestCase
@@ -44,7 +46,7 @@ class LoanCategoryApiTest extends TestCase
             'requires_mandate' => 'YES',
             'topup_percent' => '50',
             'take_home_percent' => '70',
-            'main_category_id' => $this->customerType($admin)->mainLoanCategory->id,
+            'customer_type_id' => $this->customerType($admin)->id,
         ], $overrides);
     }
 
@@ -63,46 +65,125 @@ class LoanCategoryApiTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('message', 'Loan Category Registered successfully')
             ->assertJsonPath('data.requires_mandate', true)
-            ->assertJsonPath('data.main_category_id', $type->mainLoanCategory->id)
-            ->assertJsonPath('data.customer_type.name', 'Mjasiriamali/Mfanyabiashara')
+            ->assertJsonPath('data.customer_type_id', $type->id)
+            ->assertJsonPath('data.customer_type', ['id' => $type->id, 'code' => 'WAJASIRIAMALI', 'name' => 'Mjasiriamali/Mfanyabiashara'])
+            ->assertJsonMissingPath('data.main_category_id')
+            ->assertJsonMissingPath('data.main_category')
             ->assertJsonMissingPath('data.customer_categories');
 
         $loanCategory = LoanCategory::firstWhere('name', 'BIASHARA');
         $this->assertSame(2000000.0, (float) $loanCategory->amount_to);
+        $this->assertSame($type->id, $loanCategory->customer_category_id);
 
         $this->getJson('/api/v1/settings/loan-categories')
             ->assertOk()
             ->assertJsonPath('data.0.level_label', '20,000 - 2,000,000')
-            ->assertJsonPath('data.0.main_category', 'Mjasiriamali/Mfanyabiashara')
-            ->assertJsonPath('data.0.customer_type.code', 'WAJASIRIAMALI');
+            ->assertJsonPath('data.0.customer_type.name', 'Mjasiriamali/Mfanyabiashara')
+            ->assertJsonPath('data.0.customer_type.code', 'WAJASIRIAMALI')
+            ->assertJsonMissingPath('data.0.main_category');
 
         $employee = $this->customerType($admin, 'WATUMISHI_WA_UMMA', 'Mtumishi wa Umma');
-        $this->putJson("/api/v1/settings/loan-categories/{$loanCategory->id}", $this->payload($admin, ['loan_name' => 'BIASHARA 2', 'requires_mandate' => 'NO', 'main_category_id' => $employee->mainLoanCategory->id]))
+        $this->getJson("/api/v1/settings/loan-categories/{$loanCategory->id}")->assertOk()->assertJsonPath('data.customer_type_id', $type->id);
+        $this->putJson("/api/v1/settings/loan-categories/{$loanCategory->id}", $this->payload($admin, ['loan_name' => 'BIASHARA 2', 'requires_mandate' => 'NO', 'customer_type_id' => $employee->id]))
             ->assertOk()
             ->assertJsonPath('data.customer_type.name', 'Mtumishi wa Umma');
         $this->assertFalse($loanCategory->fresh()->requires_mandate);
-        $this->getJson('/api/v1/settings/loan-categories?main_category_id='.$type->mainLoanCategory->id)->assertOk()->assertJsonCount(0, 'data');
-        $this->getJson('/api/v1/settings/loan-categories?main_category_id='.$employee->mainLoanCategory->id)->assertOk()->assertJsonCount(1, 'data');
+        $this->assertSame($employee->id, $loanCategory->fresh()->customer_category_id);
 
         $this->deleteJson("/api/v1/settings/loan-categories/{$loanCategory->id}")->assertOk();
         $this->assertModelMissing($loanCategory);
     }
 
-    public function test_loan_category_requires_a_main_loan_category_of_the_same_company(): void
+    public function test_list_filters_by_customer_type(): void
+    {
+        $admin = $this->signInAdmin();
+        $business = $this->customerType($admin);
+        $employee = $this->customerType($admin, 'WATUMISHI_WA_UMMA', 'Mtumishi wa Umma');
+        LoanCategory::factory()->forCustomerType($business)->create(['name' => 'WAJASILIAMALI']);
+        LoanCategory::factory()->forCustomerType($employee)->count(2)->create(['name' => 'WATUMISHI']);
+
+        $this->getJson('/api/v1/settings/loan-categories')->assertOk()->assertJsonCount(3, 'data');
+        $this->getJson("/api/v1/settings/loan-categories?customer_type_id={$business->id}")->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.customer_type.name', 'Mjasiriamali/Mfanyabiashara');
+        $response = $this->getJson("/api/v1/settings/loan-categories?customer_type_id={$employee->id}")->assertOk()->assertJsonCount(2, 'data');
+        $this->assertSame(['Mtumishi wa Umma', 'Mtumishi wa Umma'], array_column(array_column($response->json('data'), 'customer_type'), 'name'));
+    }
+
+    public function test_loan_category_requires_a_customer_type(): void
+    {
+        $admin = $this->signInAdmin();
+
+        $this->postJson('/api/v1/settings/loan-categories', array_diff_key($this->payload($admin), ['customer_type_id' => true]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['customer_type_id' => 'The customer type field is required.']);
+        $this->assertSame(0, LoanCategory::count());
+    }
+
+    public function test_customer_type_must_be_an_active_type_of_the_same_company(): void
     {
         $admin = $this->signInAdmin();
         $foreign = CustomerCategory::factory()->create(['company_id' => Company::factory()->create()->id]);
+        $inactive = CustomerCategory::factory()->create(['company_id' => $admin->company_id, 'is_active' => false]);
+        $deleted = CustomerCategory::factory()->create(['company_id' => $admin->company_id]);
+        $deleted->delete();
 
-        $this->postJson('/api/v1/settings/loan-categories', array_diff_key($this->payload($admin), ['main_category_id' => true]))
-            ->assertUnprocessable()->assertJsonValidationErrors('main_category_id');
-        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['main_category_id' => $foreign->mainLoanCategory->id]))
-            ->assertUnprocessable()->assertJsonValidationErrors('main_category_id');
-        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['main_category_id' => 999999]))
-            ->assertUnprocessable()->assertJsonValidationErrors('main_category_id');
+        foreach ([$foreign->id, $inactive->id, $deleted->id, 999999, 'Mtumishi wa Umma', ''] as $invalid) {
+            $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['customer_type_id' => $invalid]))
+                ->assertUnprocessable()->assertJsonValidationErrors('customer_type_id');
+        }
         $this->assertSame(0, LoanCategory::count());
 
+        // A category may keep its customer type after that type was deactivated, but cannot move to another inactive one.
+        $type = $this->customerType($admin);
+        $category = LoanCategory::factory()->forCustomerType($type)->create();
+        $type->update(['is_active' => false]);
+        $this->putJson("/api/v1/settings/loan-categories/{$category->id}", $this->payload($admin, ['customer_type_id' => $type->id]))->assertOk();
+        $this->putJson("/api/v1/settings/loan-categories/{$category->id}", $this->payload($admin, ['customer_type_id' => $inactive->id]))
+            ->assertUnprocessable()->assertJsonValidationErrors('customer_type_id');
+    }
+
+    public function test_removed_main_category_and_multi_type_keys_are_refused_and_nothing_is_stored(): void
+    {
+        $admin = $this->signInAdmin();
+        $type = $this->customerType($admin);
+
+        foreach (['main_category_id' => 1, 'main_id' => 1, 'customer_category_id' => $type->id, 'customer_category_ids' => [$type->id]] as $key => $value) {
+            $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, [$key => $value]))
+                ->assertUnprocessable()->assertJsonValidationErrors($key);
+        }
+        $this->assertSame(0, LoanCategory::count());
+        $this->assertFalse(Schema::hasTable('customer_category_loan_category'));
+        $this->assertFalse(Schema::hasColumn('loan_categories', 'main_category_id'));
+    }
+
+    public function test_every_loan_category_has_a_customer_type_at_database_level(): void
+    {
+        $admin = $this->signInAdmin();
+        $category = LoanCategory::factory()->forCustomerType($this->customerType($admin))->create();
+
+        $this->assertFalse(collect(Schema::getColumns('loan_categories'))->firstWhere('name', 'customer_category_id')['nullable']);
+        $this->assertSame(0, DB::table('loan_categories')->leftJoin('customer_categories', 'customer_categories.id', '=', 'loan_categories.customer_category_id')->whereNull('customer_categories.id')->count());
+
+        try {
+            DB::table('customer_categories')->where('id', $category->customer_category_id)->delete();
+            $this->fail('A customer type holding loan categories must not be deletable at database level.');
+        } catch (QueryException) {
+            $this->assertModelExists($category);
+        }
+
         $this->expectException(QueryException::class);
-        LoanCategory::factory()->create(['company_id' => $admin->company_id, 'main_category_id' => null]);
+        LoanCategory::factory()->create(['company_id' => $admin->company_id, 'customer_category_id' => null]);
+    }
+
+    public function test_customer_type_rename_is_reflected_in_loan_category_responses(): void
+    {
+        $admin = $this->signInAdmin();
+        $type = $this->customerType($admin, 'SEKTA_BINAFSI', 'Sekta Binafsi');
+        $category = LoanCategory::factory()->forCustomerType($type)->create();
+
+        $type->update(['name' => 'Sekta Binafsi (Renamed)']);
+
+        $this->getJson('/api/v1/settings/loan-categories')->assertOk()->assertJsonPath('data.0.customer_type.name', 'Sekta Binafsi (Renamed)');
+        $this->getJson("/api/v1/settings/loan-categories/{$category->id}")->assertOk()->assertJsonPath('data.customer_type.name', 'Sekta Binafsi (Renamed)');
     }
 
     public function test_freeze_time_is_stored_returned_editable_and_validated(): void

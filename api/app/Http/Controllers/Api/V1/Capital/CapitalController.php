@@ -41,7 +41,7 @@ class CapitalController extends ApiController
 
         $companyId = $this->currentEmployee()->company_id;
         $capitals = Capital::where('company_id', $companyId)
-            ->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions'])
+            ->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions', 'asset'])
             ->orderBy('id')
             ->get()
             ->groupBy('share_holder_id');
@@ -54,12 +54,16 @@ class CapitalController extends ApiController
                 'name' => $row['share_holder']->full_name,
                 'total' => $row['total_contributed'],
                 'total_contributed' => $row['total_contributed'],
+                'cash_contributed' => $row['cash_contributed'],
+                'bank_contributed' => $row['bank_contributed'],
+                'asset_contributed' => $row['asset_contributed'],
                 'shares' => $row['shares'],
                 'ownership_percent' => $row['ownership_percent'],
                 'holding_value' => $row['holding_value'],
                 'capitals' => ($capitals[$row['share_holder']->id] ?? collect())->map(fn (Capital $capital): array => $this->presentContribution($capital))->values(),
             ])->values(),
             'share_holder_capital' => $this->ownership->totalContributed($companyId),
+            'contribution_breakdown' => $this->ownership->companyBreakdown($companyId),
             'company_capital' => $companyCash,
             'company_cash_balance' => $companyCash,
             'bank_balances' => $banks,
@@ -105,12 +109,15 @@ class CapitalController extends ApiController
         return response()->json(['data' => [
             'share_holder' => ['id' => $shareHolder->id, 'first_name' => $shareHolder->first_name, 'middle_name' => $shareHolder->middle_name, 'last_name' => $shareHolder->last_name, 'name' => $shareHolder->full_name],
             'total_contributed' => $ownership['total_contributed'],
+            'cash_contributed' => $ownership['cash_contributed'],
+            'bank_contributed' => $ownership['bank_contributed'],
+            'asset_contributed' => $ownership['asset_contributed'],
             'shares' => $ownership['shares'],
             'total_shares' => $ownership['total_shares'],
             'ownership_percent' => $ownership['ownership_percent'],
             'holding_value' => $ownership['holding_value'],
             'company_total_contributed' => $this->ownership->totalContributed((int) $shareHolder->company_id),
-            'contributions' => $shareHolder->capitals()->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions'])->orderBy('id')->get()
+            'contributions' => $shareHolder->capitals()->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions', 'asset'])->orderBy('id')->get()
                 ->map(fn (Capital $capital): array => $this->presentContribution($capital))->values(),
         ]]);
     }
@@ -228,6 +235,11 @@ class CapitalController extends ApiController
             'journal_entry_id' => $capital->journal_entry_id,
             'journal_reference' => $capital->journalEntry?->reference,
             'share_transaction_reference' => $capital->shareTransactions->firstWhere('status', 'completed')?->reference,
+            'asset_id' => $capital->asset?->id,
+            'asset_code' => $capital->asset?->asset_code,
+            'asset_name' => $capital->asset?->name,
+            'reversed' => $capital->isReversed(),
+            'reversal_reason' => $capital->reversal_reason,
             'created_at' => $capital->created_at?->format('Y-m-d H:i:s'),
         ];
     }

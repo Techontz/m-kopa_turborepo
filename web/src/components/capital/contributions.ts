@@ -17,18 +17,31 @@ export interface Contribution {
   journal_entry_id: number | null;
   journal_reference: string | null;
   share_transaction_reference?: string | null;
+  asset_id?: number | null;
+  asset_code?: string | null;
+  asset_name?: string | null;
+  reversed?: boolean;
+  reversal_reason?: string | null;
   created_at: string | null;
 }
 
 export interface ContributionHistory {
   share_holder: { id: number; first_name: string | null; middle_name: string | null; last_name: string | null; name: string };
   total_contributed: number;
+  cash_contributed?: number;
+  bank_contributed?: number;
+  asset_contributed?: number;
   shares: number;
   total_shares: number;
   ownership_percent: number;
   holding_value: number;
   company_total_contributed: number;
   contributions: Contribution[];
+}
+
+/** Pay method badge tone: cash green, bank blue, asset primary. */
+export function payMethodTone(method: string): "success" | "info" | "primary" {
+  return method === "ASSET" ? "primary" : method === "BANK" ? "info" : "success";
 }
 
 /** "25%" / "33.3333%": ownership is shown with the API's precision, without trailing zeros. */

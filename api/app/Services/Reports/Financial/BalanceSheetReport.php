@@ -26,6 +26,7 @@ class BalanceSheetReport
         'Loan portfolio' => [Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::OutstandingInterest],
         'Staff receivables' => [Account::SalaryAdvanceReceivable, Account::StaffLoanReceivable, Account::StaffAdvanceReceivable],
         'Other assets' => [Account::Offset],
+        'Fixed assets' => [Account::MotorVehicles, Account::Equipment, Account::FurnitureFixtures, Account::Buildings, Account::Land, Account::OtherFixedAssets],
     ];
 
     /**

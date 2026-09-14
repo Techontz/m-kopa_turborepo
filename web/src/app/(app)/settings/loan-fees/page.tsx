@@ -132,7 +132,7 @@ export default function LoanFeesPage() {
               rowKey={(row) => row.id}
               columns={[
                 { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
-                { key: "name", header: "Loan Category name" },
+                { key: "name", header: "Loan Category Name" },
                 { key: "level_label", header: "Loan level", value: (row) => row.amount_from, render: (row) => row.level_label },
                 { key: "interest_rate", header: "Loan Interest", render: (row) => percent(row.interest_rate) },
                 { key: "fee_type", header: "Loan Fee Type", value: (row) => (row.fee_type === "percentage" ? "PERCENTAGE VALUE" : "MONEY VALUE") },

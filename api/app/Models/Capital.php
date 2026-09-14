@@ -4,9 +4,11 @@ namespace App\Models;
 
 use App\Enums\Account;
 use App\Models\Concerns\Auditable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -35,7 +37,31 @@ class Capital extends Model
         return [
             'amount' => 'decimal:2',
             'contributed_at' => 'datetime',
+            'reversed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Contributions that still count as contributed capital (not reversed).
+     *
+     * @param  Builder<Capital>  $query
+     */
+    public function scopeActive(Builder $query): void
+    {
+        $query->whereNull('reversed_at');
+    }
+
+    public function isReversed(): bool
+    {
+        return $this->reversed_at !== null;
+    }
+
+    /**
+     * The contributed asset of an ASSET contribution.
+     */
+    public function asset(): HasOne
+    {
+        return $this->hasOne(Asset::class);
     }
 
     public function shareHolder(): BelongsTo
@@ -59,14 +85,16 @@ class Capital extends Model
     }
 
     /**
-     * "COMPANY ACCOUNT" or "BANK - NMB"; null for legacy rows whose posting could not be traced.
+     * "COMPANY ACCOUNT", "BANK - NMB" or the fixed-asset account of an asset contribution ("MOTOR VEHICLES");
+     * null for legacy rows whose posting could not be traced.
      */
     public function receivingAccountLabel(): ?string
     {
         return match ($this->receiving_account) {
             Account::Company->value => Account::Company->label(),
             Account::Bank->value => trim(Account::Bank->label().' - '.$this->bankAccount?->name, ' -'),
-            default => null,
+            null => null,
+            default => Account::tryFrom($this->receiving_account)?->label(),
         };
     }
 

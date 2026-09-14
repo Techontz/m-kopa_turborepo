@@ -1,0 +1,65 @@
+/*
+ * Printable asset label. A label is always printed black on white, whatever the app theme, so this component uses
+ * fixed print colours instead of the theme tokens (the only intentional exception).
+ */
+.label {
+    width: 90mm;
+    min-height: 50mm;
+    box-sizing: border-box;
+    padding: 4mm;
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+    border-radius: 2mm;
+    display: flex;
+    gap: 3mm;
+    align-items: center;
+    font-family: Arial, Helvetica, sans-serif;
+    color-scheme: light;
+}
+
+.label * {
+    color: #000 !important;
+}
+
+.qr {
+    width: 32mm;
+    height: 32mm;
+    flex: none;
+}
+
+.text {
+    min-width: 0;
+    line-height: 1.25;
+}
+
+.brand {
+    font-weight: 700;
+    font-size: 13pt;
+    letter-spacing: .5px;
+}
+
+.code {
+    font-weight: 700;
+    font-size: 12pt;
+    margin: 1mm 0;
+}
+
+.line {
+    font-size: 8.5pt;
+    overflow-wrap: anywhere;
+}
+
+.sheet {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4mm;
+}
+
+@media print {
+    .label {
+        break-inside: avoid;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}

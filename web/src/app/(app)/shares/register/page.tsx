@@ -21,6 +21,8 @@ export default function ShareRegisterPage() {
   const { can } = useAuth();
   const [asOf, setAsOf] = useState("");
   const { data, isLoading } = useApi<RegisterResponse>(can("shares.view") ? "shares/register" : null, { as_of: asOf || undefined });
+  const showContributions = Boolean(data?.can_view_contributions);
+  const sum = (key: "total_contributed" | "cash_contributed" | "bank_contributed" | "asset_contributed") => (data?.rows ?? []).reduce((total, row) => total + (row[key] ?? 0), 0);
 
   return (
     <SharesAccess crumbs={["Shares", "Share Register"]}>
@@ -52,6 +54,14 @@ export default function ShareRegisterPage() {
           rowKey={(row) => row.share_holder_id}
           columns={[
             { key: "name", header: "Shareholder", render: (row) => <Link href={`/shares/share-holders/${row.share_holder_id}`}>{row.name}</Link> },
+            ...(showContributions
+              ? [
+                  { key: "total_contributed", header: "Total Contributions", className: "text-right", render: (row: RegisterResponse["rows"][number]) => money(row.total_contributed) },
+                  { key: "cash_contributed", header: "Cash", className: "text-right", render: (row: RegisterResponse["rows"][number]) => money(row.cash_contributed) },
+                  { key: "bank_contributed", header: "Bank", className: "text-right", render: (row: RegisterResponse["rows"][number]) => money(row.bank_contributed) },
+                  { key: "asset_contributed", header: "Asset", className: "text-right", render: (row: RegisterResponse["rows"][number]) => money(row.asset_contributed) },
+                ]
+              : []),
             { key: "shares", header: "Shares Owned", className: "text-right", render: (row) => sharesLabel(row.shares) },
             { key: "ownership_percent", header: "Ownership %", className: "text-right", render: (row) => percent(row.ownership_percent) },
             { key: "share_value", header: asOf ? "Share Value" : "Current Share Value", className: "text-right", render: (row) => money(row.share_value) },
@@ -63,6 +73,14 @@ export default function ShareRegisterPage() {
             data && (
               <tr>
                 <th>TOTAL</th>
+                {showContributions && (
+                  <>
+                    <th className="text-right">{money(sum("total_contributed"))}</th>
+                    <th className="text-right">{money(sum("cash_contributed"))}</th>
+                    <th className="text-right">{money(sum("bank_contributed"))}</th>
+                    <th className="text-right">{money(sum("asset_contributed"))}</th>
+                  </>
+                )}
                 <th className="text-right">{sharesLabel(data.total_shares)}</th>
                 <th className="text-right">{data.total_shares > 0 ? "100%" : "0%"}</th>
                 <th className="text-right">{money(data.share_value)}</th>
@@ -72,6 +90,7 @@ export default function ShareRegisterPage() {
             )
           }
         />
+        {showContributions && <small className="text-muted">Contributions (cash / bank / asset) are financial records shown next to ownership. Ownership % comes only from shares held ÷ total issued shares.</small>}
       </Card>
     </SharesAccess>
   );

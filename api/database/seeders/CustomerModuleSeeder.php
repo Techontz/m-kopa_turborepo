@@ -67,7 +67,7 @@ class CustomerModuleSeeder extends Seeder
     }
 
     /**
-     * Customer types (each with its main loan category) and the baseline requirement profile of one company.
+     * Customer types and the baseline requirement profile of one company.
      */
     public function seedCompany(Company $company): void
     {
@@ -192,7 +192,6 @@ class CustomerModuleSeeder extends Seeder
         }
 
         $category->save();
-        $category->ensureMainLoanCategory();
     }
 
     /**

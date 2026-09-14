@@ -1,9 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { AssetContributionFields } from "@/components/capital/assets/AssetContributionFields";
+import { assetPayload, emptyAssetForm, findType, type AssetConfig, type AssetForm, type AssetRow } from "@/components/capital/assets/assets";
 import { ContributionHistoryModal } from "@/components/capital/ContributionHistoryModal";
-import { ownershipLabel, type Contribution } from "@/components/capital/contributions";
+import { ownershipLabel, payMethodTone, type Contribution } from "@/components/capital/contributions";
+import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { FileField } from "@/components/ui/FileField";
@@ -12,7 +16,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox } from "@/components/ui/SelectBox";
 import { backendUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { money } from "@/lib/format";
+import { money, todayIso } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 import { newIdempotencyKey } from "@/lib/idempotency";
 
@@ -22,12 +26,16 @@ interface CapitalData {
     name: string;
     total: number;
     total_contributed: number;
+    cash_contributed: number;
+    bank_contributed: number;
+    asset_contributed: number;
     shares: number;
     ownership_percent: number;
     holding_value: number;
     capitals: Contribution[];
   }[];
   share_holder_capital: number;
+  contribution_breakdown?: { cash: number; bank: number; asset: number; total: number };
   company_cash_balance: number;
   bank_balances: { id: number; name: string; balance: number }[];
   bank_balance_total: number;
@@ -92,6 +100,12 @@ export default function CapitalsPage() {
   const [replacement, setReplacement] = useState<File | null>(null);
   const [historyOf, setHistoryOf] = useState<number | null>(null);
   const create = useAction<FormData>("post", "capital/capitals");
+  const { data: assetConfig } = useApi<AssetConfig>("capital/assets/config");
+  const [assetForm, setAssetForm] = useState<AssetForm>(() => emptyAssetForm(todayIso()));
+  const [createdAsset, setCreatedAsset] = useState<AssetRow | null>(null);
+  const createAsset = useAction<Record<string, unknown>, { message: string; data: AssetRow }>("post", "capital/assets");
+  const isAsset = form.pay_method === "ASSET";
+  const fieldError = (field: string) => (isAsset ? createAsset.fieldError(field) : create.fieldError(field));
   const replaceReceipt = useAction<FormData>("post", () => `capital/capitals/${receiptFor?.id}/receipt`);
   const canManage = can("capital.manage");
   const set = (field: keyof CapitalForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
@@ -106,6 +120,22 @@ export default function CapitalsPage() {
             key={formKey}
             onSubmit={(e) => {
               e.preventDefault();
+              if (isAsset) {
+                if (!form.share_id) {
+                  createAsset.setErrors({ share_id: ["Select the shareholder"] });
+                  return;
+                }
+                createAsset.mutate(assetPayload(form.share_id, assetForm, findType(assetConfig, assetForm.asset_type), idempotencyKey), {
+                  onSuccess: (result) => {
+                    setCreatedAsset(result.data);
+                    setForm(EMPTY);
+                    setAssetForm(emptyAssetForm(todayIso()));
+                    setFormKey((key) => key + 1);
+                    setIdempotencyKey(newIdempotencyKey("capital"));
+                  },
+                });
+                return;
+              }
               create.mutate(toFormData(form, idempotencyKey), {
                 onSuccess: () => {
                   setForm(EMPTY);
@@ -116,19 +146,23 @@ export default function CapitalsPage() {
             }}
           >
             <div className="row">
-              <Field label=" Shareholder Name:" required className="col-lg-4" error={create.fieldError("share_id")}>
-                <SelectBox placeholder="Select Shareholder" optionsUrl="capital/options/share-holders" value={form.share_id} onChange={(value) => setForm({ ...form, share_id: value ?? "" })} />
-              </Field>
-              <Field label="Amount:" required className="col-lg-4" error={create.fieldError("amount")}>
-                <input type="number" className="form-control input-sm" placeholder="Amount" autoComplete="off" value={form.amount} onChange={set("amount")} required />
+              <Field label=" Shareholder Name:" required className="col-lg-4" error={fieldError("share_id")}>
+                <SelectBox inputId="capital-share-holder" placeholder="Select Shareholder" optionsUrl="capital/options/share-holders" value={form.share_id} onChange={(value) => setForm({ ...form, share_id: value ?? "" })} />
               </Field>
               <Field label="Pay Method:" required className="col-lg-4" error={create.fieldError("pay_method")}>
-                <select className="form-control input-sm" value={form.pay_method} onChange={(e) => setForm({ ...form, pay_method: e.target.value, bank_account_id: "" })} required>
+                <select id="capital-pay-method" className="form-control input-sm" value={form.pay_method} onChange={(e) => setForm({ ...form, pay_method: e.target.value, bank_account_id: "" })} required>
                   <option value="">Select</option>
                   <option value="CASH">CASH</option>
                   <option value="BANK">BANK</option>
+                  <option value="ASSET">ASSET</option>
                 </select>
               </Field>
+              {!isAsset && (
+              <Field label="Amount:" required className="col-lg-4" error={create.fieldError("amount")}>
+                <input type="number" className="form-control input-sm" placeholder="Amount" autoComplete="off" value={form.amount} onChange={set("amount")} required />
+              </Field>
+              )}
+              {!isAsset && (<>
               <Field label="Receiving Account:" required className="col-lg-4" error={create.fieldError("bank_account_id")}>
                 {form.pay_method === "BANK" ? (
                   <SelectBox placeholder="Select Bank Account" optionsUrl="capital/options/bank-accounts" value={form.bank_account_id} onChange={(value) => setForm({ ...form, bank_account_id: value ?? "" })} />
@@ -153,10 +187,12 @@ export default function CapitalsPage() {
                   error={create.fieldError("receipt_file")}
                 />
               </Field>
+              </>)}
             </div>
-            <p className="mb-0"><small className="text-muted">Posting: Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT. Contributions are financial records — ownership comes from shares in the share register (Shares → Issue Shares can record a paid issuance in one step).</small></p>
+            {isAsset && <AssetContributionFields config={assetConfig} form={assetForm} onChange={setAssetForm} fieldError={createAsset.fieldError} />}
+            {!isAsset && <p className="mb-0"><small className="text-muted">Posting: Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT. Contributions are financial records — ownership comes from shares in the share register (Shares → Issue Shares can record a paid issuance in one step).</small></p>}
             <div className="text-center m-t-20">
-              <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-drawer" />Save</button>
+              <button type="submit" className="btn btn-primary" disabled={create.isPending || createAsset.isPending}><i className="icon-drawer" />Save</button>
             </div>
           </form>
         </Card>
@@ -176,14 +212,18 @@ export default function CapitalsPage() {
                     <td>{index + 1}.</td>
                     <td><b>{holder.name}</b></td>
                     <td><b>{money(holder.total_contributed)}</b></td>
-                    <td colSpan={7}>{holder.capitals.length} contribution{holder.capitals.length === 1 ? "" : "s"} · Share register: <b>{holder.shares.toLocaleString("en-US")}</b> shares, ownership <b>{ownershipLabel(holder.ownership_percent)}</b></td>
+                    <td colSpan={7}>{holder.capitals.length} contribution{holder.capitals.length === 1 ? "" : "s"} · Cash <b>{money(holder.cash_contributed)}</b> · Bank <b>{money(holder.bank_contributed)}</b> · Asset <b>{money(holder.asset_contributed)}</b> · Share register: <b>{holder.shares.toLocaleString("en-US")}</b> shares, ownership <b>{ownershipLabel(holder.ownership_percent)}</b></td>
                     <td><button type="button" className="btn btn-sm btn-icon btn-info" title="Contribution history" onClick={() => setHistoryOf(holder.id)}><i className="icon-list" /></button></td>
                   </tr>
                   {holder.capitals.map((capital) => (
                     <tr key={capital.id}>
                       <td /><td />
-                      <td>{money(capital.amount)}</td>
-                      <td>{capital.pay_method}</td>
+                      <td>{capital.reversed ? <s title={`Reversed: ${capital.reversal_reason ?? ""}`}>{money(capital.amount)}</s> : money(capital.amount)}</td>
+                      <td>
+                        <Badge tone={payMethodTone(capital.pay_method)}>{capital.pay_method}</Badge>
+                        {capital.asset_id && <><br /><Link href={`/capital/assets/${capital.asset_id}`} title={capital.asset_name ?? ""}>{capital.asset_code}</Link></>}
+                        {capital.reversed && <><br /><Badge tone="danger">REVERSED</Badge></>}
+                      </td>
                       <td>{capital.receiving_account_label ?? "—"}</td>
                       <td>{capital.receipt_number || "-"}</td>
                       <td>{capital.cheque_number || "-"}</td>
@@ -210,7 +250,7 @@ export default function CapitalsPage() {
               ))}
             </tbody>
             <tfoot>
-              <tr><td colSpan={2}><b>TOTAL SHAREHOLDER CONTRIBUTIONS</b></td><td><b>{money(data?.share_holder_capital)}</b></td><td colSpan={8}><small>Historical contributions (financial records). Ownership % comes from the share register, not from contributions.</small></td></tr>
+              <tr><td colSpan={2}><b>TOTAL SHAREHOLDER CONTRIBUTIONS</b></td><td><b>{money(data?.share_holder_capital)}</b></td><td colSpan={8}><small>Cash {money(data?.contribution_breakdown?.cash)} · Bank {money(data?.contribution_breakdown?.bank)} · Asset {money(data?.contribution_breakdown?.asset)}. Historical contributions (financial records). Ownership % comes from the share register, not from contributions.</small></td></tr>
             </tfoot>
           </table>
         </div>
@@ -243,6 +283,20 @@ export default function CapitalsPage() {
       </Card>
 
       <ContributionHistoryModal shareHolderId={historyOf} onClose={() => setHistoryOf(null)} />
+
+      <Modal open={createdAsset !== null} onClose={() => setCreatedAsset(null)} title={`Asset Capital Recorded — ${createdAsset?.asset_code ?? ""}`}>
+        {createdAsset && (
+          <div className="text-center">
+            {/* eslint-disable-next-line @next/next/no-img-element -- authorised API image stream */}
+            <img src={backendUrl(createdAsset.qr_endpoint)} alt={`QR code ${createdAsset.asset_code}`} width={180} height={180} className="mb-2" />
+            <p className="mb-1"><b>{createdAsset.asset_code}</b> · {createdAsset.name} · {createdAsset.asset_type_label}</p>
+            <p className="mb-2">Contribution value <b>{money(createdAsset.contribution_value)}</b> · {createdAsset.branch} · Dr {createdAsset.ledger_account_label} / Cr CAPITAL ACCOUNT</p>
+            <Link href={`/capital/assets/${createdAsset.id}`} className="btn btn-primary btn-sm mr-1">View Asset</Link>
+            <Link href={`/capital/assets/${createdAsset.id}/label`} className="btn btn-info btn-sm mr-1"><i className="icon-printer" /> Print Label</Link>
+            <a href={backendUrl(`${createdAsset.qr_endpoint}?download=1`)} className="btn btn-secondary btn-sm"><i className="icon-cloud-download" /> Download QR</a>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={receiptFor !== null}

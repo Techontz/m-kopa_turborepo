@@ -135,7 +135,7 @@ class LoanWorkflow
      */
     public function apply(Customer $customer, array $data, Employee $employee): Loan
     {
-        // Customer → customer type → main loan category → active loan category, then the category's limits, then eligibility and freeze.
+        // Customer → customer type → active loan category of that type, then the category's limits, then eligibility and freeze.
         $this->eligibility->assertLoanCategoryAvailable($customer, (int) $data['loan_category_id'], 'loan_category_id');
         $this->assertWithinLimits(LoanCategory::findOrFail($data['loan_category_id']), (float) $data['amount_applied'], 'amount_applied');
 

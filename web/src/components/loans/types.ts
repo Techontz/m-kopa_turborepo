@@ -15,6 +15,8 @@ export interface Loan {
   branch?: string;
   loan_category_id: number;
   category?: string;
+  /** Customer type of the loan category (loan detail only). */
+  category_customer_type?: string | null;
   requires_mandate?: boolean;
   group_id: number | null;
   amount_applied: number;
@@ -97,8 +99,8 @@ export interface Eligibility {
   frozen_until: string | null;
   freeze: CustomerFreeze;
   topup: { loan_id: number; loan_number: string; eligible: boolean; paid_percent: number; required_percent: number; outstanding: number; reasons: string[] } | null;
-  /** `category` = the customer's customer type; `main_category` = its main loan category; limits live on each loan category. */
-  rules: { kyc_complete: boolean; risk_level: string | null; category: { id: number; code: string | null; name: string } | null; main_category: { id: number; name: string; is_enabled: boolean } | null; loan_category_ids: number[] };
+  /** `category` = the customer's customer type; `loan_category_ids` = its active loan categories (limits live on each loan category). */
+  rules: { kyc_complete: boolean; risk_level: string | null; category: { id: number; code: string | null; name: string } | null; loan_category_ids: number[] };
 }
 
 export interface CategoryOption {
@@ -139,6 +141,8 @@ export interface LoanDetail {
     street: string;
     id_number: string | null;
     branch: string | null;
+    /** The customer's customer type (customer_categories name). */
+    customer_type: string | null;
     status_label: string;
     kyc_status: string;
     created_at: string | null;

@@ -9,13 +9,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Customer type (shown as "Customer Type" everywhere in the UI; the table keeps its historical name): who the customer is —
  * required documents, risk level and the dynamic registration form. It holds NO loan configuration: its loan products are the
- * loan categories of its main loan category (created with the type, 1:1, name kept in sync).
+ * loan categories that reference it (loan_categories.customer_category_id, one customer type → many loan categories).
  */
 class CustomerCategory extends Model
 {
@@ -65,37 +64,10 @@ class CustomerCategory extends Model
     }
 
     /**
-     * The main loan category of this customer type (its loan group).
+     * The loan categories (loan products) offered to this customer type.
      */
-    public function mainLoanCategory(): HasOne
+    public function loanCategories(): HasMany
     {
-        return $this->hasOne(MainCategory::class, 'customer_category_id');
-    }
-
-    /**
-     * A new customer type gets its main loan category in the same transaction; a renamed type renames it.
-     */
-    protected static function booted(): void
-    {
-        static::created(function (CustomerCategory $type): void {
-            $type->ensureMainLoanCategory();
-        });
-
-        static::updated(function (CustomerCategory $type): void {
-            if ($type->wasChanged('name')) {
-                MainCategory::where('customer_category_id', $type->id)->update(['name' => $type->name]);
-            }
-        });
-    }
-
-    /**
-     * Idempotent: returns the existing main loan category or creates it (enabled when the type is active).
-     */
-    public function ensureMainLoanCategory(): MainCategory
-    {
-        return MainCategory::firstOrCreate(
-            ['company_id' => $this->company_id, 'customer_category_id' => $this->id],
-            ['code' => $this->code ?? $this->key, 'name' => $this->name, 'is_enabled' => (bool) ($this->is_active ?? true)],
-        );
+        return $this->hasMany(LoanCategory::class, 'customer_category_id');
     }
 }

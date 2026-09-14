@@ -139,6 +139,7 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
             <div className="col-md-4">
               <b>Phone number:</b> {customer.phone}<br />
               <b>Branch:</b> {customer.branch}<br />
+              <b>Customer Type:</b> {customer.customer_type ?? "—"}<br />
               <b>Customer status:</b> {customer.status_label}<br />
               <b>KYC:</b> {customer.kyc_status === "completed" ? "Completed" : "Incomplete"}
             </div>
@@ -193,7 +194,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
       <Card title="Applied Loan Application Form">
         <form onSubmit={(e) => { e.preventDefault(); approve.mutate({ loan_aprove: approved }); }}>
           <div className="row">
-            <div className="col-md-4 mb-2"><span>Loan category</span><input className="form-control" readOnly value={`${loan.category ?? ""} / ${percent(loan.interest_rate)}`} /></div>
+            <div className="col-md-4 mb-2"><span>Customer Type</span><input className="form-control" readOnly value={loan.category_customer_type ?? ""} /></div>
+            <div className="col-md-4 mb-2"><span>Loan Category</span><input className="form-control" readOnly value={`${loan.category ?? ""} / ${percent(loan.interest_rate)}`} /></div>
             <div className="col-md-4 mb-2"><span>Branch</span><input className="form-control" readOnly value={loan.branch ?? ""} /></div>
             <div className="col-md-4 mb-2"><span>Loan Amount Applied</span><input className="form-control" readOnly value={money(loan.amount_applied)} /></div>
             <div className="col-md-3 mb-2">

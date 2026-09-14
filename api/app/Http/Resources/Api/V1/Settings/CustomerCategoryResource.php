@@ -8,7 +8,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Customer type resource (CUSTOMER_MODULE_IMPLEMENTATION.md §3.3). No loan fields: loan categories and their limits belong
- * to the customer type's main loan category.
+ * to the loan categories that reference the customer type.
  *
  * @mixin CustomerCategory
  */

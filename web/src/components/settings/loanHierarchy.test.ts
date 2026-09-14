@@ -3,33 +3,31 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { menu, type MenuItem } from "@/lib/menu";
+
 import {
   applicationCategoryEmptyState,
   applicationCategoryOptions,
   CUSTOMER_TYPE_COLUMNS,
+  CUSTOMER_TYPE_FIELD,
+  CUSTOMER_TYPE_OPTIONS_ENDPOINT,
   CUSTOMER_TYPE_SELECT_LABEL,
+  customerTypeFilterOptions,
   LOAN_CATEGORY_COLUMNS,
-  MAIN_CATEGORY_OPTIONS_ENDPOINT,
-  MAIN_LOAN_CATEGORY_COLUMNS,
-  mainLoanCategoryRows,
-  type MainLoanCategory,
+  loanCategoryCustomerTypeOptions,
 } from "./loanHierarchy";
 
 const SRC = path.resolve(__dirname, "../..");
 const read = (file: string) => readFileSync(path.join(SRC, file), "utf8");
 
-/** Shape of GET settings/main-categories for a seeded company — names are placeholders, not the configured types. */
-function apiGroups(): MainLoanCategory[] {
-  return ["Type A", "Type B", "Type C", "Type D", "Type E"].map((name, index) => ({
-    id: 10 + index,
-    code: `CODE_${index}`,
-    name: `stale ${index}`,
-    customerType: { id: 100 + index, code: `CODE_${index}`, name },
-    loanCategoriesCount: index,
-    activeLoanCategoriesCount: index > 0 ? index - 1 : 0,
-    isEnabled: index !== 1,
-    status: index !== 1 ? "ENABLED" : "DISABLED",
-  }));
+/** Shape of GET /customer-types — names are placeholders, not the configured types. */
+function apiTypes() {
+  return [
+    { id: 3, name: "Type C", isActive: true, sortOrder: 3 },
+    { id: 1, name: "Type A", isActive: true, sortOrder: 1 },
+    { id: 2, name: "Type B", isActive: true, sortOrder: 2 },
+    { id: 9, name: "Brand New Type", isActive: true, sortOrder: 9 },
+  ];
 }
 
 describe("customer types list", () => {
@@ -43,40 +41,98 @@ describe("customer types list", () => {
   });
 });
 
-describe("main loan categories page", () => {
-  it("shows the five groups from the API, named after their customer type, with counts and status", () => {
-    const rows = mainLoanCategoryRows(apiGroups());
-    expect(rows.map((row) => row.customerType)).toEqual(["Type A", "Type B", "Type C", "Type D", "Type E"]);
-    expect(rows[1]).toEqual({ id: 11, customerType: "Type B", loanCategories: 1, activeLoanCategories: 0, enabled: false, status: "DISABLED" });
-    expect(rows[3]).toMatchObject({ loanCategories: 3, activeLoanCategories: 2, status: "ENABLED" });
-    expect(mainLoanCategoryRows(undefined)).toEqual([]);
-    expect([...MAIN_LOAN_CATEGORY_COLUMNS]).toEqual(["S/No.", "Customer Type", "Loan Categories", "Active Loan Categories", "Status", "Actions"]);
-    const page = read("app/(app)/settings/main-categories/page.tsx");
-    expect(page).toContain('useApi<MainLoanCategory[]>("settings/main-categories")');
-    expect(page).not.toMatch(/<input/);
-  });
-});
-
 describe("loan category form and list", () => {
-  it("uses a Customer Type select fed by the API and no Allowed Customer Types", () => {
+  it("has exactly one Customer Type select sourced from GET /customer-types and no Allowed Customer Types / main category", () => {
     const fields = read("components/settings/LoanCategoryFields.tsx");
     expect(CUSTOMER_TYPE_SELECT_LABEL).toBe("Customer Type");
-    expect(MAIN_CATEGORY_OPTIONS_ENDPOINT).toBe("settings/options/main-categories");
-    expect(fields).toContain("useApi<Option[]>(MAIN_CATEGORY_OPTIONS_ENDPOINT)");
-    expect(fields).toContain('select("main_category_id", "Select Customer Type", mains)');
-    for (const needle of ["Allowed Customer Types", "customer_category_ids", "Main Loan Category", "Loan Type", "main_id"]) {
+    expect(CUSTOMER_TYPE_OPTIONS_ENDPOINT).toBe("customer-types");
+    expect(CUSTOMER_TYPE_FIELD).toBe("customer_type_id");
+    expect(fields).toContain("useApi<CustomerType[]>(CUSTOMER_TYPE_OPTIONS_ENDPOINT)");
+    expect(fields.match(/select\("customer_type_id"/g)).toHaveLength(1);
+    expect(fields.match(/CUSTOMER_TYPE_SELECT_LABEL/g)?.length).toBe(2); // import + the one field
+    for (const needle of ["Allowed Customer Types", "customer_category_ids", "Main Loan Category", "main_category", "Loan Type", "main_id", "multiple"]) {
       expect(fields).not.toContain(needle);
     }
   });
 
-  it("lists loan categories by customer type with the product columns including Freeze Time", () => {
-    expect(LOAN_CATEGORY_COLUMNS[1]).toBe("Customer Type");
-    expect(LOAN_CATEGORY_COLUMNS).toContain("Freeze Time");
-    expect(LOAN_CATEGORY_COLUMNS).toContain("E-Mandate");
+  it("orders the form fields as agreed, Loan Category Name first and Customer Type second", () => {
+    const fields = read("components/settings/LoanCategoryFields.tsx");
+    const labels = [...fields.matchAll(/<Field label=(?:"([^"]+)"|\{(CUSTOMER_TYPE_SELECT_LABEL)\})/g)].map((match) => match[1] ?? "Customer Type");
+    expect(labels).toEqual([
+      "Loan Category Name",
+      "Customer Type",
+      "Loan Amount From",
+      "Loan Amount To",
+      "Loan Interest (%)",
+      "Interest Formula",
+      "Loan Duration",
+      "Repayment Level From",
+      "Repayment Level To",
+      "Allow Deduction?",
+      "Allow Penalty?",
+      "Approve Status",
+      "Top-up Percent (%)",
+      "Freeze Time (Days)",
+      "Take Home Percent (%)",
+      "Requires E-Mandate? (Bank deduction)",
+    ]);
+  });
+
+  it("builds the select options from the API types in display order, keeping an inactive current type on edit", () => {
+    expect(loanCategoryCustomerTypeOptions(apiTypes()).map((option) => option.label)).toEqual(["Type A", "Type B", "Type C", "Brand New Type"]);
+    expect(loanCategoryCustomerTypeOptions(apiTypes(), { id: 2, name: "Type B" })).toHaveLength(4);
+    expect(loanCategoryCustomerTypeOptions(apiTypes(), { id: 7, name: "Retired" }).at(-1)).toEqual({ value: "7", label: "Retired (inactive)" });
+    expect(customerTypeFilterOptions(undefined)).toEqual([]);
+  });
+
+  it("lists loan categories with exactly the agreed columns and a Customer Type filter", () => {
+    expect([...LOAN_CATEGORY_COLUMNS]).toEqual([
+      "S/No.",
+      "Customer Type",
+      "Loan Category Name",
+      "Loan Level",
+      "Loan Interest",
+      "Interest Formula",
+      "Duration",
+      "Number of Repayments",
+      "Deduction",
+      "Penalty",
+      "Approve Status",
+      "Top-up %",
+      "Freeze Time",
+      "Take Home %",
+      "E-Mandate",
+      "Action",
+    ]);
+    expect(LOAN_CATEGORY_COLUMNS).not.toContain("Customer Types");
     const page = read("app/(app)/settings/loan-categories/page.tsx");
-    expect(page).toContain("LOAN_CATEGORY_COLUMNS[16]");
-    expect(page).not.toContain("Loan Type");
-    expect(page).not.toContain("Customer Types");
+    expect(page).toContain("LOAN_CATEGORY_COLUMNS[15]");
+    expect(page).not.toContain("LOAN_CATEGORY_COLUMNS[16]");
+    expect(page).toContain("{ customer_type_id: customerType }");
+    expect(page).toContain("row.customer_type?.name");
+    for (const needle of ["Loan Type", "Customer Types", "main_category"]) {
+      expect(page).not.toContain(needle);
+    }
+  });
+
+  it("has no Main Loan Categories menu item and keeps the Settings order; old URLs redirect", () => {
+    const settings = menu.flatMap((tab) => tab.items).find((item: MenuItem) => item.label === "Settings");
+    expect(settings?.children?.map((item) => item.label)).toEqual([
+      "Customer Types",
+      "Branch",
+      "Zones",
+      "Interest Formula",
+      "Loan Categories",
+      "Master Data",
+      "Geography",
+      "Loan Fee",
+      "Penalty",
+      "Reserve Setting",
+      "Dividend Settings",
+      "Roles & Permissions",
+    ]);
+    expect(JSON.stringify(menu)).not.toMatch(/main-categories|Main Loan Categor/);
+    expect(read("app/(app)/settings/main-categories/[[...slug]]/page.tsx")).toContain('redirect("/settings/loan-categories")');
   });
 });
 

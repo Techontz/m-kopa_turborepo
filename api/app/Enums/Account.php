@@ -42,6 +42,14 @@ enum Account: string
     /** ACCOUNT OVERVIEW 19: interest due but not yet paid. */
     case OutstandingInterest = 'outstanding_interest';
 
+    // Assets — fixed (non-cash) assets, e.g. contributed as capital (config/assets.php maps asset types to these)
+    case MotorVehicles = 'motor_vehicles';
+    case Equipment = 'equipment';
+    case FurnitureFixtures = 'furniture_fixtures';
+    case Buildings = 'buildings';
+    case Land = 'land';
+    case OtherFixedAssets = 'other_fixed_assets';
+
     // Liabilities
     case Suspense = 'suspense';
     case SavingsDeposits = 'savings_deposits';
@@ -98,6 +106,8 @@ enum Account: string
             self::LoanReceivable => '1300', self::LoanArrears => '1310', self::LoanDefault => '1320',
             self::SalaryAdvanceReceivable => '1330', self::StaffLoanReceivable => '1340', self::StaffAdvanceReceivable => '1350', self::StaffFundCash => '1360',
             self::Offset => '1370', self::OutstandingInterest => '1380',
+            self::MotorVehicles => '1500', self::Equipment => '1510', self::FurnitureFixtures => '1520',
+            self::Buildings => '1530', self::Land => '1540', self::OtherFixedAssets => '1550',
             self::Suspense => '2000', self::SavingsDeposits => '2010', self::StaffPayable => '2020',
             self::StaffFund => '2030', self::DividendPayable => '2040',
             self::Capital => '3000', self::RetainedProfit => '3100',
@@ -137,6 +147,12 @@ enum Account: string
             self::StaffFundCash => 'STAFF FUND A/C',
             self::Offset => 'OFFSET ACCOUNT',
             self::OutstandingInterest => 'OUTSTANDING INTEREST',
+            self::MotorVehicles => 'MOTOR VEHICLES',
+            self::Equipment => 'EQUIPMENT & ELECTRONICS',
+            self::FurnitureFixtures => 'FURNITURE & FIXTURES',
+            self::Buildings => 'BUILDINGS',
+            self::Land => 'LAND',
+            self::OtherFixedAssets => 'OTHER FIXED ASSETS',
             self::Suspense => 'SUSPENSE ACCOUNT',
             self::SavingsDeposits => 'CUSTOMER SAVINGS',
             self::StaffPayable => 'STAFF PAYABLE',
@@ -166,6 +182,16 @@ enum Account: string
     public static function transferableBranchAccounts(): array
     {
         return [self::Principal, self::Interest, self::Reserve, self::LoanFee, self::Penalty];
+    }
+
+    /**
+     * Fixed (non-cash) asset accounts: excluded from cash positions and shown as "Fixed assets" on the Balance Sheet.
+     *
+     * @return list<self>
+     */
+    public static function fixedAssets(): array
+    {
+        return [self::MotorVehicles, self::Equipment, self::FurnitureFixtures, self::Buildings, self::Land, self::OtherFixedAssets];
     }
 
     /**

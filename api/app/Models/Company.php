@@ -69,11 +69,6 @@ class Company extends Model
         return $this->hasMany(LoanCategory::class);
     }
 
-    public function mainCategories(): HasMany
-    {
-        return $this->hasMany(MainCategory::class);
-    }
-
     public function groups(): HasMany
     {
         return $this->hasMany(Group::class);

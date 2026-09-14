@@ -5,7 +5,6 @@ use App\Http\Controllers\Api\V1\Settings\CompanySettingController;
 use App\Http\Controllers\Api\V1\Settings\FormulaController;
 use App\Http\Controllers\Api\V1\Settings\LoanCategoryController;
 use App\Http\Controllers\Api\V1\Settings\LoanFeeController;
-use App\Http\Controllers\Api\V1\Settings\MainCategoryController;
 use App\Http\Controllers\Api\V1\Settings\RoleController;
 use App\Http\Controllers\Api\V1\Settings\SettingsOptionController;
 use App\Http\Controllers\Api\V1\Settings\ZoneController;
@@ -19,16 +18,6 @@ Route::prefix('settings')->name('settings.')->group(function (): void {
         Route::get('formulas', 'index')->name('formulas.index');
         Route::post('formulas/{formula}/enable', 'enable')->name('formulas.enable');
         Route::delete('formulas/{formula}', 'disable')->name('formulas.disable');
-    });
-
-    Route::controller(MainCategoryController::class)->group(function (): void {
-        Route::get('main-categories', 'index')->name('main-categories.index');
-        Route::get('main-categories/{mainCategory}', 'show')->name('main-categories.show');
-        Route::post('main-categories/{mainCategory}/enable', 'enable')->name('main-categories.enable');
-        Route::delete('main-categories/{mainCategory}', 'disable')->name('main-categories.disable');
-        Route::get('main-categories/{mainCategory}/sub-categories', 'subCategories')->name('main-categories.sub-categories');
-        Route::post('sub-categories/{subCategory}/enable', 'enableSubCategory')->name('sub-categories.enable');
-        Route::delete('sub-categories/{subCategory}', 'disableSubCategory')->name('sub-categories.disable');
     });
 
     Route::apiResource('loan-categories', LoanCategoryController::class);
@@ -67,7 +56,6 @@ Route::prefix('settings')->name('settings.')->group(function (): void {
         Route::get('formulas', 'formulas')->name('formulas');
         Route::get('durations', 'durations')->name('durations');
         Route::get('approve-levels', 'approveLevels')->name('approve-levels');
-        Route::get('main-categories', 'mainCategories')->name('main-categories');
         Route::get('loan-categories', 'loanCategories')->name('loan-categories');
         Route::get('customer-categories', 'customerCategories')->name('customer-categories');
         Route::get('zones', 'zones')->name('zones');

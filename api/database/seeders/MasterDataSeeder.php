@@ -12,7 +12,6 @@ use App\Models\ExpenseType;
 use App\Models\Group;
 use App\Models\InterestFormula;
 use App\Models\LoanCategory;
-use App\Models\MainCategory;
 use App\Models\PaymentMode;
 use App\Models\Region;
 use App\Models\SalaryAdvanceCategory;
@@ -92,18 +91,12 @@ class MasterDataSeeder extends Seeder
         }
 
         $this->seedCustomerTypes($company);
-        $watumishi = $this->mainLoanCategory($company, 'WATUMISHI_WA_UMMA');
-        $wajasiliamali = $this->mainLoanCategory($company, 'WAJASIRIAMALI');
-
-        foreach ([['hazina', 'HAZINA', false], ['binafsi', 'BINAFSI', true], ['WASTAFU', 'WASTAFU', true], ['VIP', 'VIP', true]] as [$code, $name, $enabled]) {
-            $watumishi->subCategories()->updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => $enabled]);
-        }
-        foreach ([['group', 'VIKUNDI'], ['binafsi', 'BINAFSI'], ['VIP', 'VIP']] as [$code, $name]) {
-            $wajasiliamali->subCategories()->updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => true]);
-        }
+        // Demo products per customer type: WATUMISHI products → Mtumishi wa Umma; WAJASILIAMALI / VIKUNDI / GROUP → Mjasiriamali/Mfanyabiashara.
+        $watumishi = $this->customerType($company, 'WATUMISHI_WA_UMMA');
+        $wajasiliamali = $this->customerType($company, 'WAJASIRIAMALI');
 
         $products = [
-            // name, main, from, to, rate, duration, rep from, rep to, fee deduct, approve, topup, take home, fee, insurance
+            // name, customer type, from, to, rate, duration, rep from, rep to, fee deduct, approve, topup, take home, fee, insurance
             ['WAJASILIAMALI', $wajasiliamali, 20000, 2000000, 30, Duration::Weekly, 1, 3, true, 'hq', 50, 70, 5000, 5000],
             ['GROUP LOAN', $wajasiliamali, 600000, 1000000, 20, Duration::Weekly, 1, 5, true, 'hq', 90, 90, 75000, 100000],
             ['VIKUNDI 1', $wajasiliamali, 250000, 500000, 30, Duration::Weekly, 1, 3, true, 'branch', 50, 70, 5000, 25000],
@@ -118,9 +111,9 @@ class MasterDataSeeder extends Seeder
             ['WATUMISHI LOAN', $watumishi, 100000, 500000, 20, Duration::Monthly, 1, 3, true, 'branch', 50, 70, 5000, 5000],
         ];
 
-        foreach ($products as [$name, $main, $from, $to, $rate, $duration, $repFrom, $repTo, $feeDeduct, $approve, $topup, $takeHome, $fee, $insurance]) {
+        foreach ($products as [$name, $customerType, $from, $to, $rate, $duration, $repFrom, $repTo, $feeDeduct, $approve, $topup, $takeHome, $fee, $insurance]) {
             $category = LoanCategory::updateOrCreate(['company_id' => $company->id, 'name' => $name], [
-                'main_category_id' => $main->id,
+                'customer_category_id' => $customerType->id,
                 'amount_from' => $from,
                 'amount_to' => $to,
                 'interest_rate' => $rate,
@@ -192,8 +185,8 @@ class MasterDataSeeder extends Seeder
     }
 
     /**
-     * The five customer types (CustomerModuleSeeder), each with its main loan category, plus the legacy risk level.
-     * Customer types carry no loan rules: products and limits live on the loan categories of each main loan category.
+     * The five customer types (CustomerModuleSeeder) plus the legacy risk level. Customer types carry no loan rules:
+     * products and limits live on the loan categories of each customer type.
      */
     private function seedCustomerTypes(Company $company): void
     {
@@ -208,11 +201,11 @@ class MasterDataSeeder extends Seeder
     }
 
     /**
-     * The main loan category of the customer type with the given code.
+     * The customer type with the given code.
      */
-    private function mainLoanCategory(Company $company, string $customerTypeCode): MainCategory
+    private function customerType(Company $company, string $code): CustomerCategory
     {
-        return CustomerCategory::where('company_id', $company->id)->where('code', $customerTypeCode)->firstOrFail()->ensureMainLoanCategory();
+        return CustomerCategory::where('company_id', $company->id)->where('code', $code)->firstOrFail();
     }
 
     private function region(string $name): int

@@ -24,6 +24,11 @@ export interface RegisterRow {
   status: "active" | "no_shares";
   rank?: number;
   cumulative_percent?: number;
+  /** Contribution columns, present only for users who may see capital. */
+  total_contributed?: number;
+  cash_contributed?: number;
+  bank_contributed?: number;
+  asset_contributed?: number;
 }
 
 export interface ShareHolderInfo {
@@ -132,6 +137,7 @@ export interface ShareProfile {
   transactions: ShareTransaction[];
   can_view_contributions: boolean;
   total_contributed: number | null;
+  contribution_breakdown?: { cash: number; bank: number; asset: number; total: number } | null;
   contributions:
     | {
         id: number;
@@ -143,6 +149,10 @@ export interface ShareProfile {
         recorded_by: string | null;
         journal_reference: string | null;
         share_transaction_reference: string | null;
+        asset_id?: number | null;
+        asset_code?: string | null;
+        asset_name?: string | null;
+        reversed?: boolean;
       }[]
     | null;
 }
@@ -152,5 +162,6 @@ export interface RegisterResponse {
   total_shares: number;
   share_value: number;
   total_valuation: number;
+  can_view_contributions?: boolean;
   rows: RegisterRow[];
 }

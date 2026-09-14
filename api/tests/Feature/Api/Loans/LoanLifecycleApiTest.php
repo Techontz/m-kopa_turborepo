@@ -33,7 +33,7 @@ class LoanLifecycleApiTest extends TestCase
 
         config(['integrations.vodacom.driver' => 'test', 'integrations.bank_mandate.driver' => 'test', 'integrations.vodacom.test_outcome' => 'success']);
         $this->admin = $this->signInAdmin();
-        // Customer type → main loan category → loan category: the customer may apply for the category of its type.
+        // Customer type → loan category: the customer may apply for the loan categories of its type.
         $customerType = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id]);
         $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $customerType->id]);
         $this->category = LoanCategory::factory()->forCustomerType($customerType)->create(['insurance' => 0]);

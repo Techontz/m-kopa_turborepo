@@ -53,7 +53,6 @@ class CustomerCategoryController extends ApiController
 
     public function store(CustomerCategoryRequest $request): JsonResponse
     {
-        // The created event adds the customer type's main loan category inside the same transaction.
         $category = DB::transaction(fn (): CustomerCategory => CustomerCategory::query()->create($request->categoryData() + [
             'company_id' => $this->currentEmployee()->company_id,
             'key' => Str::lower($request->string('code')->toString()),
@@ -72,23 +71,18 @@ class CustomerCategoryController extends ApiController
     }
 
     /**
-     * A customer type whose main loan category holds loan categories cannot be deleted (422). Otherwise the type is
-     * soft-deleted and its main loan category disabled (kept, so the link and history stay valid).
+     * A customer type that has loan categories cannot be deleted (422). Otherwise the type is soft-deleted.
      */
     public function destroy(CustomerCategory $customerCategory): JsonResponse
     {
         $employee = $this->currentEmployee();
         abort_unless($employee instanceof Employee && $employee->role?->key === 'super_admin', 403, 'Only the Super Administrator can create, edit or delete customer types.');
 
-        $main = $customerCategory->mainLoanCategory;
-        if ($main !== null && $main->loanCategories()->exists()) {
+        if ($customerCategory->loanCategories()->exists()) {
             return $this->message('This customer type has loan categories and cannot be deleted. Move or delete its loan categories first.', 422);
         }
 
-        DB::transaction(function () use ($customerCategory, $main): void {
-            $main?->update(['is_enabled' => false]);
-            $customerCategory->delete();
-        });
+        $customerCategory->delete();
 
         return $this->message('Customer type deleted.');
     }

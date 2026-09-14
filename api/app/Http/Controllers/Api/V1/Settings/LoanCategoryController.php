@@ -13,7 +13,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
  * Settings → Loan Category (live admin/loan_category, edit_loan_category, loan_category_blanch), extended with the
- * Documents' requires_mandate flag and Freeze Time. Each loan category belongs to one main loan category, i.e. one customer type.
+ * Documents' requires_mandate flag and Freeze Time. Each loan category belongs to exactly one customer type (customer_category_id).
  */
 class LoanCategoryController extends ApiController
 {
@@ -22,9 +22,9 @@ class LoanCategoryController extends ApiController
         $this->authorizeAny('settings.manage');
 
         $categories = LoanCategory::where('company_id', $this->currentEmployee()->company_id)
-            ->when($request->filled('main_category_id'), fn ($query) => $query->where('main_category_id', $request->integer('main_category_id')))
-            ->with(['mainCategory.customerType', 'branches' => fn ($query) => $query->orderBy('branches.id')])
-            ->orderBy('main_category_id')
+            ->when($request->filled('customer_type_id'), fn ($query) => $query->where('customer_category_id', $request->integer('customer_type_id')))
+            ->with(['customerType', 'branches' => fn ($query) => $query->orderBy('branches.id')])
+            ->orderBy('customer_category_id')
             ->orderBy('id')
             ->get();
 
@@ -41,14 +41,14 @@ class LoanCategoryController extends ApiController
             'freeze_time_days' => (int) $company->loan_freeze_days,
         ]);
 
-        return $this->message('Loan Category Registered successfully', 201, ['data' => new LoanCategoryResource($category->load('mainCategory.customerType'))]);
+        return $this->message('Loan Category Registered successfully', 201, ['data' => new LoanCategoryResource($category->load('customerType'))]);
     }
 
     public function show(LoanCategory $loanCategory): LoanCategoryResource
     {
         $this->authorizeAny('settings.manage');
 
-        return new LoanCategoryResource($loanCategory->load(['mainCategory.customerType', 'branches' => fn ($query) => $query->orderBy('branches.id')]));
+        return new LoanCategoryResource($loanCategory->load(['customerType', 'branches' => fn ($query) => $query->orderBy('branches.id')]));
     }
 
     public function update(LoanCategoryRequest $request, LoanCategory $loanCategory): JsonResponse
@@ -57,7 +57,7 @@ class LoanCategoryController extends ApiController
 
         $loanCategory->update($request->categoryData());
 
-        return $this->message('Loan Category Updated successfully', 200, ['data' => new LoanCategoryResource($loanCategory->load('mainCategory.customerType'))]);
+        return $this->message('Loan Category Updated successfully', 200, ['data' => new LoanCategoryResource($loanCategory->load('customerType'))]);
     }
 
     public function destroy(LoanCategory $loanCategory): JsonResponse

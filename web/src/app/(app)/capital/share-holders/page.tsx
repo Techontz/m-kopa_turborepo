@@ -30,6 +30,9 @@ interface ShareHolder {
   date_of_birth: string | null;
   photo_endpoint: string | null;
   total_contributed: number;
+  cash_contributed: number;
+  bank_contributed: number;
+  asset_contributed: number;
   shares: number;
   ownership_percent: number;
   holding_value: number;
@@ -169,7 +172,10 @@ export default function ShareHoldersPage() {
             { key: "email", header: "Email" },
             { key: "gender", header: "Sex" },
             { key: "date_of_birth", header: "Date of Birth" },
-            { key: "total_contributed", header: "Total Contributed Capital", render: (row) => money(row.total_contributed) },
+            { key: "cash_contributed", header: "Cash", className: "text-right", render: (row) => money(row.cash_contributed) },
+            { key: "bank_contributed", header: "Bank", className: "text-right", render: (row) => money(row.bank_contributed) },
+            { key: "asset_contributed", header: "Asset", className: "text-right", render: (row) => money(row.asset_contributed) },
+            { key: "total_contributed", header: "Total Contributed Capital", className: "text-right", render: (row) => <b>{money(row.total_contributed)}</b> },
             { key: "shares", header: "Shares", render: (row) => row.shares.toLocaleString("en-US") },
             { key: "ownership_percent", header: "Ownership % (share register)", render: (row) => ownershipLabel(row.ownership_percent) },
             {

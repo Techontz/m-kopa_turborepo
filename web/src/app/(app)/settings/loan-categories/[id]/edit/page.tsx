@@ -16,7 +16,7 @@ function EditForm({ category }: { category: LoanCategory }) {
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); update.mutate(form, { onSuccess: () => router.push("/settings/loan-categories") }); }}>
-      <LoanCategoryFields form={form} setForm={setForm} fieldError={update.fieldError} />
+      <LoanCategoryFields form={form} setForm={setForm} fieldError={update.fieldError} currentCustomerType={category.customer_type} />
       <div className="text-center m-t-20">
         <button type="submit" className="btn btn-primary" disabled={update.isPending}><i className="icon-drawer" />Update</button>
       </div>

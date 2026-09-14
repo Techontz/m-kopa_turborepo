@@ -98,6 +98,16 @@ export default function ShareProfilePage() {
 
           {data.can_view_contributions && data.contributions && (
             <Card title={`Capital Contribution History — total ${money(data.total_contributed)}`}>
+              {data.contribution_breakdown && (
+                <SummaryTiles
+                  items={[
+                    { label: "Cash Contributions", value: data.contribution_breakdown.cash },
+                    { label: "Bank Contributions", value: data.contribution_breakdown.bank },
+                    { label: "Asset Contributions", value: data.contribution_breakdown.asset },
+                    { label: "Total Contributions", value: data.contribution_breakdown.total },
+                  ]}
+                />
+              )}
               <DataTable
                 rows={data.contributions}
                 rowKey={(row) => row.id}
@@ -106,7 +116,17 @@ export default function ShareProfilePage() {
                 columns={[
                   { key: "contributed_at", header: "Date / Time" },
                   { key: "amount", header: "Amount", className: "text-right", render: (row) => money(row.amount) },
-                  { key: "pay_method", header: "Pay Method" },
+                  {
+                    key: "pay_method",
+                    header: "Pay Method",
+                    render: (row) => (
+                      <>
+                        {row.pay_method}
+                        {row.asset_id && <> · <Link href={`/capital/assets/${row.asset_id}`} title={row.asset_name ?? ""}>{row.asset_code}</Link></>}
+                        {row.reversed && " · REVERSED"}
+                      </>
+                    ),
+                  },
                   { key: "receiving_account_label", header: "Receiving Account", render: (row) => row.receiving_account_label ?? "—" },
                   { key: "receipt_number", header: "Receipt No", render: (row) => row.receipt_number || "—" },
                   { key: "journal_reference", header: "Journal Ref", render: (row) => row.journal_reference ?? "—" },

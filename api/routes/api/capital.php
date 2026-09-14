@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Capital\AssetController;
 use App\Http\Controllers\Api\V1\Capital\CapitalController;
 use App\Http\Controllers\Api\V1\Capital\CapitalOptionController;
 use App\Http\Controllers\Api\V1\Capital\DividendController;
@@ -17,6 +18,23 @@ Route::prefix('capital')->name('capital.')->group(function (): void {
     Route::post('capitals', [CapitalController::class, 'store'])->name('capitals.store');
     Route::post('capitals/{capital}/receipt', [CapitalController::class, 'replaceReceipt'])->name('capitals.receipt.update');
     Route::get('capitals/{capital}/receipt', [CapitalController::class, 'receipt'])->name('capitals.receipt');
+
+    Route::controller(AssetController::class)->prefix('assets')->name('assets.')->group(function (): void {
+        Route::get('config', 'config')->name('config');
+        Route::get('scan/{token}', 'scan')->where('token', '[A-Za-z0-9-]{1,64}')->name('scan');
+        Route::get('/', 'index')->name('index');
+        Route::post('/', 'store')->name('store');
+        Route::get('{asset}', 'show')->whereNumber('asset')->name('show');
+        Route::patch('{asset}', 'update')->whereNumber('asset')->name('update');
+        Route::post('{asset}/transfer', 'transfer')->whereNumber('asset')->name('transfer');
+        Route::post('{asset}/status', 'status')->whereNumber('asset')->name('status');
+        Route::post('{asset}/revaluations', 'revalue')->whereNumber('asset')->name('revaluations.store');
+        Route::post('{asset}/reverse', 'reverse')->whereNumber('asset')->name('reverse');
+        Route::get('{asset}/qr', 'qr')->whereNumber('asset')->name('qr');
+        Route::post('{asset}/documents', 'storeDocument')->whereNumber('asset')->name('documents.store');
+        Route::get('{asset}/documents/{document}', 'document')->whereNumber(['asset', 'document'])->name('documents.show');
+        Route::delete('{asset}/documents/{document}', 'destroyDocument')->whereNumber(['asset', 'document'])->name('documents.destroy');
+    });
 
     Route::controller(DividendController::class)->group(function (): void {
         Route::get('dividends', 'index')->name('dividends.index');

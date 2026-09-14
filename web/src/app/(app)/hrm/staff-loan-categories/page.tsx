@@ -101,7 +101,7 @@ export default function StaffLoanCategoryPage() {
           rowKey={(row) => row.id}
           columns={[
             { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
-            { key: "name", header: "Loan Category name" },
+            { key: "name", header: "Loan Category Name" },
             { key: "level", header: "Loan level", render: (row) => `${money(row.amount_from)} - ${money(row.amount_to)}` },
             { key: "interest_rate", header: "Loan Interest", render: (row) => percent(row.interest_rate) },
             { key: "duration", header: "Duration", className: "text-capitalize" },

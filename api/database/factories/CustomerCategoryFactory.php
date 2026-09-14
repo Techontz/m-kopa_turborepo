@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
 /**
- * A customer type; creating one also creates its main loan category (CustomerCategory created event).
+ * A customer type (loan categories reference it through loan_categories.customer_category_id).
  *
  * @extends Factory<CustomerCategory>
  */

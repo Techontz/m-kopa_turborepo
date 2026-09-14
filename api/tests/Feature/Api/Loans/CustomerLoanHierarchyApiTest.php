@@ -9,14 +9,14 @@ use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\Loan;
 use App\Models\LoanCategory;
-use App\Models\MainCategory;
 use Carbon\CarbonImmutable;
 use Database\Seeders\CustomerModuleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
- * CUSTOMER TYPE → MAIN LOAN CATEGORY → LOAN CATEGORY → LOAN APPLICATION.
+ * CUSTOMER TYPE (1) → (many) LOAN CATEGORY → LOAN APPLICATION.
  */
 class CustomerLoanHierarchyApiTest extends TestCase
 {
@@ -67,42 +67,28 @@ class CustomerLoanHierarchyApiTest extends TestCase
         return ['customer_id' => $customer->id, 'category_id' => $category->id, 'how_loan' => $amount, 'day' => 'weekly', 'session' => 1, 'rate' => 'SIMPLE', 'fee_status' => 'NO', 'reason' => 'BIASHARA'];
     }
 
-    public function test_seeder_links_the_five_customer_types_one_to_one_and_is_idempotent(): void
+    public function test_seeder_creates_the_five_customer_types_idempotently_without_main_loan_categories(): void
     {
         $seeder = new CustomerModuleSeeder;
         $seeder->seedCompany($this->admin->company);
         $seeder->seedCompany($this->admin->company);
 
-        $mains = MainCategory::query()->listed($this->admin->company_id)->with('customerType')->get();
-
-        $this->assertCount(5, $mains);
         $this->assertSame(
-            CustomerCategory::where('company_id', $this->admin->company_id)->orderBy('sort_order')->pluck('name')->all(),
-            $mains->map(fn (MainCategory $main): string => $main->display_name)->all(),
+            ['WATUMISHI_WA_UMMA', 'SEKTA_BINAFSI', 'WAJASIRIAMALI', 'MWANAFUNZI_CHUO', 'MSTAAFU_UMMA'],
+            CustomerCategory::where('company_id', $this->admin->company_id)->orderBy('sort_order')->pluck('code')->all(),
         );
-        $this->assertSame($mains->pluck('name')->all(), $mains->pluck('customerType.name')->all());
-        $this->assertSame(5, $mains->pluck('customer_category_id')->unique()->count());
+        $this->assertSame(0, DB::table('main_categories')->count());
     }
 
-    public function test_main_loan_categories_endpoint_lists_the_five_groups_with_counts(): void
+    public function test_customer_types_endpoint_feeds_the_loan_category_form_including_new_types(): void
     {
-        $this->loanCategory('WATUMISHI_WA_UMMA');
-        $this->loanCategory('WATUMISHI_WA_UMMA', atBranch: false);
-        $this->type('SEKTA_BINAFSI')->mainLoanCategory->update(['is_enabled' => false]);
-        $this->loanCategory('SEKTA_BINAFSI');
+        $this->getJson('/api/v1/customer-types')->assertOk()->assertJsonCount(5, 'data')->assertJsonPath('data.2.name', 'Mjasiriamali/Mfanyabiashara');
 
-        $response = $this->getJson('/api/v1/settings/main-categories')->assertOk()->assertJsonCount(5, 'data');
+        $new = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id, 'name' => 'Mkulima', 'code' => 'MKULIMA', 'sort_order' => 99]);
 
-        $this->assertSame(['WATUMISHI_WA_UMMA', 'SEKTA_BINAFSI', 'WAJASIRIAMALI', 'MWANAFUNZI_CHUO', 'MSTAAFU_UMMA'], array_column(array_column($response->json('data'), 'customerType'), 'code'));
-        $response->assertJsonPath('data.0.name', 'Mtumishi wa Umma')
-            ->assertJsonPath('data.0.loanCategoriesCount', 2)
-            ->assertJsonPath('data.0.activeLoanCategoriesCount', 1)
-            ->assertJsonPath('data.0.status', 'ENABLED')
-            ->assertJsonPath('data.1.loanCategoriesCount', 1)
-            ->assertJsonPath('data.1.activeLoanCategoriesCount', 0)
-            ->assertJsonPath('data.1.status', 'DISABLED');
-
-        $this->getJson('/api/v1/settings/options/main-categories')->assertOk()->assertJsonCount(5, 'data')->assertJsonPath('data.2.label', 'Mjasiriamali/Mfanyabiashara');
+        $response = $this->getJson('/api/v1/customer-types')->assertOk()->assertJsonCount(6, 'data')->assertJsonPath('data.5.name', 'Mkulima');
+        $this->assertSame($new->id, $response->json('data.5.id'));
+        $this->assertArrayNotHasKey('mainLoanCategory', $response->json('data.5'));
     }
 
     public function test_categories_endpoint_returns_only_the_active_categories_of_the_customer_type(): void
@@ -118,7 +104,15 @@ class CustomerLoanHierarchyApiTest extends TestCase
             ->assertJsonPath('customer_type.name', 'Mtumishi wa Umma')
             ->assertJsonPath('eligibility.rules.loan_category_ids', [$own->id]);
 
-        $this->type('WATUMISHI_WA_UMMA')->mainLoanCategory->update(['is_enabled' => false]);
+        $this->getJson(route('api.v1.loans.categories', $employee))->assertOk()->assertJsonMissingPath('main_category');
+        $business = $this->customer('WAJASIRIAMALI');
+        $this->getJson(route('api.v1.loans.categories', $business))->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.label', 'WAJASILIAMALI / 20000 - 2000000')
+            ->assertJsonPath('customer_type.name', 'Mjasiriamali/Mfanyabiashara');
+
+        // An inactive customer type offers no loan categories.
+        $this->type('WATUMISHI_WA_UMMA')->update(['is_active' => false]);
         $this->getJson(route('api.v1.loans.categories', $employee))->assertOk()->assertJsonCount(0, 'data');
 
         $this->getJson(route('api.v1.loans.categories', $this->customer(null)))->assertOk()
@@ -138,9 +132,9 @@ class CustomerLoanHierarchyApiTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonPath('errors.category_id.0', "This loan category is not available for the customer's customer type (Mtumishi wa Umma).");
 
-        $this->type('WATUMISHI_WA_UMMA')->mainLoanCategory->update(['is_enabled' => false]);
-        $disabled = LoanCategory::where('main_category_id', $this->type('WATUMISHI_WA_UMMA')->mainLoanCategory->id)->sole();
-        $this->postJson(route('api.v1.loans.store'), $this->form($employee, $disabled))
+        $this->type('WATUMISHI_WA_UMMA')->update(['is_active' => false]);
+        $disabled = LoanCategory::where('customer_category_id', $this->type('WATUMISHI_WA_UMMA')->id)->sole();
+        $this->postJson(route('api.v1.loans.store'), $this->form($employee->fresh(), $disabled))
             ->assertUnprocessable()
             ->assertJsonPath('errors.category_id.0', "This loan category is not active for the customer's customer type (Mtumishi wa Umma).");
 
@@ -203,15 +197,17 @@ class CustomerLoanHierarchyApiTest extends TestCase
         $this->assertSame(LoanStatus::PendingManagerApproval, $loan->fresh()->status);
     }
 
-    public function test_customer_type_rename_is_reflected_in_its_main_loan_category_and_other_companies_are_isolated(): void
+    public function test_customer_type_rename_is_reflected_in_loan_categories_and_other_companies_are_isolated(): void
     {
+        $category = $this->loanCategory('SEKTA_BINAFSI');
         $type = $this->type('SEKTA_BINAFSI');
         $type->update(['name' => 'Sekta Binafsi (Renamed)']);
 
-        $this->assertSame('Sekta Binafsi (Renamed)', $type->mainLoanCategory->fresh()->name);
-        $this->getJson('/api/v1/settings/main-categories')->assertOk()->assertJsonPath('data.1.name', 'Sekta Binafsi (Renamed)');
+        $this->getJson("/api/v1/settings/loan-categories/{$category->id}")->assertOk()->assertJsonPath('data.customer_type.name', 'Sekta Binafsi (Renamed)');
+        $this->getJson(route('api.v1.loans.categories', $this->customer('SEKTA_BINAFSI')))->assertOk()->assertJsonPath('customer_type.name', 'Sekta Binafsi (Renamed)');
 
-        $foreign = CustomerCategory::factory()->create(['company_id' => Company::factory()->create()->id]);
-        $this->getJson("/api/v1/settings/main-categories/{$foreign->mainLoanCategory->id}")->assertNotFound();
+        $foreign = LoanCategory::factory()->create(['company_id' => Company::factory()->create()->id]);
+        $this->getJson("/api/v1/settings/loan-categories/{$foreign->id}")->assertNotFound();
+        $this->getJson("/api/v1/settings/loan-categories?customer_type_id={$foreign->customer_category_id}")->assertOk()->assertJsonCount(0, 'data');
     }
 }

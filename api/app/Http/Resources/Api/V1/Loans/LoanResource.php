@@ -33,6 +33,8 @@ class LoanResource extends JsonResource
             'branch' => $this->whenLoaded('branch', fn () => $this->branch?->name),
             'loan_category_id' => $this->loan_category_id,
             'category' => $this->whenLoaded('category', fn () => $this->category?->name),
+            // Customer type of the loan category (only when category.customerType was eager loaded).
+            'category_customer_type' => $this->when($this->relationLoaded('category') && $this->category?->relationLoaded('customerType'), fn () => $this->category?->customerType?->name),
             'requires_mandate' => $this->whenLoaded('category', fn () => (bool) $this->category?->requires_mandate),
             'group_id' => $this->group_id,
             'employee' => $this->whenLoaded('employee', fn () => $this->employee?->full_name),

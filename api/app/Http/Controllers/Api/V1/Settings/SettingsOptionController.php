@@ -8,7 +8,6 @@ use App\Http\Requests\Settings\LoanCategoryRequest;
 use App\Models\CustomerCategory;
 use App\Models\InterestFormula;
 use App\Models\LoanCategory;
-use App\Models\MainCategory;
 use App\Models\Role;
 use App\Models\Zone;
 use Illuminate\Http\JsonResponse;
@@ -32,14 +31,6 @@ class SettingsOptionController extends ApiController
     public function approveLevels(): JsonResponse
     {
         return $this->options(collect(LoanCategoryRequest::APPROVE_LEVELS)->map(fn (string $label, string $value): array => ['value' => $value, 'label' => $label])->values());
-    }
-
-    /**
-     * Main loan categories labelled by their customer type (the "Customer Type" select of the loan category form).
-     */
-    public function mainCategories(): JsonResponse
-    {
-        return $this->options(MainCategory::query()->listed($this->currentEmployee()->company_id)->with('customerType')->get()->map(fn (MainCategory $category): array => ['value' => (string) $category->id, 'label' => $category->display_name]));
     }
 
     public function loanCategories(): JsonResponse

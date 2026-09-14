@@ -46,13 +46,14 @@ class ShareOptionController extends SharesController
 
         return response()->json(['data' => Capital::where('company_id', $this->companyId())
             ->where('share_holder_id', $request->integer('share_holder_id'))
+            ->active()
             ->whereNotIn('id', $linked)
-            ->with('journalEntry')
+            ->with(['journalEntry', 'asset'])
             ->orderBy('id')
             ->get()
             ->map(fn (Capital $capital): array => [
                 'value' => (string) $capital->id,
-                'label' => number_format((float) $capital->amount).' — '.($capital->contributed_at ?? $capital->created_at)?->toDateString().' — '.($capital->journalEntry?->reference ?? 'no journal'),
+                'label' => ($capital->asset ? 'ASSET '.$capital->asset->asset_code.' '.$capital->asset->name.' — ' : $capital->pay_method.' — ').number_format((float) $capital->amount).' — '.($capital->contributed_at ?? $capital->created_at)?->toDateString().' — '.($capital->journalEntry?->reference ?? 'no journal'),
                 'amount' => (float) $capital->amount,
             ])]);
     }

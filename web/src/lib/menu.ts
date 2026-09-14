@@ -37,7 +37,6 @@ export const menu: MenuTab[] = [
           { label: "Branch", href: "/settings/branches", permission: "settings.manage" },
           { label: "Zones", href: "/settings/zones", permission: "settings.manage" },
           { label: "Interest Formula", href: "/settings/formulas", permission: "settings.manage" },
-          { label: "Main Loan Categories", href: "/settings/main-categories", permission: "settings.manage" },
           { label: "Loan Categories", href: "/settings/loan-categories", permission: "settings.manage" },
           { label: "Master Data", href: "/settings/master-data", permission: "settings.manage" },
           { label: "Geography", href: "/settings/geography", permission: "settings.manage" },
@@ -54,6 +53,7 @@ export const menu: MenuTab[] = [
         children: [
           { label: "Shareholders", href: "/capital/share-holders", permission: "capital.view" },
           { label: "Add Capitals", href: "/capital/capitals", permission: "capital.view" },
+          { label: "Assets", href: "/capital/assets", permission: ["capital.view", "capital.manage"] },
           { label: "Dividends", href: "/capital/dividends", permission: "capital.manage" },
           { label: "Shares", href: "/shares", permission: "shares.view" },
           { label: "Float", href: "/capital/floats", permission: "float.manage" },

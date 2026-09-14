@@ -114,7 +114,7 @@ class DashboardStatistics
             'salary_advance_withdrawal' => (float) SalaryAdvance::where('company_id', $company->id)->whereDate('approved_at', $today)->sum('amount'),
             'penalty_income' => (float) PenaltyPayment::whereHas('penalty', fn ($query) => $query->where('company_id', $company->id))->whereDate('paid_on', $today)->sum('amount'),
             'loan_fee_income' => $this->ledger->movement($company, Account::LoanFee, $today, $today),
-            'capital_income' => (float) Capital::where('company_id', $company->id)->whereDate('created_at', $today)->sum('amount'),
+            'capital_income' => (float) Capital::where('company_id', $company->id)->where('pay_method', '!=', 'ASSET')->whereDate('created_at', $today)->sum('amount'),
             'transfer_income' => (float) FloatTransfer::where('company_id', $company->id)->where('type', 'company_to_branch')->where('status', 'approved')->whereDate('transfer_date', $today)->sum('amount'),
             'insurance_income' => $this->ledger->movement($company, Account::Insurance, $today, $today),
             'expenses' => (float) ExpenseRequest::where('company_id', $company->id)->where('status', 'accepted')->whereDate('request_date', $today)->sum('amount'),

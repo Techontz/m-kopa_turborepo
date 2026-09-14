@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { ContributionHistoryModal } from "@/components/capital/ContributionHistoryModal";
+import Link from "next/link";
+
 import { ownershipLabel } from "@/components/capital/contributions";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -28,7 +30,9 @@ interface ShareHolder {
   date_of_birth: string | null;
   photo_endpoint: string | null;
   total_contributed: number;
+  shares: number;
   ownership_percent: number;
+  holding_value: number;
   contributions_count: number;
 }
 
@@ -104,7 +108,8 @@ function HolderFields({ form, setForm, fieldError, editing, currentPhoto }: { fo
 
 /**
  * Live admin/shareHolder, with the name split into first / middle / last and a passport-size photo. A shareholder
- * record alone owns nothing: Total Contributed Capital and Ownership % come only from their capital contributions.
+ * record alone owns nothing: Total Contributed Capital comes from their capital contributions, while Shares and
+ * Ownership % come only from the share register (Shares module).
  */
 export default function ShareHoldersPage() {
   const { can } = useAuth();
@@ -165,7 +170,8 @@ export default function ShareHoldersPage() {
             { key: "gender", header: "Sex" },
             { key: "date_of_birth", header: "Date of Birth" },
             { key: "total_contributed", header: "Total Contributed Capital", render: (row) => money(row.total_contributed) },
-            { key: "ownership_percent", header: "Ownership %", render: (row) => ownershipLabel(row.ownership_percent) },
+            { key: "shares", header: "Shares", render: (row) => row.shares.toLocaleString("en-US") },
+            { key: "ownership_percent", header: "Ownership % (share register)", render: (row) => ownershipLabel(row.ownership_percent) },
             {
               key: "action",
               header: "Action",
@@ -176,6 +182,11 @@ export default function ShareHoldersPage() {
                   <button type="button" className="btn btn-sm btn-icon btn-info mr-1" title={`Contribution history (${row.contributions_count})`} onClick={() => setHistoryOf(row.id)}>
                     <i className="icon-list" />
                   </button>
+                  {can("shares.view") && (
+                    <Link href={`/shares/share-holders/${row.id}`} className="btn btn-sm btn-icon btn-success mr-1" title="Share profile">
+                      <i className="icon-pie-chart" />
+                    </Link>
+                  )}
                   {canManage && (
                   <>
                     <button

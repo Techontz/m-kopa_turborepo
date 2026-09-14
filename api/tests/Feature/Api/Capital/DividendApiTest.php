@@ -31,6 +31,23 @@ class DividendApiTest extends TestCase
     }
 
     /**
+     * Share register allocation proportional to each holder's capital (1 share per 1,000), without cash: dividends are
+     * split by share-register ownership.
+     */
+    private function allocateByCapital(Employee $admin): void
+    {
+        $allocations = Capital::where('company_id', $admin->company_id)->orderBy('id')->get()
+            ->map(fn (Capital $capital): array => ['share_holder_id' => $capital->share_holder_id, 'shares' => (int) ($capital->amount / 1000), 'treatment' => 'no_cash'])->all();
+
+        $this->postJson('/api/v1/shares/structure', [
+            'capital_basis' => Capital::where('company_id', $admin->company_id)->sum('amount'),
+            'total_shares' => array_sum(array_column($allocations, 'shares')),
+            'established_on' => today()->toDateString(),
+            'allocations' => $allocations,
+        ])->assertCreated();
+    }
+
+    /**
      * Month-end profit: interest income closed into the Profit account.
      */
     private function profit(Employee $admin, float $amount): void
@@ -41,11 +58,12 @@ class DividendApiTest extends TestCase
         ]);
     }
 
-    public function test_declaration_splits_seventy_thirty_and_allocates_by_share_percent(): void
+    public function test_declaration_splits_seventy_thirty_and_allocates_by_share_register_percent(): void
     {
         $admin = $this->signInAdmin();
         $this->holder($admin, 'Mseti', 6000000);
         $this->holder($admin, 'Habakuki', 4000000);
+        $this->allocateByCapital($admin);
         $this->profit($admin, 1000000);
 
         $this->getJson('/api/v1/capital/dividends/summary?period=2026-08')->assertOk()
@@ -87,6 +105,7 @@ class DividendApiTest extends TestCase
         $admin = $this->signInAdmin();
         $this->holder($admin, 'Mseti', 5000000);
         $this->holder($admin, 'Habakuki', 5000000);
+        $this->allocateByCapital($admin);
         $this->profit($admin, 200000);
         $this->postJson('/api/v1/capital/dividends', ['period' => now()->format('Y-m'), 'profit_amount' => 200000])->assertCreated();
 

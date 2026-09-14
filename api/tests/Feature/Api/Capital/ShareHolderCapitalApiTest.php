@@ -111,7 +111,9 @@ class ShareHolderCapitalApiTest extends TestCase
         $this->getJson('/api/v1/capital/capitals')->assertOk()
             ->assertJsonPath('data.share_holders.0.capitals.0.pay_method', 'BANK')
             ->assertJsonPath('data.share_holders.0.capitals.0.receiving_account_label', 'BANK - NMB')
-            ->assertJsonPath('data.share_holders.0.ownership_percent', 100)
+            ->assertJsonPath('data.share_holders.0.total_contributed', 5000000)
+            ->assertJsonPath('data.share_holders.0.shares', 0)
+            ->assertJsonPath('data.share_holders.0.ownership_percent', 0)
             ->assertJsonPath('data.share_holder_capital', 5000000)
             ->assertJsonPath('data.company_capital', 0)
             ->assertJsonPath('data.bank_balance_total', 5000000);

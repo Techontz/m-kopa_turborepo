@@ -24,7 +24,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * Capital → Add Capitals (live admin/capital). Documents (ACCOUNT OVERVIEW "Capital Account", handwritten note):
  * capital is added by the super admin; only capital.view users see it. Every contribution is its own row posted
  * Dr the receiving company account (COMPANY ACCOUNT for CASH, the selected bank account for BANK) / Cr CAPITAL ACCOUNT.
- * Ownership comes only from contributions ({@see ShareholderOwnership}); company balances are reported separately.
+ * Contributions are financial transactions; ownership comes from the share register ({@see ShareholderOwnership}) and
+ * company balances are reported separately.
  */
 class CapitalController extends ApiController
 {
@@ -40,7 +41,7 @@ class CapitalController extends ApiController
 
         $companyId = $this->currentEmployee()->company_id;
         $capitals = Capital::where('company_id', $companyId)
-            ->with(['bankAccount', 'recorder', 'journalEntry'])
+            ->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions'])
             ->orderBy('id')
             ->get()
             ->groupBy('share_holder_id');
@@ -53,7 +54,9 @@ class CapitalController extends ApiController
                 'name' => $row['share_holder']->full_name,
                 'total' => $row['total_contributed'],
                 'total_contributed' => $row['total_contributed'],
+                'shares' => $row['shares'],
                 'ownership_percent' => $row['ownership_percent'],
+                'holding_value' => $row['holding_value'],
                 'capitals' => ($capitals[$row['share_holder']->id] ?? collect())->map(fn (Capital $capital): array => $this->presentContribution($capital))->values(),
             ])->values(),
             'share_holder_capital' => $this->ownership->totalContributed($companyId),
@@ -91,7 +94,7 @@ class CapitalController extends ApiController
     }
 
     /**
-     * Contribution history of one shareholder with their total and ownership percentage.
+     * Contribution history of one shareholder with their contribution total and share-register ownership.
      */
     public function history(ShareHolder $shareHolder): JsonResponse
     {
@@ -102,15 +105,18 @@ class CapitalController extends ApiController
         return response()->json(['data' => [
             'share_holder' => ['id' => $shareHolder->id, 'first_name' => $shareHolder->first_name, 'middle_name' => $shareHolder->middle_name, 'last_name' => $shareHolder->last_name, 'name' => $shareHolder->full_name],
             'total_contributed' => $ownership['total_contributed'],
+            'shares' => $ownership['shares'],
+            'total_shares' => $ownership['total_shares'],
             'ownership_percent' => $ownership['ownership_percent'],
+            'holding_value' => $ownership['holding_value'],
             'company_total_contributed' => $this->ownership->totalContributed((int) $shareHolder->company_id),
-            'contributions' => $shareHolder->capitals()->with(['bankAccount', 'recorder', 'journalEntry'])->orderBy('id')->get()
+            'contributions' => $shareHolder->capitals()->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions'])->orderBy('id')->get()
                 ->map(fn (Capital $capital): array => $this->presentContribution($capital))->values(),
         ]]);
     }
 
     /**
-     * Company capital position: historical shareholder contributions (ownership basis) kept apart from what the
+     * Company capital position: historical shareholder contributions (financial records, not ownership) kept apart from what the
      * company holds and earns now — COMPANY ACCOUNT and bank balances, branch lending cash, income, expenses and loans.
      */
     public function position(Request $request): JsonResponse
@@ -142,8 +148,9 @@ class CapitalController extends ApiController
                     'id' => $row['share_holder']->id,
                     'name' => $row['share_holder']->full_name,
                     'total_contributed' => $row['total_contributed'],
-                    'ownership_percent' => $row['ownership_percent'],
                     'contributions_count' => $row['contributions_count'],
+                    'shares' => $row['shares'],
+                    'ownership_percent' => $row['ownership_percent'],
                 ])->values(),
             ],
             'balances' => [
@@ -220,6 +227,7 @@ class CapitalController extends ApiController
             'contributed_at' => ($capital->contributed_at ?? $capital->created_at)?->format('Y-m-d H:i:s'),
             'journal_entry_id' => $capital->journal_entry_id,
             'journal_reference' => $capital->journalEntry?->reference,
+            'share_transaction_reference' => $capital->shareTransactions->firstWhere('status', 'completed')?->reference,
             'created_at' => $capital->created_at?->format('Y-m-d H:i:s'),
         ];
     }
@@ -236,18 +244,8 @@ class CapitalController extends ApiController
 
     private function storeReceipt(Capital $capital, ?UploadedFile $file): void
     {
-        if ($file === null) {
-            return;
-        }
-
-        $previous = $capital->receipt_file;
-        $capital->update([
-            'receipt_file' => $file->store("capital-receipts/{$capital->company_id}", Capital::DISK),
-            'receipt_file_name' => mb_substr(basename($file->getClientOriginalName()), 0, 191),
-        ]);
-
-        if ($previous) {
-            Storage::disk(Capital::DISK)->delete($previous);
+        if ($file !== null) {
+            $capital->attachReceipt($file);
         }
     }
 }

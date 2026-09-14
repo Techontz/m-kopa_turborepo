@@ -14,7 +14,8 @@ use Illuminate\Http\Request;
 
 /**
  * Capital → Dividends (Documents: ACCOUNT OVERVIEW "Dividend Account": Profit → Dividend, 70% → Principal
- * (reinvestment), 30% → shareholders by share percentage; the Dividend account is withdrawn by CASH or BANK).
+ * (reinvestment), 30% → shareholders by share-register ownership on the declaration date; the Dividend account is
+ * withdrawn by CASH or BANK).
  */
 class DividendController extends ApiController
 {
@@ -43,6 +44,8 @@ class DividendController extends ApiController
             'allocations' => $declaration->allocations->map(fn (DividendAllocation $allocation): array => [
                 'id' => $allocation->id,
                 'share_holder' => $allocation->shareHolder?->full_name,
+                'shares_held' => $allocation->shares_held === null ? null : (int) $allocation->shares_held,
+                'total_shares' => $allocation->total_shares === null ? null : (int) $allocation->total_shares,
                 'share_percent' => (float) $allocation->share_percent,
                 'amount' => (float) $allocation->amount,
                 'status' => $allocation->status,
@@ -75,8 +78,10 @@ class DividendController extends ApiController
             'dividend_percent' => DividendService::DIVIDEND_PERCENT,
             'shares' => $this->dividends->shares($companyId)->map(fn (array $share): array => [
                 'id' => $share['share_holder']->id,
-                'name' => $share['share_holder']->name,
+                'name' => $share['share_holder']->full_name,
                 'capital' => $share['capital'],
+                'shares' => $share['shares'],
+                'total_shares' => $share['total_shares'],
                 'percent' => $share['percent'],
             ])->values(),
         ]]);

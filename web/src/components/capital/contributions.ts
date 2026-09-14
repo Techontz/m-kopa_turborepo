@@ -16,13 +16,17 @@ export interface Contribution {
   contributed_at: string | null;
   journal_entry_id: number | null;
   journal_reference: string | null;
+  share_transaction_reference?: string | null;
   created_at: string | null;
 }
 
 export interface ContributionHistory {
   share_holder: { id: number; first_name: string | null; middle_name: string | null; last_name: string | null; name: string };
   total_contributed: number;
+  shares: number;
+  total_shares: number;
   ownership_percent: number;
+  holding_value: number;
   company_total_contributed: number;
   contributions: Contribution[];
 }

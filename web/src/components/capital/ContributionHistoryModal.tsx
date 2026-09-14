@@ -17,7 +17,7 @@ export function ContributionHistoryModal({ shareHolderId, onClose }: { shareHold
     <Modal open={shareHolderId !== null} onClose={onClose} title={`Contribution History${loaded ? ` — ${loaded.share_holder.name}` : ""}`} size="xl">
       {loaded && (
         <p className="mb-2">
-          Total Contributed Capital <b>{money(loaded.total_contributed)}</b> of all shareholders&apos; <b>{money(loaded.company_total_contributed)}</b> · Ownership <b>{ownershipLabel(loaded.ownership_percent)}</b>
+          Total Contributed Capital <b>{money(loaded.total_contributed)}</b> of all shareholders&apos; <b>{money(loaded.company_total_contributed)}</b> · Share register: <b>{loaded.shares.toLocaleString("en-US")}</b> shares, ownership <b>{ownershipLabel(loaded.ownership_percent)}</b>
         </p>
       )}
       <DataTable
@@ -25,7 +25,7 @@ export function ContributionHistoryModal({ shareHolderId, onClose }: { shareHold
         loading={isLoading || (shareHolderId !== null && !loaded)}
         searchable={false}
         rowKey={(row) => row.id}
-        emptyMessage="No contributions yet — this shareholder owns 0%"
+        emptyMessage="No contributions yet"
         columns={[
           { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
           { key: "contributed_at", header: "Date / Time" },

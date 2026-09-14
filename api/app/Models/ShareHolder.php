@@ -6,6 +6,7 @@ use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ShareHolder extends Model
 {
@@ -58,5 +59,23 @@ class ShareHolder extends Model
     public function dividendAllocations(): HasMany
     {
         return $this->hasMany(DividendAllocation::class);
+    }
+
+    /**
+     * Current share holding (share register).
+     */
+    public function sharePosition(): HasOne
+    {
+        return $this->hasOne(SharePosition::class);
+    }
+
+    public function sharesReceived(): HasMany
+    {
+        return $this->hasMany(ShareTransaction::class, 'to_share_holder_id');
+    }
+
+    public function sharesGivenUp(): HasMany
+    {
+        return $this->hasMany(ShareTransaction::class, 'from_share_holder_id');
     }
 }

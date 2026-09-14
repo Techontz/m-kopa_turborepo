@@ -8,6 +8,7 @@ use App\Models\DividendDeclaration;
 use App\Models\Employee;
 use App\Models\ShareHolder;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -19,7 +20,8 @@ use Illuminate\Validation\ValidationException;
  *
  *  - Profit → Dividend: Dr Profit Account (retained profit) for the declared profit.
  *  - 70% → Principal (reinvestment): credited to the Capital account ("some percentage should go to the main capital").
- *  - 30% → Shareholders: credited to the Dividend account and split by each shareholder's share percentage.
+ *  - 30% → Shareholders: credited to the Dividend account and split by share-register ownership on the declaration
+ *    date (shares held ÷ total issued shares).
  *  - Withdrawal from the Dividend account: CASH (Company account) or BANK.
  */
 class DividendService
@@ -50,17 +52,19 @@ class DividendService
     }
 
     /**
-     * Each shareholder's percentage is their share of all historical capital contributions, taken from the single
-     * ownership source {@see ShareholderOwnership} (never from balances, the CAPITAL ACCOUNT ledger or profit).
+     * Each shareholder's percentage is their share-register ownership on the given date (today when null): shares held
+     * ÷ total issued shares × 100 ({@see ShareholderOwnership}). Capital contributions are listed as contributions only.
      *
-     * @return Collection<int, array{share_holder: ShareHolder, capital: float, percent: float}>
+     * @return Collection<int, array{share_holder: ShareHolder, capital: float, shares: int, total_shares: int, percent: float}>
      */
-    public function shares(int $companyId): Collection
+    public function shares(int $companyId, ?CarbonInterface $asOf = null): Collection
     {
-        return $this->ownership->summary($companyId)
+        return $this->ownership->summary($companyId, $asOf ?? CarbonImmutable::today())
             ->map(fn (array $row): array => [
                 'share_holder' => $row['share_holder'],
                 'capital' => $row['total_contributed'],
+                'shares' => $row['shares'],
+                'total_shares' => $row['total_shares'],
                 'percent' => $row['ownership_percent'],
             ]);
     }
@@ -90,9 +94,9 @@ class DividendService
             throw ValidationException::withMessages(['profit_amount' => 'Insufficient balance in '.Account::RetainedProfit->label()]);
         }
 
-        $shares = $this->shares($companyId)->filter(fn (array $share): bool => $share['percent'] > 0)->values();
+        $shares = $this->shares($companyId, CarbonImmutable::today())->filter(fn (array $share): bool => $share['shares'] > 0)->values();
         if ($shares->isEmpty()) {
-            throw ValidationException::withMessages(['profit_amount' => 'No shareholder has contributed capital to receive a dividend']);
+            throw ValidationException::withMessages(['profit_amount' => 'No shareholder holds shares in the share register to receive a dividend']);
         }
 
         $dividend = round($profit * self::DIVIDEND_PERCENT / 100, 2);
@@ -122,12 +126,14 @@ class DividendService
             foreach ($shares as $index => $share) {
                 $amount = $index === $shares->count() - 1
                     ? round($dividend - $allocated, 2)
-                    : round($dividend * $share['percent'] / 100, 2);
+                    : round($dividend * $share['shares'] / $share['total_shares'], 2);
                 $allocated += $amount;
 
                 $declaration->allocations()->create([
                     'company_id' => $companyId,
                     'share_holder_id' => $share['share_holder']->id,
+                    'shares_held' => $share['shares'],
+                    'total_shares' => $share['total_shares'],
                     'share_percent' => $share['percent'],
                     'amount' => $amount,
                     'status' => 'pending',

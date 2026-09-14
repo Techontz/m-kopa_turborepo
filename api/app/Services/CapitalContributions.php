@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Records shareholder capital contributions (Capital → Add Capitals).
+ * Records shareholder capital contributions (Capital → Add Capitals, and paid share issuances from Shares → Issue
+ * Shares, which link the share transaction to the contribution this service records).
  *
  * Each contribution is its own `capitals` row and one balanced journal entry:
  *   Dr the company account that received the money — COMPANY ACCOUNT for CASH, the selected bank account for BANK —
@@ -28,6 +29,7 @@ class CapitalContributions
 
     /**
      * @param  Closure(Capital): void|null  $afterCreate  runs inside the transaction for a new contribution (e.g. storing the receipt file)
+     * @param  string|null  $description  journal description (defaults to "CAPITAL CONTRIBUTION - <shareholder>")
      * @return array{capital: Capital, created: bool}
      */
     public function contribute(
@@ -41,6 +43,7 @@ class CapitalContributions
         ?CarbonImmutable $contributedAt = null,
         ?string $idempotencyKey = null,
         ?Closure $afterCreate = null,
+        ?string $description = null,
     ): array {
         $amount = round($amount, 2);
         $contributedAt ??= CarbonImmutable::now();
@@ -57,7 +60,7 @@ class CapitalContributions
         $receiving = $this->receivingAccount((int) $holder->company_id, $payMethod, $bankAccountId);
 
         try {
-            $capital = DB::transaction(function () use ($holder, $amount, $payMethod, $receiving, $recordedBy, $receiptNumber, $chequeNumber, $contributedAt, $idempotencyKey, $afterCreate): Capital {
+            $capital = DB::transaction(function () use ($holder, $amount, $payMethod, $receiving, $recordedBy, $receiptNumber, $chequeNumber, $contributedAt, $idempotencyKey, $afterCreate, $description): Capital {
                 $capital = Capital::create([
                     'company_id' => $holder->company_id,
                     'share_holder_id' => $holder->id,
@@ -72,7 +75,7 @@ class CapitalContributions
                     'idempotency_key' => $idempotencyKey,
                 ]);
 
-                $entry = $this->ledger->journal($holder->company_id, 'CAPITAL CONTRIBUTION - '.$holder->full_name, [
+                $entry = $this->ledger->journal($holder->company_id, $description ?? 'CAPITAL CONTRIBUTION - '.$holder->full_name, [
                     $receiving + ['debit' => $amount],
                     ['account' => Account::Capital, 'credit' => $amount],
                 ], $capital, $contributedAt, employee: $recordedBy);

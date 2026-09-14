@@ -22,7 +22,9 @@ interface CapitalData {
     name: string;
     total: number;
     total_contributed: number;
+    shares: number;
     ownership_percent: number;
+    holding_value: number;
     capitals: Contribution[];
   }[];
   share_holder_capital: number;
@@ -75,8 +77,9 @@ function toFormData(form: CapitalForm, idempotencyKey: string): FormData {
 /**
  * Live admin/capital. Every contribution is its own row posted Dr the receiving company account (COMPANY ACCOUNT for
  * CASH, the chosen bank account for BANK) / Cr CAPITAL ACCOUNT; entries are never deleted (corrections are reversals),
- * so the live per-row delete button is not offered. Ownership % comes only from contributions; what the company holds
- * now (cash, banks, loans, income, expenses) is shown separately in Company Capital Position.
+ * so the live per-row delete button is not offered. Contributions are financial records; ownership % comes only from the
+ * share register (Shares module). What the company holds now (cash, banks, loans, income, expenses) is shown separately
+ * in Company Capital Position.
  */
 export default function CapitalsPage() {
   const { can } = useAuth();
@@ -151,7 +154,7 @@ export default function CapitalsPage() {
                 />
               </Field>
             </div>
-            <p className="mb-0"><small className="text-muted">Posting: Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT. Ownership % is each shareholder&apos;s share of all contributions.</small></p>
+            <p className="mb-0"><small className="text-muted">Posting: Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT. Contributions are financial records — ownership comes from shares in the share register (Shares → Issue Shares can record a paid issuance in one step).</small></p>
             <div className="text-center m-t-20">
               <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-drawer" />Save</button>
             </div>
@@ -163,7 +166,7 @@ export default function CapitalsPage() {
         <div className="table-responsive">
           <table className="table table-hover dataTable table-custom">
             <thead className="thead-info">
-              <tr><th>S/No</th><th>Shareholder</th><th>Amount</th><th>Pay Method</th><th>Receiving Account</th><th>Receipt No</th><th>Cheque No</th><th>Date</th><th>Recorded By</th><th>Journal Ref</th><th>Action</th></tr>
+              <tr><th>S/No</th><th>Shareholder</th><th>Amount</th><th>Pay Method</th><th>Receiving Account</th><th>Receipt No</th><th>Cheque No</th><th>Date</th><th>Recorded By</th><th>Journal Ref / Shares</th><th>Action</th></tr>
             </thead>
             <tbody>
               {isLoading && <tr><td colSpan={11} className="mf-loading">Loading...</td></tr>}
@@ -173,7 +176,7 @@ export default function CapitalsPage() {
                     <td>{index + 1}.</td>
                     <td><b>{holder.name}</b></td>
                     <td><b>{money(holder.total_contributed)}</b></td>
-                    <td colSpan={7}>Ownership <b>{ownershipLabel(holder.ownership_percent)}</b> · {holder.capitals.length} contribution{holder.capitals.length === 1 ? "" : "s"}</td>
+                    <td colSpan={7}>{holder.capitals.length} contribution{holder.capitals.length === 1 ? "" : "s"} · Share register: <b>{holder.shares.toLocaleString("en-US")}</b> shares, ownership <b>{ownershipLabel(holder.ownership_percent)}</b></td>
                     <td><button type="button" className="btn btn-sm btn-icon btn-info" title="Contribution history" onClick={() => setHistoryOf(holder.id)}><i className="icon-list" /></button></td>
                   </tr>
                   {holder.capitals.map((capital) => (
@@ -186,7 +189,7 @@ export default function CapitalsPage() {
                       <td>{capital.cheque_number || "-"}</td>
                       <td>{capital.contributed_at}</td>
                       <td>{capital.recorded_by ?? "—"}</td>
-                      <td>{capital.journal_reference ?? "—"}</td>
+                      <td>{capital.journal_reference ?? "—"}{capital.share_transaction_reference && <><br /><small className="text-muted">Shares: {capital.share_transaction_reference}</small></>}</td>
                       <td className="text-nowrap">
                         {capital.receipt_endpoint ? (
                           <a href={backendUrl(capital.receipt_endpoint)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-icon btn-info mr-1" title={`View receipt: ${capital.receipt_file_name ?? ""}`}>
@@ -207,14 +210,14 @@ export default function CapitalsPage() {
               ))}
             </tbody>
             <tfoot>
-              <tr><td colSpan={2}><b>TOTAL SHAREHOLDER CONTRIBUTIONS</b></td><td><b>{money(data?.share_holder_capital)}</b></td><td colSpan={8}><small>Historical contributions — the only basis of ownership %</small></td></tr>
+              <tr><td colSpan={2}><b>TOTAL SHAREHOLDER CONTRIBUTIONS</b></td><td><b>{money(data?.share_holder_capital)}</b></td><td colSpan={8}><small>Historical contributions (financial records). Ownership % comes from the share register, not from contributions.</small></td></tr>
             </tfoot>
           </table>
         </div>
       </Card>
 
       <Card title="Company Capital Position">
-        <p className="mb-2"><small className="text-muted">What the company holds and earns today. These balances change as money is spent, transferred or lent; they never change ownership %.</small></p>
+        <p className="mb-2"><small className="text-muted">What the company holds and earns today. These balances change as money is spent, transferred or lent; they never change share ownership.</small></p>
         <div className="table-responsive">
           <table className="table table-hover table-custom mb-0">
             <tbody>

@@ -14,14 +14,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Capital → Share Holders (live admin/shareHolder). Documents: only capital-privileged users (super admin) see capital.
- * A shareholder record alone gives no ownership: total contributed and ownership % come from their contributions.
+ * A shareholder record alone gives no ownership: ownership % comes from the share register (Shares module) and total
+ * contributed from their capital contributions.
  */
 class ShareHolderController extends ApiController
 {
     public function __construct(private readonly ShareholderOwnership $ownership) {}
 
     /**
-     * Share holders with their total contributed capital and ownership percentage (from contributions only).
+     * Share holders with their total contributed capital and their share-register shares and ownership percentage.
      */
     public function index(): JsonResponse
     {
@@ -73,6 +74,9 @@ class ShareHolderController extends ApiController
         if ($shareHolder->capitals()->exists() || $shareHolder->dividendAllocations()->exists()) {
             return $this->message('Shareholder has contributed capital and cannot be deleted', 422);
         }
+        if ($shareHolder->sharesReceived()->exists() || $shareHolder->sharesGivenUp()->exists()) {
+            return $this->message('Shareholder has share transactions and cannot be deleted', 422);
+        }
 
         $shareHolder->delete();
         if ($shareHolder->passport_photo) {
@@ -112,7 +116,7 @@ class ShareHolderController extends ApiController
     }
 
     /**
-     * @param  array{total_contributed: float, ownership_percent: float, contributions_count: int}|null  $ownership
+     * @param  array{total_contributed: float, contributions_count: int, shares: int, ownership_percent: float, holding_value: float}|null  $ownership
      * @return array<string, mixed>
      */
     private function present(ShareHolder $holder, ?array $ownership = null): array
@@ -131,8 +135,10 @@ class ShareHolderController extends ApiController
             'date_of_birth' => $holder->date_of_birth?->toDateString(),
             'photo_endpoint' => $holder->passport_photo ? "capital/share-holders/{$holder->id}/photo?v=".$holder->updated_at?->timestamp : null,
             'total_contributed' => $ownership['total_contributed'],
-            'ownership_percent' => $ownership['ownership_percent'],
             'contributions_count' => $ownership['contributions_count'],
+            'shares' => $ownership['shares'],
+            'ownership_percent' => $ownership['ownership_percent'],
+            'holding_value' => $ownership['holding_value'],
         ];
     }
 }

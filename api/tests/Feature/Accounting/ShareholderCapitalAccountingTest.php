@@ -27,7 +27,8 @@ use Tests\TestCase;
 
 /**
  * Shareholder capital → ownership → company Cash/Bank → loan disbursement accounting (the owner's TEST 1–8 and the
- * supporting rules): ownership comes only from contributions; contributions post Dr Cash/Bank / Cr Capital; internal
+ * supporting rules): ownership comes only from the share register (shares ÷ total issued shares — the owner superseded
+ * the earlier contribution-ratio rule); contributions stay financial records posted Dr Cash/Bank / Cr Capital; internal
  * fund moves are balanced transfers; a loan is disbursed once from the chosen source, Dr Loan Receivable / Cr source.
  */
 class ShareholderCapitalAccountingTest extends TestCase
@@ -44,25 +45,30 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->admin = $this->signInAdmin();
     }
 
-    public function test_1_ownership_is_each_shareholders_share_of_total_contributions(): void
+    public function test_1_ownership_comes_from_the_share_register_and_contributions_stay_contribution_totals(): void
     {
         $a = $this->holder('ALPHA');
         $b = $this->holder('BETA');
-        $this->contribute($a, 10000000);
-        $this->contribute($b, 30000000);
+        $first = $this->contribute($a, 10000000)->json('data.id');
+        $second = $this->contribute($b, 30000000)->json('data.id');
 
-        $this->assertOwnership([$a->id => [10000000, 25], $b->id => [30000000, 75]]);
+        $this->assertOwnership([$a->id => [10000000, 0, 0], $b->id => [30000000, 0, 0]], 'contributions alone give no ownership');
+
+        $this->allocate([[$a, 250, $first], [$b, 750, $second]]);
+
+        $this->assertOwnership([$a->id => [10000000, 250, 25], $b->id => [30000000, 750, 75]]);
     }
 
-    public function test_2_ownership_sums_every_historical_contribution_of_a_shareholder(): void
+    public function test_2_contribution_totals_sum_every_historical_contribution_while_ownership_follows_shares(): void
     {
         $a = $this->holder('ALPHA');
         $b = $this->holder('BETA');
         $this->contribute($a, 10000000);
         $this->contribute($a, 20000000, 'BANK', $this->bank('NMB'));
         $this->contribute($b, 70000000);
+        $this->allocate([[$a, 300], [$b, 700]]);
 
-        $this->assertOwnership([$a->id => [30000000, 30], $b->id => [70000000, 70]]);
+        $this->assertOwnership([$a->id => [30000000, 300, 30], $b->id => [70000000, 700, 70]]);
         $this->assertSame(2, Capital::where('share_holder_id', $a->id)->count(), 'each contribution is its own row');
     }
 
@@ -71,9 +77,10 @@ class ShareholderCapitalAccountingTest extends TestCase
         $a = $this->holder('ALPHA');
         $b = $this->holder('BETA');
         $bank = $this->bank('CRDB');
-        $this->contribute($a, 50000000);
-        $this->contribute($b, 50000000);
-        $this->assertOwnership([$a->id => [50000000, 50], $b->id => [50000000, 50]]);
+        $first = $this->contribute($a, 50000000)->json('data.id');
+        $second = $this->contribute($b, 50000000)->json('data.id');
+        $this->allocate([[$a, 500, $first], [$b, 500, $second]]);
+        $this->assertOwnership([$a->id => [50000000, 500, 50], $b->id => [50000000, 500, 50]]);
 
         $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'company_to_bank', 'bank_account_id' => $bank->id, 'amount' => 30000000])->assertCreated();
         $this->postJson('/api/v1/capital/floats', ['blanch_id' => $this->admin->branch_id, 'blanch_amount' => 20000000])->assertCreated();
@@ -86,7 +93,7 @@ class ShareholderCapitalAccountingTest extends TestCase
         $ledger = app(Ledger::class);
         $this->assertSame(40000000.0, $ledger->balance($this->admin->company_id, Account::Company));
         $this->assertSame(29000000.0, $ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
-        $this->assertOwnership([$a->id => [50000000, 50], $b->id => [50000000, 50]]);
+        $this->assertOwnership([$a->id => [50000000, 500, 50], $b->id => [50000000, 500, 50]]);
         $this->getJson('/api/v1/capital/capitals')->assertOk()
             ->assertJsonPath('data.share_holder_capital', 100000000)
             ->assertJsonPath('data.company_cash_balance', 40000000)
@@ -290,18 +297,21 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->assertSame(300000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
     }
 
-    public function test_shareholder_without_contributions_owns_nothing(): void
+    public function test_shareholder_without_shares_owns_nothing(): void
     {
         $a = $this->holder('ALPHA');
         $b = $this->holder('BETA');
 
-        $this->assertOwnership([$a->id => [0, 0], $b->id => [0, 0]]);
+        $this->assertOwnership([$a->id => [0, 0, 0], $b->id => [0, 0, 0]]);
 
-        $this->contribute($a, 1000000);
+        $contribution = $this->contribute($a, 1000000)->json('data.id');
+        $this->assertOwnership([$a->id => [1000000, 0, 0], $b->id => [0, 0, 0]], 'a contribution is not ownership');
+
+        $this->allocate([[$a, 1000, $contribution]]);
         app(Ledger::class)->openingBalance($this->admin->company_id, Account::Bank, 9000000, bankAccount: $this->bank('NMB'));
 
-        $this->assertOwnership([$a->id => [1000000, 100], $b->id => [0, 0]]);
-        $this->getJson("/api/v1/capital/share-holders/{$b->id}")->assertOk()->assertJsonPath('data.total_contributed', 0)->assertJsonPath('data.ownership_percent', 0);
+        $this->assertOwnership([$a->id => [1000000, 1000, 100], $b->id => [0, 0, 0]]);
+        $this->getJson("/api/v1/capital/share-holders/{$b->id}")->assertOk()->assertJsonPath('data.total_contributed', 0)->assertJsonPath('data.shares', 0)->assertJsonPath('data.ownership_percent', 0);
     }
 
     public function test_contribution_history_keeps_every_contribution_with_its_trace(): void
@@ -310,10 +320,13 @@ class ShareholderCapitalAccountingTest extends TestCase
         $bank = $this->bank('NMB');
         $this->contribute($a, 1000000, 'CASH', null, ['recept' => 'RC-1']);
         $this->contribute($a, 2500000, 'BANK', $bank, ['recept' => 'RC-2', 'chaque_no' => 'CHQ-9', 'contributed_at' => today()->subDays(3)->setTime(9, 30)->toDateTimeString()]);
-        $this->contribute($this->holder('BETA'), 1500000);
+        $beta = $this->holder('BETA');
+        $this->contribute($beta, 1500000);
+        $this->allocate([[$a, 700], [$beta, 300]]);
 
         $history = $this->getJson("/api/v1/capital/share-holders/{$a->id}/contributions")->assertOk()
             ->assertJsonPath('data.total_contributed', 3500000)
+            ->assertJsonPath('data.shares', 700)
             ->assertJsonPath('data.ownership_percent', 70)
             ->assertJsonCount(2, 'data.contributions')
             ->json('data.contributions');
@@ -357,12 +370,13 @@ class ShareholderCapitalAccountingTest extends TestCase
             ->assertJsonPath('data.balances.bank_total', 4000000);
     }
 
-    public function test_dividends_are_split_by_contribution_percentage_only(): void
+    public function test_dividends_are_split_by_share_register_ownership_only(): void
     {
         $a = $this->holder('ALPHA');
         $b = $this->holder('BETA');
-        $this->contribute($a, 10000000);
-        $this->contribute($b, 30000000);
+        $first = $this->contribute($a, 10000000)->json('data.id');
+        $second = $this->contribute($b, 30000000)->json('data.id');
+        $this->allocate([[$a, 250, $first], [$b, 750, $second]]);
         app(Ledger::class)->openingBalance($this->admin->company_id, Account::Bank, 60000000, bankAccount: $this->bank('NMB'));
         app(Ledger::class)->journal($this->admin->company_id, 'MONTH END PROFIT', [
             ['account' => Account::InterestIncome, 'debit' => 1000000, 'branch' => $this->admin->branch_id],
@@ -371,6 +385,7 @@ class ShareholderCapitalAccountingTest extends TestCase
 
         $this->getJson('/api/v1/capital/dividends/summary')->assertOk()
             ->assertJsonPath('data.shares.0.capital', 10000000)
+            ->assertJsonPath('data.shares.0.shares', 250)
             ->assertJsonPath('data.shares.0.percent', 25)
             ->assertJsonPath('data.shares.1.percent', 75);
 
@@ -380,7 +395,7 @@ class ShareholderCapitalAccountingTest extends TestCase
             ->assertJsonPath('data.0.allocations.0.amount', 75000)
             ->assertJsonPath('data.0.allocations.1.amount', 225000);
 
-        $this->assertOwnership([$a->id => [10000000, 25], $b->id => [30000000, 75]], 'the reinvested 70% credited to CAPITAL ACCOUNT is not a contribution');
+        $this->assertOwnership([$a->id => [10000000, 250, 25], $b->id => [30000000, 750, 75]], 'the reinvested 70% credited to CAPITAL ACCOUNT is neither a contribution nor shares');
     }
 
     private function holder(string $firstName): ShareHolder
@@ -402,17 +417,40 @@ class ShareholderCapitalAccountingTest extends TestCase
     }
 
     /**
-     * @param  array<int, array{0: float|int, 1: float|int}>  $expected  share holder id => [total contributed, ownership %]
+     * Set up the share register with an initial allocation; a shareholder's line links their recorded contribution when
+     * its id is given (no second journal) and is otherwise allocated without cash.
+     *
+     * @param  list<array{0: ShareHolder, 1: int, 2?: int}>  $allocations  [shareholder, shares, contribution id]
+     */
+    private function allocate(array $allocations): void
+    {
+        $this->postJson('/api/v1/shares/structure', [
+            'capital_basis' => array_sum(array_column($allocations, 1)) * 10000,
+            'total_shares' => array_sum(array_column($allocations, 1)),
+            'established_on' => today()->toDateString(),
+            'allocations' => array_map(fn (array $line): array => [
+                'share_holder_id' => $line[0]->id,
+                'shares' => $line[1],
+                'treatment' => isset($line[2]) ? 'linked_contribution' : 'no_cash',
+                'capital_id' => $line[2] ?? null,
+            ], $allocations),
+        ])->assertCreated();
+    }
+
+    /**
+     * @param  array<int, array{0: float|int, 1: int, 2: float|int}>  $expected  share holder id => [total contributed, shares, ownership %]
      */
     private function assertOwnership(array $expected, string $message = ''): void
     {
         $service = app(ShareholderOwnership::class)->summary($this->admin->company_id)->keyBy(fn (array $row): int => $row['share_holder']->id);
         $api = collect($this->getJson('/api/v1/capital/share-holders')->assertOk()->json('data'))->keyBy('id');
 
-        foreach ($expected as $id => [$total, $percent]) {
+        foreach ($expected as $id => [$total, $shares, $percent]) {
             $this->assertEquals($total, $service[$id]['total_contributed'], $message);
+            $this->assertSame($shares, $service[$id]['shares'], $message);
             $this->assertEquals($percent, $service[$id]['ownership_percent'], $message);
             $this->assertEquals($total, $api[$id]['total_contributed'], $message);
+            $this->assertSame($shares, $api[$id]['shares'], $message);
             $this->assertEquals($percent, $api[$id]['ownership_percent'], $message);
         }
     }

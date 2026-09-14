@@ -4,14 +4,17 @@ namespace App\Models;
 
 use App\Enums\Account;
 use App\Models\Concerns\Auditable;
-use App\Services\ShareholderOwnership;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * One shareholder capital contribution. Rows are never overwritten: every contribution is its own row, posted
  * Dr receiving company account (COMPANY ACCOUNT for CASH, the selected bank account for BANK) / Cr CAPITAL ACCOUNT.
- * Ownership is derived from these rows only ({@see ShareholderOwnership}).
+ * Contributions are financial transactions; ownership comes from the share register (share transactions), which may
+ * link a contribution to the shares it paid for.
  */
 class Capital extends Model
 {
@@ -65,5 +68,29 @@ class Capital extends Model
             Account::Bank->value => trim(Account::Bank->label().' - '.$this->bankAccount?->name, ' -'),
             default => null,
         };
+    }
+
+    /**
+     * Share transactions (issuance / initial allocation) this contribution paid for.
+     */
+    public function shareTransactions(): HasMany
+    {
+        return $this->hasMany(ShareTransaction::class);
+    }
+
+    /**
+     * Store (or replace) the receipt document on the private disk.
+     */
+    public function attachReceipt(UploadedFile $file): void
+    {
+        $previous = $this->receipt_file;
+        $this->update([
+            'receipt_file' => $file->store("capital-receipts/{$this->company_id}", self::DISK),
+            'receipt_file_name' => mb_substr(basename($file->getClientOriginalName()), 0, 191),
+        ]);
+
+        if ($previous) {
+            Storage::disk(self::DISK)->delete($previous);
+        }
     }
 }

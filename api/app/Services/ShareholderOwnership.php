@@ -4,22 +4,24 @@ namespace App\Services;
 
 use App\Models\Capital;
 use App\Models\ShareHolder;
+use App\Services\Shares\ShareRegister;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 /**
- * The single source of shareholder ownership.
+ * Shareholder ownership next to their capital contributions.
  *
- *  - A shareholder's contributed capital is the sum of their own capital contribution rows (`capitals`).
- *  - Ownership % = that shareholder's total historical contributions ÷ all shareholders' total historical
- *    contributions × 100, computed on every read — never stored.
+ *  - OWNERSHIP comes only from the share register ({@see ShareRegister}): shareholder shares ÷ total issued shares × 100.
+ *  - CONTRIBUTIONS stay financial transactions: a shareholder's contributed capital is the sum of their own `capitals`
+ *    rows. Their ratio is never used as ownership.
  *
- * Nothing else moves ownership: cash or bank balances, the CAPITAL ACCOUNT ledger balance (which also holds bank
- * opening balances and reinvested profit), assets, revenue, profit, loans, dividends, expenses or valuation are
- * deliberately ignored, so spending, transferring or lending company money leaves ownership unchanged.
+ * Cash or bank balances, the CAPITAL ACCOUNT ledger balance, profit, loans, dividends and expenses never move ownership.
  */
 class ShareholderOwnership
 {
-    public const PERCENT_PRECISION = 4;
+    public const PERCENT_PRECISION = ShareRegister::PERCENT_PRECISION;
+
+    public function __construct(private readonly ShareRegister $register) {}
 
     /**
      * Total contributed per shareholder id.
@@ -43,47 +45,47 @@ class ShareholderOwnership
         return round((float) Capital::where('company_id', $companyId)->sum('amount'), 2);
     }
 
-    public function percentOf(float $contributed, float $total): float
-    {
-        return $total > 0 ? round($contributed / $total * 100, self::PERCENT_PRECISION) : 0.0;
-    }
-
     /**
-     * Every shareholder of the company (including those with no contribution: 0 contributed, 0%).
+     * Every shareholder of the company with their contributions and their share-register ownership (now or as of a date).
      *
-     * @return Collection<int, array{share_holder: ShareHolder, total_contributed: float, ownership_percent: float, contributions_count: int}>
+     * @return Collection<int, array{share_holder: ShareHolder, total_contributed: float, contributions_count: int, shares: int, total_shares: int, ownership_percent: float, share_value: float, holding_value: float}>
      */
-    public function summary(int $companyId): Collection
+    public function summary(int $companyId, ?CarbonInterface $asOf = null): Collection
     {
         $contributed = $this->contributedByShareHolder($companyId);
         $counts = Capital::where('company_id', $companyId)->selectRaw('share_holder_id, COUNT(*) AS contributions')->groupBy('share_holder_id')->pluck('contributions', 'share_holder_id');
-        $total = round((float) $contributed->sum(), 2);
 
-        return ShareHolder::where('company_id', $companyId)->orderBy('id')->get()
-            ->map(fn (ShareHolder $holder): array => $this->row($holder, (float) ($contributed[$holder->id] ?? 0), $total, (int) ($counts[$holder->id] ?? 0)))
+        return $this->register->register($companyId, $asOf)
+            ->map(fn (array $row): array => $this->row($row, (float) ($contributed[$row['share_holder']->id] ?? 0), (int) ($counts[$row['share_holder']->id] ?? 0)))
             ->values();
     }
 
     /**
-     * @return array{share_holder: ShareHolder, total_contributed: float, ownership_percent: float, contributions_count: int}
+     * @return array{share_holder: ShareHolder, total_contributed: float, contributions_count: int, shares: int, total_shares: int, ownership_percent: float, share_value: float, holding_value: float}
      */
     public function forShareHolder(ShareHolder $holder): array
     {
-        $contributions = $holder->capitals();
+        $row = $this->register->register((int) $holder->company_id)->first(fn (array $row): bool => $row['share_holder']->id === $holder->id)
+            ?? ['share_holder' => $holder, 'shares' => 0, 'total_shares' => 0, 'ownership_percent' => 0.0, 'share_value' => 0.0, 'holding_value' => 0.0];
 
-        return $this->row($holder, round((float) $contributions->sum('amount'), 2), $this->totalContributed((int) $holder->company_id), $holder->capitals()->count());
+        return $this->row(['share_holder' => $holder] + $row, round((float) $holder->capitals()->sum('amount'), 2), $holder->capitals()->count());
     }
 
     /**
-     * @return array{share_holder: ShareHolder, total_contributed: float, ownership_percent: float, contributions_count: int}
+     * @param  array{share_holder: ShareHolder, shares: int, total_shares: int, ownership_percent: float, share_value: float, holding_value: float}  $register
+     * @return array{share_holder: ShareHolder, total_contributed: float, contributions_count: int, shares: int, total_shares: int, ownership_percent: float, share_value: float, holding_value: float}
      */
-    private function row(ShareHolder $holder, float $contributed, float $total, int $count): array
+    private function row(array $register, float $contributed, int $count): array
     {
         return [
-            'share_holder' => $holder,
-            'total_contributed' => $contributed,
-            'ownership_percent' => $this->percentOf($contributed, $total),
+            'share_holder' => $register['share_holder'],
+            'total_contributed' => round($contributed, 2),
             'contributions_count' => $count,
+            'shares' => $register['shares'],
+            'total_shares' => $register['total_shares'],
+            'ownership_percent' => $register['ownership_percent'],
+            'share_value' => $register['share_value'],
+            'holding_value' => $register['holding_value'],
         ];
     }
 }

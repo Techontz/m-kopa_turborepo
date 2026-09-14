@@ -20,7 +20,7 @@ interface Summary {
   period_profit: number | null;
   reinvest_percent: number;
   dividend_percent: number;
-  shares: { id: number; name: string; capital: number; percent: number }[];
+  shares: { id: number; name: string; capital: number; shares: number; total_shares: number; percent: number }[];
 }
 
 interface Allocation {
@@ -84,7 +84,8 @@ function PayModal({ allocation, onClose }: { allocation: Allocation; onClose: ()
 
 /**
  * Documents: ACCOUNT OVERVIEW "Dividend Account" — monthly profit → Dividend; 70% → Principal (reinvestment),
- * 30% → shareholders split by ownership percentage (share of historical capital contributions); Dividend account withdrawn by CASH or BANK.
+ * 30% → shareholders split by share-register ownership on the declaration date (shares held ÷ total issued shares);
+ * Dividend account withdrawn by CASH or BANK.
  */
 export default function DividendsPage() {
   const { can } = useAuth();
@@ -150,7 +151,7 @@ export default function DividendsPage() {
             <div className="table-responsive">
               <table className="table table-hover table-custom">
                 <thead className="thead-info">
-                  <tr><th>S/No.</th><th>Shareholder</th><th>Contributed Capital</th><th>Ownership %</th><th>Dividend</th></tr>
+                  <tr><th>S/No.</th><th>Shareholder</th><th>Contributions</th><th>Shares</th><th>Ownership % (share register)</th><th>Dividend</th></tr>
                 </thead>
                 <tbody>
                   {(summary?.shares ?? []).map((share, index) => (
@@ -158,6 +159,7 @@ export default function DividendsPage() {
                       <td>{index + 1}.</td>
                       <td>{share.name}</td>
                       <td>{money(share.capital)}</td>
+                      <td>{share.shares.toLocaleString("en-US")}</td>
                       <td>{percent(Number(share.percent.toFixed(2)))}</td>
                       <td>{money((dividend * share.percent) / 100)}</td>
                     </tr>

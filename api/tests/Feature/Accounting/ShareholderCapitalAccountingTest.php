@@ -383,17 +383,17 @@ class ShareholderCapitalAccountingTest extends TestCase
             ['account' => Account::RetainedProfit, 'credit' => 1000000, 'branch' => $this->admin->branch_id],
         ]);
 
-        $this->getJson('/api/v1/capital/dividends/summary')->assertOk()
-            ->assertJsonPath('data.shares.0.capital', 10000000)
-            ->assertJsonPath('data.shares.0.shares', 250)
-            ->assertJsonPath('data.shares.0.percent', 25)
-            ->assertJsonPath('data.shares.1.percent', 75);
+        $this->getJson('/api/v1/capital/dividends/preview')->assertOk()
+            ->assertJsonPath('data.rows.0.contribution_total', 10000000)
+            ->assertJsonPath('data.rows.0.shares', 250)
+            ->assertJsonPath('data.rows.0.ownership_percent', 25)
+            ->assertJsonPath('data.rows.1.ownership_percent', 75);
 
-        $this->postJson('/api/v1/capital/dividends', ['period' => now()->subMonthNoOverflow()->format('Y-m'), 'profit_amount' => 1000000])->assertCreated();
-        $this->getJson('/api/v1/capital/dividends')->assertOk()
-            ->assertJsonPath('data.0.allocations.0.share_percent', 25)
-            ->assertJsonPath('data.0.allocations.0.amount', 75000)
-            ->assertJsonPath('data.0.allocations.1.amount', 225000);
+        $declarationId = $this->postJson('/api/v1/capital/dividends', ['period' => now()->subMonthNoOverflow()->format('Y-m')])->assertCreated()->json('data.id');
+        $this->getJson("/api/v1/capital/dividends/{$declarationId}/allocations")->assertOk()
+            ->assertJsonPath('data.0.ownership_percent', 25)
+            ->assertJsonPath('data.0.entitlement', 75000)
+            ->assertJsonPath('data.1.entitlement', 225000);
 
         $this->assertOwnership([$a->id => [10000000, 250, 25], $b->id => [30000000, 750, 75]], 'the reinvested 70% credited to CAPITAL ACCOUNT is neither a contribution nor shares');
     }

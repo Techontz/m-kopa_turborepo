@@ -3,32 +3,45 @@
 namespace App\Services;
 
 use App\Enums\Account;
+use App\Models\AccountingPeriod;
+use App\Models\BankAccount;
+use App\Models\Company;
 use App\Models\DividendAllocation;
 use App\Models\DividendDeclaration;
+use App\Models\DividendPayment;
 use App\Models\Employee;
 use App\Models\ShareHolder;
+use App\Services\Dividends\DividendMath;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Monthly profit distribution (Documents: ACCOUNT OVERVIEW "16. Dividend Account" and "F. DIVIDEND PROCESS";
  * handwritten note "SHARE HOLDER & CAPITAL").
  *
- *  - Profit → Dividend: Dr Profit Account (retained profit) for the declared profit.
- *  - 70% → Principal (reinvestment): credited to the Capital account ("some percentage should go to the main capital").
- *  - 30% → Shareholders: credited to the Dividend account and split by share-register ownership on the declaration
- *    date (shares held ÷ total issued shares).
- *  - Withdrawal from the Dividend account: CASH (Company account) or BANK.
+ *  - PROFIT AVAILABLE is computed, never typed:
+ *      • period closed by the month-end close → Σ branch distributable profit of that month, capped by the undistributed
+ *        PROFIT ACCOUNT balance (profit already distributed or absorbed by losses cannot be distributed again);
+ *      • period not closed → the undistributed PROFIT ACCOUNT balance (profit already posted to the Profit account by
+ *        earlier closes / adjustments).
+ *  - SPLIT from Settings → Dividend Settings (company percentages, default 30 shareholders / 70 principal
+ *    reinvestment, always totalling 100): pool = profit × shareholder %, reinvestment = profit − pool.
+ *  - DECLARATION (one per company per month): Dr PROFIT ACCOUNT (profit) / Cr CAPITAL ACCOUNT (reinvestment) /
+ *    Cr DIVIDEND ACCOUNT (pool). Entitlements are split by share-register ownership on the declaration date (shares
+ *    held ÷ total issued shares, {@see ShareholderOwnership}) and snapshotted; later share movements never change them.
+ *  - PAYMENT (full or partial, CASH or BANK): Dr DIVIDEND ACCOUNT / Cr COMPANY ACCOUNT or the bank account. The
+ *    remaining balance is re-read under a row lock on the allocation, so concurrent payments cannot overpay.
+ *  - REVERSAL of a payment: opposite journal entry via {@see Ledger::reverse()}; the entitlement balance is restored.
  */
 class DividendService
 {
-    public const REINVEST_PERCENT = 70.0;
+    public const PROFIT_SOURCE_PERIOD_CLOSE = 'period_close';
 
-    public const DIVIDEND_PERCENT = 30.0;
+    public const PROFIT_SOURCE_PROFIT_ACCOUNT = 'profit_account';
 
     public function __construct(
         private readonly Ledger $ledger,
@@ -36,15 +49,30 @@ class DividendService
     ) {}
 
     /**
-     * Undistributed profit (balance of the Profit account across all branches).
+     * Company dividend split percentages ("30.00" / "70.00").
+     *
+     * @return array{dividend_percent: string, reinvest_percent: string}
      */
-    public function availableProfit(int $companyId): float
+    public function settings(int $companyId): array
+    {
+        $company = Company::query()->findOrFail($companyId);
+
+        return [
+            'dividend_percent' => number_format((float) $company->dividend_shareholder_percent, 2, '.', ''),
+            'reinvest_percent' => number_format((float) $company->dividend_reinvest_percent, 2, '.', ''),
+        ];
+    }
+
+    /**
+     * Undistributed profit: balance of the Profit account across all branches.
+     */
+    public function profitAccountBalance(int $companyId): float
     {
         return $this->ledger->balance($companyId, Account::RetainedProfit, allBranches: true) + 0.0;
     }
 
     /**
-     * Declared but not yet withdrawn dividends.
+     * Declared but not yet paid dividends (Dividend account balance).
      */
     public function dividendBalance(int $companyId): float
     {
@@ -52,8 +80,7 @@ class DividendService
     }
 
     /**
-     * Each shareholder's percentage is their share-register ownership on the given date (today when null): shares held
-     * ÷ total issued shares × 100 ({@see ShareholderOwnership}). Capital contributions are listed as contributions only.
+     * Shareholder ownership from the share register on a date (today when null).
      *
      * @return Collection<int, array{share_holder: ShareHolder, capital: float, shares: int, total_shares: int, percent: float}>
      */
@@ -70,117 +97,412 @@ class DividendService
     }
 
     /**
-     * Distributable profit recorded by the month-end close for the period, when the accounting close has run.
+     * Distributable profit recorded by the month-end close for a CLOSED period; null when the period is not closed.
      */
     public function closedPeriodProfit(int $companyId, CarbonImmutable $period): ?float
     {
-        if (! Schema::hasTable('branch_period_results')) {
-            return null;
-        }
+        $accountingPeriod = AccountingPeriod::query()
+            ->where('company_id', $companyId)
+            ->whereDate('period_start', $period->startOfMonth()->toDateString())
+            ->where('status', AccountingPeriod::STATUS_CLOSED)
+            ->first();
 
-        $query = DB::table('branch_period_results')
-            ->join('accounting_periods', 'accounting_periods.id', '=', 'branch_period_results.accounting_period_id')
-            ->where('accounting_periods.company_id', $companyId)
-            ->whereDate('accounting_periods.period_start', $period->startOfMonth()->toDateString());
-
-        return (clone $query)->exists() ? round((float) $query->sum('branch_period_results.distributable_profit'), 2) : null;
+        return $accountingPeriod === null ? null : round((float) $accountingPeriod->results()->sum('distributable_profit'), 2);
     }
 
-    public function declare(int $companyId, CarbonImmutable $period, float $profit, Employee $employee): DividendDeclaration
+    /**
+     * Profit Available for a period (see class docs).
+     *
+     * @return array{period: string, period_label: string, profit_available: float, source: string, period_closed: bool, period_profit: ?float, profit_account_balance: float, note: string}
+     */
+    public function availableProfit(int $companyId, CarbonImmutable $period): array
     {
-        $profit = round($profit, 2);
+        $period = $period->startOfMonth();
+        $balance = $this->profitAccountBalance($companyId);
+        $closed = $this->closedPeriodProfit($companyId, $period);
+        $label = $period->format('F Y');
 
-        if ($profit > $this->availableProfit($companyId)) {
-            throw ValidationException::withMessages(['profit_amount' => 'Insufficient balance in '.Account::RetainedProfit->label()]);
+        if ($closed !== null) {
+            $available = max(0.0, min($closed, $balance));
+            $note = "Distributable profit from the {$label} month-end close".($available < $closed ? ', limited to the undistributed Profit Account balance.' : '.');
+        } else {
+            $available = max(0.0, $balance);
+            $note = "The month-end close has not run for {$label}; Profit Available is the undistributed Profit Account balance.";
         }
 
-        $shares = $this->shares($companyId, CarbonImmutable::today())->filter(fn (array $share): bool => $share['shares'] > 0)->values();
-        if ($shares->isEmpty()) {
-            throw ValidationException::withMessages(['profit_amount' => 'No shareholder holds shares in the share register to receive a dividend']);
-        }
+        return [
+            'period' => $period->format('Y-m'),
+            'period_label' => $label,
+            'profit_available' => round($available, 2),
+            'source' => $closed !== null ? self::PROFIT_SOURCE_PERIOD_CLOSE : self::PROFIT_SOURCE_PROFIT_ACCOUNT,
+            'period_closed' => $closed !== null,
+            'period_profit' => $closed,
+            'profit_account_balance' => round($balance, 2),
+            'note' => $note,
+        ];
+    }
 
-        $dividend = round($profit * self::DIVIDEND_PERCENT / 100, 2);
-        $reinvest = round($profit - $dividend, 2);
+    /**
+     * Everything a declaration for the period would record, computed exactly like {@see declare()}.
+     *
+     * @return array{period: string, period_label: string, profit_available: float, profit_source: string, period_closed: bool, period_profit: ?float, profit_account_balance: float, profit_note: string, dividend_percent: float, reinvest_percent: float, dividend_pool: float, reinvestment_amount: float, total_shares: int, as_of_date: string, declaration_id: ?int, already_declared: bool, can_declare: bool, blocking_reason: ?string, rows: list<array{share_holder_id: int, name: string, shares: int, total_shares: int, ownership_percent: float, entitlement: float, contribution_total: float}>}
+     */
+    public function preview(int $companyId, CarbonImmutable $period): array
+    {
+        $period = $period->startOfMonth();
+        $profit = $this->availableProfit($companyId, $period);
+        $settings = $this->settings($companyId);
+        $asOf = CarbonImmutable::today();
+        $computed = $this->compute($companyId, $profit['profit_available'], $settings['dividend_percent'], $asOf);
+        $existing = DividendDeclaration::where('company_id', $companyId)->whereDate('period', $period->toDateString())->value('id');
 
-        return DB::transaction(function () use ($companyId, $period, $profit, $employee, $shares, $dividend, $reinvest): DividendDeclaration {
-            $declaration = DividendDeclaration::create([
-                'company_id' => $companyId,
-                'period' => $period->startOfMonth()->toDateString(),
-                'profit_amount' => $profit,
-                'reinvest_percent' => self::REINVEST_PERCENT,
-                'reinvest_amount' => $reinvest,
-                'dividend_percent' => self::DIVIDEND_PERCENT,
-                'dividend_amount' => $dividend,
-                'declared_by' => $employee->id,
-            ]);
+        $blocking = match (true) {
+            $existing !== null => $this->alreadyDeclaredMessage($period),
+            $profit['profit_available'] <= 0 => "There is no profit available to distribute for {$profit['period_label']}.",
+            $computed['rows'] === [] => 'No shareholder holds shares in the share register to receive a dividend.',
+            default => null,
+        };
 
-            $entry = $this->ledger->journal($companyId, 'DIVIDEND DECLARATION '.$period->format('Y-m'), [
-                ['account' => Account::RetainedProfit, 'debit' => $profit],
-                ['account' => Account::Capital, 'credit' => $reinvest],
-                ['account' => Account::DividendPayable, 'credit' => $dividend],
-            ], $declaration, employee: $employee);
+        return [
+            'period' => $profit['period'],
+            'period_label' => $profit['period_label'],
+            'profit_available' => $profit['profit_available'],
+            'profit_source' => $profit['source'],
+            'period_closed' => $profit['period_closed'],
+            'period_profit' => $profit['period_profit'],
+            'profit_account_balance' => $profit['profit_account_balance'],
+            'profit_note' => $profit['note'],
+            'dividend_percent' => (float) $settings['dividend_percent'],
+            'reinvest_percent' => (float) $settings['reinvest_percent'],
+            'dividend_pool' => DividendMath::centsToFloat($computed['pool']),
+            'reinvestment_amount' => DividendMath::centsToFloat($computed['reinvest']),
+            'total_shares' => $computed['total_shares'],
+            'as_of_date' => $asOf->toDateString(),
+            'declaration_id' => $existing === null ? null : (int) $existing,
+            'already_declared' => $existing !== null,
+            'can_declare' => $blocking === null,
+            'blocking_reason' => $blocking,
+            'rows' => array_map(fn (array $row): array => [
+                'share_holder_id' => $row['share_holder']->id,
+                'name' => $row['share_holder']->full_name,
+                'shares' => $row['shares'],
+                'total_shares' => $row['total_shares'],
+                'ownership_percent' => $row['percent'],
+                'entitlement' => DividendMath::centsToFloat($row['entitlement']),
+                'contribution_total' => $row['capital'],
+            ], $computed['rows']),
+        ];
+    }
 
-            $declaration->update(['journal_entry_id' => $entry->id]);
+    /**
+     * Declare the period's dividend. Profit, percentages and ownership are all re-read inside the transaction (the
+     * company row is locked so two declarations cannot run at once).
+     *
+     * @throws ValidationException
+     */
+    public function declare(int $companyId, CarbonImmutable $period, Employee $employee): DividendDeclaration
+    {
+        $period = $period->startOfMonth();
 
-            $allocated = 0.0;
-            foreach ($shares as $index => $share) {
-                $amount = $index === $shares->count() - 1
-                    ? round($dividend - $allocated, 2)
-                    : round($dividend * $share['shares'] / $share['total_shares'], 2);
-                $allocated += $amount;
+        try {
+            return DB::transaction(function () use ($companyId, $period, $employee): DividendDeclaration {
+                Company::query()->whereKey($companyId)->lockForUpdate()->firstOrFail();
 
-                $declaration->allocations()->create([
+                if (DividendDeclaration::where('company_id', $companyId)->whereDate('period', $period->toDateString())->exists()) {
+                    throw ValidationException::withMessages(['period' => $this->alreadyDeclaredMessage($period)]);
+                }
+
+                $profit = $this->availableProfit($companyId, $period);
+                if ($profit['profit_available'] <= 0) {
+                    throw ValidationException::withMessages(['period' => "There is no profit available to distribute for {$profit['period_label']}."]);
+                }
+
+                $settings = $this->settings($companyId);
+                $asOf = CarbonImmutable::today();
+                $computed = $this->compute($companyId, $profit['profit_available'], $settings['dividend_percent'], $asOf);
+                if ($computed['rows'] === []) {
+                    throw ValidationException::withMessages(['period' => 'No shareholder holds shares in the share register to receive a dividend.']);
+                }
+
+                $profitAmount = DividendMath::fromCents($computed['profit']);
+                $pool = DividendMath::fromCents($computed['pool']);
+                $reinvest = DividendMath::fromCents($computed['reinvest']);
+
+                $declaration = DividendDeclaration::create([
                     'company_id' => $companyId,
-                    'share_holder_id' => $share['share_holder']->id,
-                    'shares_held' => $share['shares'],
-                    'total_shares' => $share['total_shares'],
-                    'share_percent' => $share['percent'],
-                    'amount' => $amount,
-                    'status' => 'pending',
+                    'period' => $period->toDateString(),
+                    'profit_amount' => $profitAmount,
+                    'dividend_percent' => $settings['dividend_percent'],
+                    'dividend_amount' => $pool,
+                    'reinvest_percent' => $settings['reinvest_percent'],
+                    'reinvest_amount' => $reinvest,
+                    'total_shares' => $computed['total_shares'],
+                    'as_of_date' => $asOf->toDateString(),
+                    'profit_source' => $profit['source'],
+                    'declared_by' => $employee->id,
+                    'declared_at' => now(),
                 ]);
+
+                $entry = $this->ledger->journal($companyId, 'DIVIDEND DECLARATION '.$period->format('Y-m'), [
+                    ['account' => Account::RetainedProfit, 'debit' => (float) $profitAmount],
+                    ['account' => Account::Capital, 'credit' => (float) $reinvest],
+                    ['account' => Account::DividendPayable, 'credit' => (float) $pool],
+                ], $declaration, employee: $employee);
+
+                $declaration->update(['journal_entry_id' => $entry->id]);
+
+                foreach ($computed['rows'] as $row) {
+                    $declaration->allocations()->create([
+                        'company_id' => $companyId,
+                        'share_holder_id' => $row['share_holder']->id,
+                        'shares_held' => $row['shares'],
+                        'total_shares' => $row['total_shares'],
+                        'share_percent' => $row['percent'],
+                        'contribution_total' => $row['capital'],
+                        'amount' => DividendMath::fromCents($row['entitlement']),
+                        'paid_amount' => 0,
+                        'status' => DividendAllocation::STATUS_UNPAID,
+                    ]);
+                }
+
+                return $declaration->load('allocations.shareHolder');
+            });
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['period' => $this->alreadyDeclaredMessage($period)]);
+        }
+    }
+
+    /**
+     * Pay all or part of a shareholder's remaining entitlement. A request carrying an idempotency key that was already
+     * used returns the original payment instead of posting again.
+     *
+     * @return array{payment: DividendPayment, created: bool}
+     *
+     * @throws ValidationException
+     */
+    public function pay(
+        DividendAllocation $allocation,
+        string|float $amount,
+        string $method,
+        ?int $bankAccountId,
+        ?string $reference,
+        Employee $employee,
+        ?string $idempotencyKey = null,
+    ): array {
+        $cents = DividendMath::toCents(is_float($amount) ? $amount : (string) $amount);
+        if ($cents <= 0) {
+            throw ValidationException::withMessages(['amount' => 'The amount to pay must be greater than zero.']);
+        }
+
+        $previous = $this->replayPayment($allocation, $cents, $idempotencyKey);
+        if ($previous !== null) {
+            return ['payment' => $previous, 'created' => false];
+        }
+
+        $source = $this->sourceAccount((int) $allocation->company_id, $method, $bankAccountId);
+
+        try {
+            $payment = DB::transaction(function () use ($allocation, $cents, $method, $source, $reference, $employee, $idempotencyKey): DividendPayment {
+                /** @var DividendAllocation $locked */
+                $locked = DividendAllocation::whereKey($allocation->id)->lockForUpdate()->firstOrFail();
+                $locked->loadMissing('shareHolder', 'declaration');
+
+                $entitlement = DividendMath::toCents((string) $locked->amount);
+                $remaining = $entitlement - $this->postedCents($locked);
+                if ($remaining <= 0) {
+                    throw ValidationException::withMessages(['amount' => 'This dividend entitlement is already fully paid.']);
+                }
+                if ($cents > $remaining) {
+                    throw ValidationException::withMessages(['amount' => 'The amount to pay cannot exceed the outstanding balance of TZS '.number_format(DividendMath::centsToFloat($remaining), 2).'.']);
+                }
+
+                $amount = DividendMath::centsToFloat($cents);
+                $balance = $this->ledger->balance($locked->company_id, $source['account'], bankAccount: $source['bank'] ?? null);
+                if ($balance + 0.001 < $amount) {
+                    throw ValidationException::withMessages(['pay_method' => 'Insufficient balance in '.$source['label']]);
+                }
+
+                $payment = DividendPayment::create([
+                    'company_id' => $locked->company_id,
+                    'dividend_allocation_id' => $locked->id,
+                    'share_holder_id' => $locked->share_holder_id,
+                    'amount' => DividendMath::fromCents($cents),
+                    'pay_method' => $method === 'BANK' ? 'BANK' : 'CASH',
+                    'source_account' => $source['account']->value,
+                    'bank_account_id' => $source['bank'] ?? null,
+                    'reference' => $reference,
+                    'paid_at' => now(),
+                    'paid_by' => $employee->id,
+                    'idempotency_key' => $idempotencyKey,
+                    'status' => DividendPayment::STATUS_POSTED,
+                ]);
+
+                $entry = $this->ledger->journal($locked->company_id, 'DIVIDEND PAYMENT '.$locked->declaration->period->format('Y-m').' - '.$locked->shareHolder->full_name, [
+                    ['account' => Account::DividendPayable, 'debit' => $amount],
+                    ['account' => $source['account'], 'bank' => $source['bank'] ?? null, 'credit' => $amount],
+                ], $payment, employee: $employee);
+
+                $payment->update(['journal_entry_id' => $entry->id]);
+                $this->refreshAllocation($locked);
+
+                return $payment;
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            $previous = $this->replayPayment($allocation, $cents, $idempotencyKey);
+            if ($previous === null) {
+                throw $exception;
             }
 
-            return $declaration->load('allocations.shareHolder');
+            return ['payment' => $previous, 'created' => false];
+        }
+
+        return ['payment' => $payment, 'created' => true];
+    }
+
+    /**
+     * Reverse a posted payment: opposite journal entry, payment marked reversed, entitlement balance restored.
+     *
+     * @throws ValidationException
+     */
+    public function reversePayment(DividendPayment $payment, string $reason, Employee $employee): DividendPayment
+    {
+        return DB::transaction(function () use ($payment, $reason, $employee): DividendPayment {
+            $allocation = DividendAllocation::whereKey($payment->dividend_allocation_id)->lockForUpdate()->firstOrFail();
+            /** @var DividendPayment $locked */
+            $locked = DividendPayment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->isPosted()) {
+                throw ValidationException::withMessages(['reason' => 'This dividend payment has already been reversed.']);
+            }
+            if ($locked->journalEntry === null) {
+                throw ValidationException::withMessages(['reason' => 'This dividend payment has no journal entry to reverse.']);
+            }
+
+            $reversal = $this->ledger->reverse($locked->journalEntry, $reason);
+
+            $locked->update([
+                'status' => DividendPayment::STATUS_REVERSED,
+                'reversal_journal_entry_id' => $reversal->id,
+                'reversed_by' => $employee->id,
+                'reversed_at' => now(),
+                'reversal_reason' => $reason,
+            ]);
+            $this->refreshAllocation($allocation);
+
+            return $locked;
         });
     }
 
     /**
-     * Withdraw a shareholder's dividend: Dr Dividend account, Cr Company account (CASH) or Bank (BANK).
+     * Rewrite an allocation's paid amount and status from its posted payments.
      */
-    public function pay(DividendAllocation $allocation, string $method, ?int $bankAccountId, ?string $reference, Employee $employee): DividendAllocation
+    public function refreshAllocation(DividendAllocation $allocation): DividendAllocation
     {
-        if ($allocation->status !== 'pending') {
-            throw ValidationException::withMessages(['pay_method' => 'Dividend is already paid']);
+        $paid = $this->postedCents($allocation);
+        $allocation->update([
+            'paid_amount' => DividendMath::fromCents($paid),
+            'status' => DividendAllocation::statusFor(DividendMath::toCents((string) $allocation->amount), $paid),
+        ]);
+
+        return $allocation;
+    }
+
+    /**
+     * Sum of the allocation's posted (not reversed) payments, in cents, read from the payments table.
+     */
+    public function postedCents(DividendAllocation $allocation): int
+    {
+        $sum = DividendPayment::where('dividend_allocation_id', $allocation->id)
+            ->where('status', DividendPayment::STATUS_POSTED)
+            ->sum('amount');
+
+        return DividendMath::toCents((string) $sum);
+    }
+
+    /**
+     * Company totals: declared pools, posted payments and the outstanding balance.
+     *
+     * @return array{total_declared: float, total_paid: float, total_outstanding: float, dividend_balance: float, declarations: int}
+     */
+    public function totals(int $companyId): array
+    {
+        $declared = DividendMath::toCents((string) DividendDeclaration::where('company_id', $companyId)->sum('dividend_amount'));
+        $paid = DividendMath::toCents((string) DividendPayment::where('company_id', $companyId)->where('status', DividendPayment::STATUS_POSTED)->sum('amount'));
+
+        return [
+            'total_declared' => DividendMath::centsToFloat($declared),
+            'total_paid' => DividendMath::centsToFloat($paid),
+            'total_outstanding' => DividendMath::centsToFloat($declared - $paid),
+            'dividend_balance' => $this->dividendBalance($companyId),
+            'declarations' => DividendDeclaration::where('company_id', $companyId)->count(),
+        ];
+    }
+
+    public function alreadyDeclaredMessage(CarbonImmutable $period): string
+    {
+        return 'Dividends for '.$period->format('F Y').' have already been declared.';
+    }
+
+    /**
+     * COMPANY ACCOUNT for CASH; for BANK a bank account of the same company is required.
+     *
+     * @return array{account: Account, bank?: int, label: string}
+     */
+    private function sourceAccount(int $companyId, string $method, ?int $bankAccountId): array
+    {
+        if ($method !== 'BANK') {
+            return ['account' => Account::Company, 'label' => Account::Company->label()];
         }
 
-        $amount = (float) $allocation->amount;
-        $source = $method === 'BANK'
-            ? ['account' => Account::Bank, 'bank' => $bankAccountId]
-            : ['account' => Account::Company];
-
-        $balance = $this->ledger->balance($allocation->company_id, $source['account'], bankAccount: $source['bank'] ?? null);
-        if ($balance < $amount) {
-            throw ValidationException::withMessages(['pay_method' => 'Insufficient balance in '.$source['account']->label()]);
+        $bank = $bankAccountId === null ? null : BankAccount::where('company_id', $companyId)->find($bankAccountId);
+        if ($bank === null) {
+            throw ValidationException::withMessages(['bank_account_id' => 'Select the company bank account to pay from.']);
         }
 
-        return DB::transaction(function () use ($allocation, $method, $bankAccountId, $reference, $employee, $amount, $source): DividendAllocation {
-            $locked = DividendAllocation::whereKey($allocation->id)->lockForUpdate()->first();
-            if ($locked->status !== 'pending') {
-                throw ValidationException::withMessages(['pay_method' => 'Dividend is already paid']);
-            }
+        return ['account' => Account::Bank, 'bank' => $bank->id, 'label' => $bank->name];
+    }
 
-            $this->ledger->transfer($allocation->company_id, $source, ['account' => Account::DividendPayable], $amount, 'DIVIDEND PAYMENT '.$allocation->shareHolder->full_name, $allocation);
+    /**
+     * The payment already recorded under this idempotency key, if any.
+     */
+    private function replayPayment(DividendAllocation $allocation, int $cents, ?string $idempotencyKey): ?DividendPayment
+    {
+        if ($idempotencyKey === null || $idempotencyKey === '') {
+            return null;
+        }
 
-            $allocation->update([
-                'status' => 'paid',
-                'pay_method' => $method,
-                'bank_account_id' => $method === 'BANK' ? $bankAccountId : null,
-                'reference' => $reference,
-                'paid_by' => $employee->id,
-                'paid_at' => now(),
-            ]);
+        $previous = DividendPayment::where('idempotency_key', $idempotencyKey)->first();
+        if ($previous === null) {
+            return null;
+        }
 
-            return $allocation;
-        });
+        if ((int) $previous->dividend_allocation_id !== (int) $allocation->id || DividendMath::toCents((string) $previous->amount) !== $cents) {
+            throw ValidationException::withMessages(['idempotency_key' => 'This request key was already used for a different dividend payment.']);
+        }
+
+        return $previous;
+    }
+
+    /**
+     * Profit split and entitlements in cents for a profit figure, a shareholder percentage and an ownership date.
+     *
+     * @return array{profit: int, pool: int, reinvest: int, total_shares: int, rows: list<array{share_holder: ShareHolder, capital: float, shares: int, total_shares: int, percent: float, entitlement: int}>}
+     */
+    private function compute(int $companyId, float $profit, string $dividendPercent, CarbonImmutable $asOf): array
+    {
+        $profitCents = max(0, DividendMath::toCents($profit));
+        $split = DividendMath::split($profitCents, DividendMath::percentToBasis($dividendPercent));
+
+        $holders = $this->shares($companyId, $asOf)->filter(fn (array $share): bool => $share['shares'] > 0)->values();
+        $totalShares = (int) $holders->sum('shares');
+        $entitlements = DividendMath::allocate($split['pool'], $holders->mapWithKeys(fn (array $share): array => [$share['share_holder']->id => $share['shares']])->all(), $totalShares);
+
+        return [
+            'profit' => $profitCents,
+            'pool' => $split['pool'],
+            'reinvest' => $split['reinvest'],
+            'total_shares' => $totalShares,
+            'rows' => $holders->map(fn (array $share): array => $share + ['entitlement' => $entitlements[$share['share_holder']->id] ?? 0])->all(),
+        ];
     }
 }

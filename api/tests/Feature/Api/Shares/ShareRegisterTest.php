@@ -452,14 +452,14 @@ class ShareRegisterTest extends TestCase
             ['account' => Account::RetainedProfit, 'credit' => 1000000, 'branch' => $this->admin->branch_id],
         ]);
 
-        $this->getJson('/api/v1/capital/dividends/summary')->assertOk()
-            ->assertJsonPath('data.shares.0.capital', 90000000)
-            ->assertJsonPath('data.shares.0.shares', 400)
-            ->assertJsonPath('data.shares.0.percent', 40)
-            ->assertJsonPath('data.shares.1.percent', 50)
-            ->assertJsonPath('data.shares.2.percent', 10);
+        $this->getJson('/api/v1/capital/dividends/preview')->assertOk()
+            ->assertJsonPath('data.rows.0.contribution_total', 90000000)
+            ->assertJsonPath('data.rows.0.shares', 400)
+            ->assertJsonPath('data.rows.0.ownership_percent', 40)
+            ->assertJsonPath('data.rows.1.ownership_percent', 50)
+            ->assertJsonPath('data.rows.2.ownership_percent', 10);
 
-        $this->postJson('/api/v1/capital/dividends', ['period' => '2026-08', 'profit_amount' => 1000000])->assertCreated();
+        $this->postJson('/api/v1/capital/dividends', ['period' => '2026-08'])->assertCreated()->assertJsonPath('data.profit_amount', 1000000);
 
         $allocations = DividendAllocation::orderBy('id')->get();
         $this->assertSame([120000.0, 150000.0, 30000.0], $allocations->map(fn (DividendAllocation $row): float => (float) $row->amount)->all(), 'contributions (90/10) do not decide the split');

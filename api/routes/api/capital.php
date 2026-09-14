@@ -21,8 +21,15 @@ Route::prefix('capital')->name('capital.')->group(function (): void {
     Route::controller(DividendController::class)->group(function (): void {
         Route::get('dividends', 'index')->name('dividends.index');
         Route::get('dividends/summary', 'summary')->name('dividends.summary');
+        Route::get('dividends/available-profit', 'availableProfit')->name('dividends.available-profit');
+        Route::get('dividends/preview', 'preview')->name('dividends.preview');
+        Route::post('dividends/preview', 'preview')->name('dividends.preview.post');
+        Route::get('dividends/payments', 'payments')->name('dividends.payments');
         Route::post('dividends', 'store')->name('dividends.store');
+        Route::get('dividends/{declaration}/allocations', 'allocations')->whereNumber('declaration')->name('dividends.allocations');
+        Route::get('dividends/allocations/{allocation}/payments', 'allocationPayments')->name('dividends.allocations.payments');
         Route::post('dividends/allocations/{allocation}/pay', 'pay')->name('dividends.pay');
+        Route::post('dividends/payments/{payment}/reverse', 'reverse')->name('dividends.payments.reverse');
     });
 
     Route::controller(FloatController::class)->prefix('floats')->name('floats.')->group(function (): void {

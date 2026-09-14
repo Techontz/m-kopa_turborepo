@@ -50,6 +50,8 @@ Route::prefix('settings')->name('settings.')->group(function (): void {
         Route::put('penalty', 'updatePenalty')->name('penalty.update');
         Route::get('reserve', 'reserve')->name('reserve.show');
         Route::put('reserve', 'updateReserve')->name('reserve.update');
+        Route::get('dividend', 'dividend')->name('dividend.show');
+        Route::put('dividend', 'updateDividend')->name('dividend.update');
         Route::get('loan-freeze', 'loanFreeze')->name('loan-freeze.show');
         Route::put('loan-freeze', 'updateLoanFreeze')->name('loan-freeze.update');
     });

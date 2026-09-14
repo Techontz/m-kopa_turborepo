@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Settings;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Settings\CompanyRequest;
+use App\Http\Requests\Settings\DividendSettingRequest;
 use App\Models\AuditLog;
 use App\Models\Company;
 use Illuminate\Http\JsonResponse;
@@ -15,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Company-wide settings: Company Profile (live admin/setting), Penalty Setting (admin/penart_setting)
- * and Reserve Setting (admin/reserve_setting).
+ * Reserve Setting (admin/reserve_setting) and Dividend Settings.
  */
 class CompanySettingController extends ApiController
 {
@@ -147,6 +148,33 @@ class CompanySettingController extends ApiController
         $this->audited($this->currentCompany(), 'Company.reserve_updated', ['reserve_percent' => $validated['reserve']], $request);
 
         return $this->message('Reserve Setting Updated successfully');
+    }
+
+    public function dividend(): JsonResponse
+    {
+        $this->authorizeAny('settings.manage');
+
+        $company = $this->currentCompany();
+
+        return response()->json(['data' => [
+            'dividend_percent' => (float) $company->dividend_shareholder_percent,
+            'reinvest_percent' => (float) $company->dividend_reinvest_percent,
+        ]]);
+    }
+
+    /**
+     * Documents (ACCOUNT OVERVIEW "16. Dividend Account": Profit → Dividend, 70% → Principal (Reinvestment), 30% →
+     * Shareholders): the company's split, used by every later dividend declaration. Past declarations keep the
+     * percentages they were declared with.
+     */
+    public function updateDividend(DividendSettingRequest $request): JsonResponse
+    {
+        $this->audited($this->currentCompany(), 'Company.dividend_settings_updated', [
+            'dividend_shareholder_percent' => $request->percent('dividend_percent'),
+            'dividend_reinvest_percent' => $request->percent('reinvest_percent'),
+        ], $request);
+
+        return $this->message('Dividend Settings Updated successfully');
     }
 
     public function loanFreeze(): JsonResponse

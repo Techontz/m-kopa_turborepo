@@ -1,225 +1,476 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 
+import { DividendPaymentsTable } from "@/components/dividends/DividendPaymentsTable";
+import { PayDividendModal } from "@/components/dividends/PayDividendModal";
+import { allocationBadge, currentMonth, declarationBadge, loadState, mapPreview, periodLabel, profitSourceLabel, tzs } from "@/components/dividends/dividends";
+import type { DividendAllocation, DividendDeclaration, DividendPayment, DividendPreview, DividendSummary } from "@/components/dividends/types";
+import { SummaryTiles, styles } from "@/components/financial-reports/ReportShell";
+import { sharesLabel } from "@/components/shares/shares";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { SelectBox } from "@/components/ui/SelectBox";
 import { confirmAction } from "@/components/ui/notify";
 import { useAuth } from "@/lib/auth";
-import { money, percent } from "@/lib/format";
+import { percent } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
-interface Summary {
-  period: string;
-  available_profit: number;
-  dividend_balance: number;
-  period_profit: number | null;
-  reinvest_percent: number;
-  dividend_percent: number;
-  shares: { id: number; name: string; capital: number; shares: number; total_shares: number; percent: number }[];
+function ErrorOrLoading({ isLoading, error }: { isLoading: boolean; error: unknown }) {
+  const status = loadState({ isLoading, error });
+  if (status.state === "loading") {
+    return <div className="mf-loading">{status.message}</div>;
+  }
+  return status.state === "error" ? <div className="alert alert-danger mb-0">{status.message}</div> : null;
 }
 
-interface Allocation {
-  id: number;
-  share_holder: string;
-  share_percent: number;
-  amount: number;
-  status: "pending" | "paid";
-  pay_method: string | null;
-  bank_account: string | null;
-  reference: string | null;
-  paid_at: string | null;
-}
-
-interface Declaration {
-  id: number;
-  period: string;
-  profit_amount: number;
-  reinvest_percent: number;
-  reinvest_amount: number;
-  dividend_percent: number;
-  dividend_amount: number;
-  paid_amount: number;
-  declared_by: string | null;
-  date: string;
-  allocations: Allocation[];
-}
-
-function previousMonth(): string {
-  const now = new Date();
-  const date = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function PayModal({ allocation, onClose }: { allocation: Allocation; onClose: () => void }) {
-  const [form, setForm] = useState({ pay_method: "", bank_account_id: "", reference: "" });
-  const pay = useAction<typeof form>("post", `capital/dividends/allocations/${allocation.id}/pay`);
+function AllocationHistoryModal({ allocation, onClose }: { allocation: DividendAllocation; onClose: () => void }) {
+  const { data, isLoading, error } = useApi<DividendPayment[]>(`capital/dividends/allocations/${allocation.id}/payments`);
 
   return (
-    <Modal open onClose={onClose} title={`Pay Dividend / ${allocation.share_holder} - ${money(allocation.amount)}`} submitLabel="Pay" submitting={pay.isPending} onSubmit={() => pay.mutate(form, { onSuccess: onClose })}>
-      <div className="row">
-        <Field label="Pay Method:" required className="col-md-6" error={pay.fieldError("pay_method")}>
-          <select className="form-control" value={form.pay_method} onChange={(e) => setForm({ ...form, pay_method: e.target.value })} required>
-            <option value="">Select</option>
-            <option value="CASH">CASH</option>
-            <option value="BANK">BANK</option>
-          </select>
-        </Field>
-        {form.pay_method === "BANK" && (
-          <Field label="Bank Account:" required className="col-md-6" error={pay.fieldError("bank_account_id")}>
-            <SelectBox placeholder="Select Account" optionsUrl="capital/options/bank-accounts" value={form.bank_account_id} onChange={(value) => setForm({ ...form, bank_account_id: value ?? "" })} />
-          </Field>
-        )}
-        <Field label="Reference:" className="col-md-12" error={pay.fieldError("reference")}>
-          <input className="form-control" placeholder="Receipt / Transaction reference" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} />
-        </Field>
-      </div>
+    <Modal open onClose={onClose} size="xl" title={`Payment History / ${allocation.share_holder ?? ""}`}>
+      <SummaryTiles
+        items={[
+          { label: "Dividend Entitlement", value: tzs(allocation.entitlement) },
+          { label: "Amount Paid", value: tzs(allocation.paid_amount) },
+          { label: "Outstanding Balance", value: tzs(allocation.balance) },
+          {
+            label: "Payment Status",
+            value: allocationBadge(allocation.status).label,
+          },
+        ]}
+      />
+      <DividendPaymentsTable rows={data} isLoading={isLoading} error={error} single pageSize={25} />
     </Modal>
   );
 }
 
+function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView }: { period: string; onPeriod: (value: string) => void; canManage: boolean; canSettings: boolean; onView: (id: number) => void }) {
+  const { data: preview, isLoading, error } = useApi<DividendPreview>("capital/dividends/preview", { period });
+  const declare = useAction<{ period: string }, { data: { id: number } }>("post", "capital/dividends");
+  const mapped = mapPreview(preview);
+
+  return (
+    <Card
+      title="Declare Dividend"
+      actions={
+        canSettings && (
+          <Link href="/settings/dividends" className="btn btn-sm btn-outline-secondary">
+            <i className="icon-settings" /> Dividend Settings
+          </Link>
+        )
+      }
+    >
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!preview?.can_declare) {
+            return;
+          }
+          const confirmed = await confirmAction(
+            `Declare dividends for ${preview.period_label}?`,
+            `Profit ${tzs(preview.profit_available)}: Shareholder Dividend Pool ${tzs(preview.dividend_pool)} (${percent(preview.dividend_percent)}) to ${preview.rows.length} shareholder(s), Principal Reinvestment ${tzs(preview.reinvestment_amount)} (${percent(preview.reinvest_percent)}). This posts to the ledger and cannot be edited.`,
+          );
+          if (confirmed) {
+            declare.mutate({ period }, { onSuccess: (result) => onView(result.data.id) });
+          }
+        }}
+      >
+        <div className="row">
+          <Field label="Period:" required className="col-lg-3 col-md-6" error={declare.fieldError("period")}>
+            <input type="month" className="form-control" value={period} max={currentMonth()} onChange={(e) => e.target.value && onPeriod(e.target.value)} required />
+          </Field>
+          <Field label="Profit Available:" className="col-lg-3 col-md-6">
+            <input className="form-control" value={preview ? tzs(preview.profit_available) : ""} readOnly aria-label="Profit Available" />
+          </Field>
+          <Field label={`Shareholder Dividend (${percent(preview?.dividend_percent ?? 0)}):`} className="col-lg-3 col-md-6">
+            <input className="form-control" value={preview ? tzs(preview.dividend_pool) : ""} readOnly />
+          </Field>
+          <Field label={`Principal Reinvestment (${percent(preview?.reinvest_percent ?? 0)}):`} className="col-lg-3 col-md-6">
+            <input className="form-control" value={preview ? tzs(preview.reinvestment_amount) : ""} readOnly />
+          </Field>
+        </div>
+
+        <ErrorOrLoading isLoading={isLoading} error={error} />
+
+        {preview && (
+          <>
+            <p className={styles.note}>
+              Source: {profitSourceLabel(preview.profit_source)}. {preview.profit_note} Profit Account balance: {tzs(preview.profit_account_balance)}. The split comes from Dividend Settings
+              {canSettings ? "" : " (ask an administrator to change it)"}. Ownership is taken from the share register on {preview.as_of_date} ({sharesLabel(preview.total_shares)} shares).
+            </p>
+
+            {preview.already_declared && (
+              <div className="alert alert-info d-flex flex-wrap align-items-center justify-content-between">
+                <span>Dividends for {preview.period_label} have already been declared.</span>
+                {preview.declaration_id !== null && (
+                  <button type="button" className="btn btn-sm btn-info" onClick={() => onView(preview.declaration_id as number)}>
+                    View allocations
+                  </button>
+                )}
+              </div>
+            )}
+            {!preview.already_declared && preview.blocking_reason && <div className="alert alert-warning">{preview.blocking_reason}</div>}
+
+            {!preview.already_declared && (
+              <>
+                <DataTable
+                  rows={mapped.rows}
+                  rowKey={(row) => row.share_holder_id}
+                  searchable={false}
+                  pageSize={100}
+                  emptyMessage="No shareholder holds shares in the share register"
+                  columns={[
+                    {
+                      key: "serial",
+                      header: "S/No.",
+                      render: (row) => `${row.serial}.`,
+                    },
+                    { key: "name", header: "Shareholder" },
+                    {
+                      key: "shares",
+                      header: "Shares",
+                      className: "text-right",
+                      render: (row) => sharesLabel(row.shares),
+                    },
+                    {
+                      key: "ownership_percent",
+                      header: "Ownership %",
+                      className: "text-right",
+                      render: (row) => percent(row.ownership_percent),
+                    },
+                    {
+                      key: "contribution_total",
+                      header: "Contributions",
+                      className: "text-right",
+                      render: (row) => tzs(row.contribution_total),
+                    },
+                    {
+                      key: "entitlement",
+                      header: "Dividend Entitlement",
+                      className: "text-right",
+                      render: (row) => tzs(row.entitlement),
+                    },
+                  ]}
+                  footer={
+                    mapped.rows.length > 0 && (
+                      <tr>
+                        <th colSpan={2}>TOTAL</th>
+                        <th className="text-right">{sharesLabel(mapped.totalShares)}</th>
+                        <th className="text-right">{percent(mapped.totalPercent)}</th>
+                        <th />
+                        <th className="text-right">{tzs(mapped.totalEntitlement)}</th>
+                      </tr>
+                    )
+                  }
+                />
+
+                {canManage && (
+                  <div className="text-center m-t-20">
+                    <button type="submit" className="btn btn-primary" disabled={!preview.can_declare || declare.isPending}>
+                      <i className="icon-drawer" /> {declare.isPending ? "Please wait..." : "Declare Dividend"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </form>
+    </Card>
+  );
+}
+
+function AllocationsCard({ declarationId, canManage }: { declarationId: number; canManage: boolean }) {
+  const { data, isLoading, error } = useApi<DividendAllocation[]>(`capital/dividends/${declarationId}/allocations`);
+  const [paying, setPaying] = useState<DividendAllocation | null>(null);
+  const [history, setHistory] = useState<DividendAllocation | null>(null);
+  const status = loadState({ isLoading, error, count: data?.length }, "No allocations");
+
+  return (
+    <Card title="Shareholder Dividend Allocation">
+      {status.state === "error" ? (
+        <div className="alert alert-danger mb-0">{status.message}</div>
+      ) : (
+        <DataTable
+          rows={data}
+          loading={isLoading}
+          rowKey={(row) => row.id}
+          searchable={false}
+          pageSize={100}
+          columns={[
+            {
+              key: "serial",
+              header: "S/No.",
+              sortable: false,
+              render: (_row, index) => `${index + 1}.`,
+            },
+            { key: "share_holder", header: "Shareholder" },
+            {
+              key: "shares_held",
+              header: "Shares",
+              className: "text-right",
+              render: (row) => (row.shares_held === null ? "-" : sharesLabel(row.shares_held)),
+            },
+            {
+              key: "ownership_percent",
+              header: "Ownership %",
+              className: "text-right",
+              render: (row) => percent(row.ownership_percent),
+            },
+            {
+              key: "entitlement",
+              header: "Dividend Entitlement",
+              className: "text-right",
+              render: (row) => tzs(row.entitlement),
+            },
+            {
+              key: "paid_amount",
+              header: "Amount Paid",
+              className: "text-right",
+              render: (row) => (
+                <button type="button" className="btn btn-link btn-sm p-0" title="Payment history" onClick={() => setHistory(row)}>
+                  {tzs(row.paid_amount)}
+                </button>
+              ),
+            },
+            {
+              key: "balance",
+              header: "Outstanding Balance",
+              className: "text-right",
+              render: (row) => tzs(row.balance),
+            },
+            {
+              key: "status",
+              header: "Payment Status",
+              render: (row) => <Badge tone={allocationBadge(row.status).tone}>{allocationBadge(row.status).label}</Badge>,
+            },
+            {
+              key: "last_payment_date",
+              header: "Last Payment Date",
+              render: (row) => row.last_payment_date ?? "-",
+            },
+            {
+              key: "actions",
+              header: "Action",
+              sortable: false,
+              render: (row) => (
+                <div className="text-nowrap">
+                  {canManage && row.balance > 0 && (
+                    <button type="button" className="btn btn-sm btn-success mr-1" onClick={() => setPaying(row)}>
+                      <i className="icon-wallet" /> PAY
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setHistory(row)}>
+                    <i className="icon-list" /> History
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      )}
+      {paying && <PayDividendModal allocation={paying} onClose={() => setPaying(null)} />}
+      {history && <AllocationHistoryModal allocation={history} onClose={() => setHistory(null)} />}
+    </Card>
+  );
+}
+
 /**
- * Documents: ACCOUNT OVERVIEW "Dividend Account" — monthly profit → Dividend; 70% → Principal (reinvestment),
- * 30% → shareholders split by share-register ownership on the declaration date (shares held ÷ total issued shares);
- * Dividend account withdrawn by CASH or BANK.
+ * Capital → Dividends. Documents: ACCOUNT OVERVIEW "Dividend Account" — Profit → Dividend, split into Principal
+ * Reinvestment and the Shareholder Dividend Pool by Dividend Settings (default 70 / 30); the pool is split by
+ * share-register ownership; entitlements are paid by Cash or Bank in full or in parts. All figures come from the API.
  */
 export default function DividendsPage() {
   const { can } = useAuth();
-  const [form, setForm] = useState({ period: previousMonth(), profit_amount: "" });
-  const { data: summary } = useApi<Summary>("capital/dividends/summary", { period: form.period });
-  const { data: declarations, isLoading } = useApi<Declaration[]>("capital/dividends");
-  const [paying, setPaying] = useState<Allocation | null>(null);
-  const declare = useAction<typeof form>("post", "capital/dividends");
-
-  const profit = Number(form.profit_amount || 0);
-  const dividend = Math.round(profit * (summary?.dividend_percent ?? 30)) / 100;
-  const reinvest = profit - dividend;
+  const canView = can(["capital.manage", "capital.view"]);
   const canManage = can("capital.manage");
+  const [period, setPeriod] = useState(currentMonth());
+  const [selected, setSelected] = useState<number | null>(null);
+
+  const summary = useApi<DividendSummary>(canView ? "capital/dividends/summary" : null, { period });
+  const declarations = useApi<DividendDeclaration[]>(canView ? "capital/dividends" : null);
+  const payments = useApi<DividendPayment[]>(canView ? "capital/dividends/payments" : null);
+
+  const declarationId = selected ?? summary.data?.declaration_id ?? declarations.data?.[0]?.id ?? null;
+  const shown = declarations.data?.find((declaration) => declaration.id === declarationId);
+
+  if (!canView) {
+    return (
+      <>
+        <PageHeader crumbs={["Capital", "Dividends"]} />
+        <Card>
+          <div className="alert alert-warning mb-0">You do not have permission to view dividends.</div>
+        </Card>
+      </>
+    );
+  }
+
+  const data = summary.data;
+  const declaredForPeriod = data?.declaration_id ? declarations.data?.find((declaration) => declaration.id === data.declaration_id) : undefined;
 
   return (
     <>
       <PageHeader crumbs={["Capital", "Dividends"]} />
 
-      <div className="row clearfix">
-        {[
-          ["PROFIT ACCOUNT (Undistributed)", summary?.available_profit],
-          ["DIVIDEND ACCOUNT (Unpaid)", summary?.dividend_balance],
-          [`Month-end profit ${summary?.period ?? ""}`, summary?.period_profit],
-        ].map(([label, value]) => (
-          <div className="col-lg-4 col-md-6" key={String(label)}>
-            <div className="card">
-              <div className="body">
-                <div className="text-muted">{label}</div>
-                <h4 className="mb-0">{value === null || value === undefined ? "-" : money(value as number)}</h4>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {canManage && (
-        <Card title="Declare Dividend">
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (await confirmAction("Are you sure?", `Declare ${money(profit)} for ${form.period}?`)) {
-                declare.mutate(form, { onSuccess: () => setForm({ ...form, profit_amount: "" }) });
-              }
-            }}
-          >
-            <div className="row">
-              <Field label="Month:" required className="col-md-3" error={declare.fieldError("period")}>
-                <input type="month" className="form-control" value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value })} required />
-              </Field>
-              <Field label="Profit Amount:" required className="col-md-3" error={declare.fieldError("profit_amount")}>
-                <input type="number" min={1} className="form-control" placeholder="Amount" value={form.profit_amount} onChange={(e) => setForm({ ...form, profit_amount: e.target.value })} required />
-                {summary?.period_profit !== null && summary?.period_profit !== undefined && (
-                  <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setForm({ ...form, profit_amount: String(summary.period_profit) })}>Use month-end profit</button>
-                )}
-              </Field>
-              <Field label={`Principal Reinvestment (${percent(summary?.reinvest_percent ?? 70)}):`} className="col-md-3">
-                <input className="form-control" value={money(reinvest)} readOnly />
-              </Field>
-              <Field label={`Shareholders Dividend (${percent(summary?.dividend_percent ?? 30)}):`} className="col-md-3">
-                <input className="form-control" value={money(dividend)} readOnly />
-              </Field>
-            </div>
-            <div className="table-responsive">
-              <table className="table table-hover table-custom">
-                <thead className="thead-info">
-                  <tr><th>S/No.</th><th>Shareholder</th><th>Contributions</th><th>Shares</th><th>Ownership % (share register)</th><th>Dividend</th></tr>
-                </thead>
-                <tbody>
-                  {(summary?.shares ?? []).map((share, index) => (
-                    <tr key={share.id}>
-                      <td>{index + 1}.</td>
-                      <td>{share.name}</td>
-                      <td>{money(share.capital)}</td>
-                      <td>{share.shares.toLocaleString("en-US")}</td>
-                      <td>{percent(Number(share.percent.toFixed(2)))}</td>
-                      <td>{money((dividend * share.percent) / 100)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="text-center m-t-20">
-              <button type="submit" className="btn btn-primary" disabled={declare.isPending}><i className="icon-drawer" />Declare</button>
-            </div>
-          </form>
-        </Card>
-      )}
-
-      <Card title="Dividend List">
-        <div className="table-responsive">
-          <table className="table table-hover dataTable table-custom">
-            <thead className="thead-info">
-              <tr><th>S/No.</th><th>Month</th><th>Shareholder</th><th>Ownership %</th><th>Amount</th><th>Status</th><th>Pay method</th><th>Date</th><th>Action</th></tr>
-            </thead>
-            <tbody>
-              {isLoading && <tr><td colSpan={9} className="mf-loading">Loading...</td></tr>}
-              {!isLoading && !declarations?.length && <tr><td colSpan={9} className="text-center">No data available in table</td></tr>}
-              {declarations?.map((declaration, index) => (
-                <Fragment key={declaration.id}>
-                  <tr>
-                    <td>{index + 1}.</td>
-                    <td><b>{declaration.period}</b></td>
-                    <td colSpan={3}>
-                      Profit <b>{money(declaration.profit_amount)}</b> — Principal {percent(declaration.reinvest_percent)}: <b>{money(declaration.reinvest_amount)}</b> — Dividend {percent(declaration.dividend_percent)}: <b>{money(declaration.dividend_amount)}</b>
-                    </td>
-                    <td>Paid: {money(declaration.paid_amount)}</td>
-                    <td />
-                    <td>{declaration.date}</td>
-                    <td />
-                  </tr>
-                  {declaration.allocations.map((allocation) => (
-                    <tr key={allocation.id}>
-                      <td /><td />
-                      <td>{allocation.share_holder}</td>
-                      <td>{percent(Number(allocation.share_percent.toFixed(2)))}</td>
-                      <td>{money(allocation.amount)}</td>
-                      <td><Badge tone={allocation.status === "paid" ? "success" : "warning"}>{allocation.status.toUpperCase()}</Badge></td>
-                      <td>{allocation.pay_method ? `${allocation.pay_method}${allocation.bank_account ? ` / ${allocation.bank_account}` : ""}` : "-"}</td>
-                      <td>{allocation.paid_at ?? "-"}</td>
-                      <td>
-                        {canManage && allocation.status === "pending" && (
-                          <button type="button" className="btn btn-sm btn-success" title="Pay" onClick={() => setPaying(allocation)}><i className="icon-wallet" /></button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <Card title={`Dividends — ${data?.period_label ?? periodLabel(period)}`}>
+        {summary.error ? (
+          <ErrorOrLoading isLoading={false} error={summary.error} />
+        ) : (
+          <SummaryTiles
+            items={[
+              ...(declaredForPeriod
+                ? [
+                    {
+                      label: "Declared Profit",
+                      value: tzs(declaredForPeriod.profit_amount),
+                    },
+                    {
+                      label: `Shareholder Dividend Pool (${percent(declaredForPeriod.dividend_percent)})`,
+                      value: tzs(declaredForPeriod.dividend_amount),
+                    },
+                    {
+                      label: `Principal Reinvestment (${percent(declaredForPeriod.reinvest_percent)})`,
+                      value: tzs(declaredForPeriod.reinvest_amount),
+                    },
+                  ]
+                : [
+                    {
+                      label: "Profit Available",
+                      value: data ? tzs(data.profit_available) : "…",
+                    },
+                    {
+                      label: `Shareholder Dividend Pool (${percent(data?.dividend_percent ?? 0)})`,
+                      value: data ? tzs(data.dividend_pool) : "…",
+                    },
+                    {
+                      label: `Principal Reinvestment (${percent(data?.reinvest_percent ?? 0)})`,
+                      value: data ? tzs(data.reinvestment_amount) : "…",
+                    },
+                  ]),
+              {
+                label: "Total Declared",
+                value: data ? tzs(data.total_declared) : "…",
+              },
+              { label: "Total Paid", value: data ? tzs(data.total_paid) : "…" },
+              {
+                label: "Total Outstanding",
+                value: data ? tzs(data.total_outstanding) : "…",
+              },
+            ]}
+          />
+        )}
       </Card>
 
-      {paying && <PayModal allocation={paying} onClose={() => setPaying(null)} />}
+      <DeclareDividendCard
+        period={period}
+        onPeriod={(value) => {
+          setPeriod(value);
+          setSelected(null);
+        }}
+        canManage={canManage}
+        canSettings={can("settings.manage")}
+        onView={setSelected}
+      />
+
+      {declarationId !== null && (
+        <>
+          {shown && (
+            <p className={`${styles.note} mb-2`}>
+              Showing <b>{shown.period_label}</b>: profit {tzs(shown.profit_amount)}, pool {tzs(shown.dividend_amount)} ({percent(shown.dividend_percent)}), ownership as of {shown.as_of_date ?? "-"}.
+            </p>
+          )}
+          <AllocationsCard key={declarationId} declarationId={declarationId} canManage={canManage} />
+        </>
+      )}
+
+      <Card title="Dividend Declaration History">
+        {declarations.error ? (
+          <ErrorOrLoading isLoading={false} error={declarations.error} />
+        ) : (
+          <DataTable
+            rows={declarations.data}
+            loading={declarations.isLoading}
+            rowKey={(row) => row.id}
+            emptyMessage="No dividends have been declared yet"
+            columns={[
+              {
+                key: "period",
+                header: "Period",
+                render: (row) => <b>{row.period_label}</b>,
+              },
+              {
+                key: "profit_amount",
+                header: "Profit",
+                className: "text-right",
+                render: (row) => tzs(row.profit_amount),
+              },
+              {
+                key: "dividend_percent",
+                header: "Dividend %",
+                className: "text-right",
+                render: (row) => percent(row.dividend_percent),
+              },
+              {
+                key: "dividend_amount",
+                header: "Dividend Pool",
+                className: "text-right",
+                render: (row) => tzs(row.dividend_amount),
+              },
+              {
+                key: "reinvest_percent",
+                header: "Reinvestment %",
+                className: "text-right",
+                render: (row) => percent(row.reinvest_percent),
+              },
+              {
+                key: "reinvest_amount",
+                header: "Reinvestment Amount",
+                className: "text-right",
+                render: (row) => tzs(row.reinvest_amount),
+              },
+              {
+                key: "declared_at",
+                header: "Declared Date",
+                render: (row) => (
+                  <>
+                    {row.declared_at?.slice(0, 10) ?? "-"}
+                    <div className="text-muted small">{row.declared_by ?? ""}</div>
+                  </>
+                ),
+              },
+              {
+                key: "status",
+                header: "Status",
+                render: (row) => (
+                  <>
+                    <Badge tone={declarationBadge(row.status).tone}>{declarationBadge(row.status).label}</Badge>
+                    <div className="text-muted small">Outstanding {tzs(row.outstanding_amount)}</div>
+                  </>
+                ),
+              },
+              {
+                key: "actions",
+                header: "Actions",
+                sortable: false,
+                render: (row) => (
+                  <button type="button" className={`btn btn-sm ${row.id === declarationId ? "btn-info" : "btn-outline-info"}`} onClick={() => setSelected(row.id)}>
+                    <i className="icon-eye" /> View allocations
+                  </button>
+                ),
+              },
+            ]}
+          />
+        )}
+      </Card>
+
+      <Card title="Payment History">
+        <DividendPaymentsTable rows={payments.data} isLoading={payments.isLoading} error={payments.error} />
+      </Card>
     </>
   );
 }

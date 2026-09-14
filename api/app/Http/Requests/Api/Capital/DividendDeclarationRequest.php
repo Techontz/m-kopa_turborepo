@@ -2,22 +2,25 @@
 
 namespace App\Http\Requests\Api\Capital;
 
-use App\Models\DividendDeclaration;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
+/**
+ * Declare a month's dividend. Only the period is submitted: Profit Available, the split percentages and ownership are
+ * computed by the server inside the declaration transaction, so a profit amount in the request is rejected.
+ */
 class DividendDeclarationRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return Gate::allows('capital.manage');
     }
 
-    protected function prepareForValidation(): void
+    protected function failedAuthorization(): void
     {
-        if (is_string($this->input('profit_amount'))) {
-            $this->merge(['profit_amount' => str_replace([',', ' '], '', $this->input('profit_amount'))]);
-        }
+        throw new HttpException(403, 'You do not have permission to perform this action.');
     }
 
     /**
@@ -26,18 +29,10 @@ class DividendDeclarationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'period' => [
-                'required', 'date_format:Y-m', 'before_or_equal:'.now()->format('Y-m'),
-                function (string $attribute, mixed $value, \Closure $fail): void {
-                    $exists = DividendDeclaration::where('company_id', $this->user()->company_id)
-                        ->whereDate('period', $value.'-01')
-                        ->exists();
-                    if ($exists) {
-                        $fail('Dividend for this month is already declared.');
-                    }
-                },
-            ],
-            'profit_amount' => ['required', 'numeric', 'min:1'],
+            'period' => ['required', 'date_format:Y-m', 'before_or_equal:'.now()->format('Y-m')],
+            'profit_amount' => ['prohibited'],
+            'dividend_percent' => ['prohibited'],
+            'reinvest_percent' => ['prohibited'],
         ];
     }
 
@@ -46,6 +41,11 @@ class DividendDeclarationRequest extends FormRequest
      */
     public function messages(): array
     {
-        return ['period.before_or_equal' => 'Dividend cannot be declared for a future month.'];
+        return [
+            'period.before_or_equal' => 'Dividends cannot be declared for a future month.',
+            'profit_amount.prohibited' => 'Profit Available is calculated by the system and cannot be entered.',
+            'dividend_percent.prohibited' => 'The dividend percentages come from Settings → Dividend Settings.',
+            'reinvest_percent.prohibited' => 'The dividend percentages come from Settings → Dividend Settings.',
+        ];
     }
 }

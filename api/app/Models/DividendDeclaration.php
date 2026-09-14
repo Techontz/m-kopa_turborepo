@@ -6,9 +6,11 @@ use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 /**
- * A monthly profit distribution: reinvested share (to Principal) and shareholder dividend.
+ * A monthly profit distribution: reinvested share (to Principal) and shareholder dividend pool, with the settings
+ * percentages, the server-computed profit and the share-register snapshot (total shares, as-of date) used at declaration.
  */
 class DividendDeclaration extends Model
 {
@@ -28,12 +30,28 @@ class DividendDeclaration extends Model
             'reinvest_amount' => 'decimal:2',
             'dividend_percent' => 'decimal:2',
             'dividend_amount' => 'decimal:2',
+            'total_shares' => 'integer',
+            'as_of_date' => 'date',
+            'declared_at' => 'datetime',
         ];
     }
 
     public function allocations(): HasMany
     {
         return $this->hasMany(DividendAllocation::class);
+    }
+
+    public function payments(): HasManyThrough
+    {
+        return $this->hasManyThrough(DividendPayment::class, DividendAllocation::class);
+    }
+
+    /**
+     * "August 2026".
+     */
+    public function periodLabel(): string
+    {
+        return $this->period->format('F Y');
     }
 
     public function journalEntry(): BelongsTo

@@ -12,10 +12,12 @@ interface ModalProps {
   onSubmit?: () => void;
   submitting?: boolean;
   size?: "sm" | "lg" | "xl";
+  /** Label of the dismiss button (default "CLOSE"). */
+  cancelLabel?: string;
 }
 
 /** Bootstrap-styled modal (live system look) with Filter/Save + CLOSE footer. */
-export function Modal({ open, onClose, title, children, submitLabel, onSubmit, submitting, size }: ModalProps) {
+export function Modal({ open, onClose, title, children, submitLabel, onSubmit, submitting, size, cancelLabel = "CLOSE" }: ModalProps) {
   useEffect(() => {
     if (!open) {
       return;
@@ -43,7 +45,7 @@ export function Modal({ open, onClose, title, children, submitLabel, onSubmit, s
             {submitting ? "Please wait..." : submitLabel}
           </button>
         )}
-        <button type="button" className="btn btn-secondary" onClick={onClose}>CLOSE</button>
+        <button type="button" className="btn btn-secondary" onClick={onClose}>{cancelLabel}</button>
       </div>
     </>
   );

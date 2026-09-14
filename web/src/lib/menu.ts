@@ -44,6 +44,7 @@ export const menu: MenuTab[] = [
           { label: "Loan Fee", href: "/settings/loan-fees", permission: "settings.manage" },
           { label: "Penalty", href: "/settings/penalty", permission: "settings.manage" },
           { label: "Reserve Setting", href: "/settings/reserve", permission: "settings.manage" },
+          { label: "Dividend Settings", href: "/settings/dividends", permission: "settings.manage" },
           { label: "Roles & Permissions", href: "/settings/roles", permission: "users.manage" },
         ],
       },

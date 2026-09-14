@@ -178,13 +178,13 @@ class CustomerLoanHierarchyApiTest extends TestCase
         $category = $this->loanCategory('WAJASIRIAMALI', ['freeze_time_days' => 7]);
         $customer = $this->customer('WAJASIRIAMALI');
         Loan::factory()->create([
-            'customer_id' => $customer->id, 'loan_category_id' => $category->id, 'status' => LoanStatus::Closed,
-            'freeze_started_at' => now()->subDay(), 'freeze_days' => 7, 'frozen_until' => CarbonImmutable::now()->addDays(6)->setTime(10, 0),
+            'customer_id' => $customer->id, 'loan_category_id' => $category->id, 'status' => LoanStatus::Closed, 'early_settlement' => true,
+            'disbursed_at' => now()->subDay(), 'closed_at' => now(), 'freeze_started_at' => now()->subDay(), 'freeze_days' => 7, 'frozen_until' => CarbonImmutable::now()->addDays(6)->setTime(10, 0),
         ]);
 
         $this->postJson(route('api.v1.loans.store'), $this->form($customer, $category))
             ->assertUnprocessable()
-            ->assertJsonPath('errors.customer_id.0', fn (string $message): bool => str_starts_with($message, 'Customer is currently frozen'));
+            ->assertJsonPath('errors.customer_id.0', fn (string $message): bool => str_starts_with($message, 'Customer fully settled the previous loan early. Re-borrowing is frozen until'));
         $this->assertSame(1, Loan::count());
     }
 

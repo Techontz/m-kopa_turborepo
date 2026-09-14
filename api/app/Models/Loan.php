@@ -6,6 +6,7 @@ use App\Enums\Duration;
 use App\Enums\LoanStatus;
 use App\Models\Concerns\Auditable;
 use App\Services\LoanService;
+use Carbon\CarbonImmutable;
 use Database\Factories\LoanFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -43,10 +44,12 @@ class Loan extends Model
             'approved_at' => 'datetime',
             'withdrawn_at' => 'date',
             'end_date' => 'date',
+            'expected_completion_date' => 'date',
             'telco_matched' => 'boolean',
             'telco_verified_at' => 'datetime',
             'disbursed_at' => 'datetime',
             'closed_at' => 'datetime',
+            'early_settlement' => 'boolean',
             'freeze_started_at' => 'datetime',
             'freeze_days' => 'integer',
             'frozen_until' => 'datetime',
@@ -146,6 +149,21 @@ class Loan extends Model
     public function scopeStatus(Builder $query, LoanStatus ...$statuses): void
     {
         $query->whereIn('status', array_map(fn (LoanStatus $status): string => $status->value, $statuses));
+    }
+
+    /**
+     * Re-borrowing freeze of this loan: "frozen" while now < frozen_until, "expired" once it passed, "none" when the loan
+     * was not settled early (or its category had no Freeze Time).
+     *
+     * @return 'frozen'|'expired'|'none'
+     */
+    public function freezeStatus(?CarbonImmutable $now = null): string
+    {
+        if ($this->early_settlement !== true || $this->frozen_until === null) {
+            return 'none';
+        }
+
+        return $this->frozen_until->gt($now ?? CarbonImmutable::now()) ? 'frozen' : 'expired';
     }
 
     protected function paidAmount(): Attribute

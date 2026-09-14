@@ -240,11 +240,14 @@ class LoanLifecycleApiTest extends TestCase
         app(LoanService::class)->deposit($loan, 143000, now()->toImmutable());
         $loan->refresh();
         $this->assertSame(LoanStatus::Closed, $loan->status);
+        // Settled (penalty included) before the 2026-09-20 maturity: early settlement, frozen from disbursement (10:00).
+        $this->assertTrue($loan->early_settlement);
+        $this->assertSame('2026-09-10 10:00:00', $loan->freeze_started_at->toDateTimeString());
         $this->assertSame('2026-10-10 10:00:00', $loan->frozen_until->toDateTimeString());
 
         $this->postJson(route('api.v1.loans.store'), $this->form())
             ->assertUnprocessable()
-            ->assertJsonPath('errors.customer_id.0', 'Customer is currently frozen and cannot apply for another loan until 10 October 2026 10:00.');
+            ->assertJsonPath('errors.customer_id.0', 'Customer fully settled the previous loan early. Re-borrowing is frozen until 10 October 2026.');
     }
 
     public function test_top_up_requires_paid_percentage_and_settles_previous_loan(): void

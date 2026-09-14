@@ -19,8 +19,9 @@ use Illuminate\Validation\ValidationException;
  * amount_from / amount_to. Customer types hold no loan rules.
  *
  * The re-borrowing freeze is reported separately (`freeze`): a customer can be eligible but frozen, and may apply
- * only when eligible AND not frozen (`can_apply`). A freeze started by a loan of any category blocks every new loan
- * of the customer until it ends — it is a customer re-borrowing freeze whose length comes from the loan's category.
+ * only when eligible AND not frozen (`can_apply`). A freeze exists only for a loan FULLY SETTLED EARLY (before its
+ * maturity date) and runs from that loan's disbursement for its category's Freeze Time (LoanService::recordSettlement()).
+ * It blocks every new loan of the customer until it ends; its expiry never makes a customer eligible by itself.
  */
 class CustomerEligibility
 {
@@ -132,44 +133,82 @@ class CustomerEligibility
         }
     }
 
+    public const FREEZE_REASON = 'Previous loan was fully settled early.';
+
     /**
-     * Current re-borrowing freeze of the customer: FROZEN while now() < frozen_until (timestamp compare), otherwise
-     * FREEZE EXPIRED when a past freeze exists, else no freeze.
+     * Current re-borrowing freeze of the customer. Blocking = any early-settled loan of the customer whose frozen_until
+     * is still in the future (timestamp compare; windows are anchored to disbursement, so old history expires by itself).
+     * The "previous loan" reported is that blocking loan, otherwise the customer's most recently settled loan (closed_at),
+     * so the profile always shows the latest settlement even when it did not freeze.
      *
-     * @return array{status: 'frozen'|'expired'|'none', frozen: bool, loan_id: int|null, loan_number: string|null, loan_category: string|null, freeze_days: int|null, freeze_started_at: string|null, frozen_until: string|null, remaining_seconds: int, checked_at: string, message: string|null}
+     * @return array{status: 'frozen'|'expired'|'none', frozen: bool, reborrowing_status: 'Frozen'|'Available', reason: string|null, loan_id: int|null, loan_number: string|null, loan_category: string|null, freeze_days: int|null, freeze_started_at: string|null, frozen_until: string|null, frozen_until_label: string|null, remaining_seconds: int, checked_at: string, message: string|null, previous_loan: array<string, mixed>|null}
      */
     public function freeze(Customer $customer): array
     {
         $now = CarbonImmutable::now();
-        $loan = $customer->loans()->whereNotNull('frozen_until')->where('frozen_until', '>', $now)->with('category')->orderByDesc('frozen_until')->first()
-            ?? $customer->loans()->whereNotNull('frozen_until')->with('category')->orderByDesc('frozen_until')->first();
-        $frozen = $loan !== null && $loan->frozen_until->gt($now);
+        $blocking = $customer->loans()->where('early_settlement', true)->where('frozen_until', '>', $now)->with('category')->orderByDesc('frozen_until')->first();
+        $loan = $blocking ?? $customer->loans()->whereNotNull('closed_at')->with('category')->orderByDesc('closed_at')->orderByDesc('id')->first();
+        $frozen = $blocking !== null;
+        $status = $loan?->freezeStatus($now) ?? 'none';
 
         return [
-            'status' => $loan === null ? 'none' : ($frozen ? 'frozen' : 'expired'),
+            'status' => $status,
             'frozen' => $frozen,
+            'reborrowing_status' => $frozen ? 'Frozen' : 'Available',
+            'reason' => $status === 'none' ? null : self::FREEZE_REASON,
             'loan_id' => $loan?->id,
             'loan_number' => $loan?->loan_number,
             'loan_category' => $loan?->category?->name,
             'freeze_days' => $loan?->freeze_days,
             'freeze_started_at' => $loan?->freeze_started_at?->toIso8601String(),
             'frozen_until' => $loan?->frozen_until?->toIso8601String(),
+            'frozen_until_label' => $loan?->frozen_until !== null ? self::freezeUntilLabel($loan->frozen_until) : null,
             'remaining_seconds' => $frozen ? (int) $now->diffInSeconds($loan->frozen_until, true) : 0,
             'checked_at' => $now->toIso8601String(),
             'message' => $frozen ? self::freezeMessage($loan) : null,
+            'previous_loan' => $loan ? self::settlementSummary($loan, $now) : null,
         ];
     }
 
     /**
-     * "Customer is currently frozen and cannot apply for another loan until 17 September 2026 10:00" (time only when
-     * the freeze does not end at midnight).
+     * Previous loan / Disbursement Date / Expected Completion Date / Settlement Date / Early Settlement / Freeze Time /
+     * Freeze Start / Freeze End / Current Freeze Status of one loan.
+     *
+     * @return array{id: int, loan_number: string, loan_category: string|null, disbursed_at: string|null, expected_completion_date: string|null, settled_at: string|null, early_settlement: bool|null, freeze_days: int|null, freeze_started_at: string|null, frozen_until: string|null, frozen_until_label: string|null, freeze_status: string}
+     */
+    public static function settlementSummary(Loan $loan, ?CarbonImmutable $now = null): array
+    {
+        return [
+            'id' => $loan->id,
+            'loan_number' => $loan->loan_number,
+            'loan_category' => $loan->category?->name,
+            'disbursed_at' => $loan->disbursed_at?->toIso8601String(),
+            'expected_completion_date' => ($loan->expected_completion_date ?? $loan->end_date)?->toDateString(),
+            'settled_at' => $loan->closed_at?->toIso8601String(),
+            'early_settlement' => $loan->early_settlement,
+            'freeze_days' => $loan->freeze_days,
+            'freeze_started_at' => $loan->freeze_started_at?->toIso8601String(),
+            'frozen_until' => $loan->frozen_until?->toIso8601String(),
+            'frozen_until_label' => $loan->frozen_until !== null ? self::freezeUntilLabel($loan->frozen_until) : null,
+            'freeze_status' => $loan->freezeStatus($now),
+        ];
+    }
+
+    /**
+     * "Customer fully settled the previous loan early. Re-borrowing is frozen until 01 October 2026 10:00." (time only
+     * when the freeze does not end at midnight).
      */
     public static function freezeMessage(Loan $loan): string
     {
-        $until = CarbonImmutable::parse($loan->frozen_until);
-        $format = $until->format('H:i:s') === '00:00:00' ? 'j F Y' : 'j F Y H:i';
+        return 'Customer fully settled the previous loan early. Re-borrowing is frozen until '.self::freezeUntilLabel($loan->frozen_until).'.';
+    }
 
-        return 'Customer is currently frozen and cannot apply for another loan until '.$until->format($format).'.';
+    /**
+     * "01 October 2026" (date only; the exact end time is in frozen_until).
+     */
+    public static function freezeUntilLabel(mixed $until): string
+    {
+        return CarbonImmutable::parse($until)->format('d F Y');
     }
 
     /**

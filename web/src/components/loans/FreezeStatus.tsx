@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import "@/styles/customers.css";
 
-import { freezeView, type CustomerFreeze } from "./freeze";
+import { freezeView, settlementRows, type CustomerFreeze } from "./freeze";
 
 /** Milliseconds since the freeze response arrived, ticking every 30 seconds while the customer is frozen. */
 function useElapsed(active: boolean): number {
@@ -23,38 +23,44 @@ function useElapsed(active: boolean): number {
   return now - mountedAt;
 }
 
-function FreezeDetails({ freeze, eligible }: { freeze: CustomerFreeze | null | undefined; eligible?: boolean }) {
+function FreezeDetails({ freeze, eligible, showPrevious }: { freeze: CustomerFreeze | null | undefined; eligible?: boolean; showPrevious: boolean }) {
   const elapsed = useElapsed(Boolean(freeze?.frozen));
   const view = freezeView(freeze, elapsed);
+  const previous = freeze?.previous_loan ?? null;
 
   return (
     <div className="mf-freeze">
-      <div className="d-flex flex-wrap align-items-center" style={{ gap: "0.5rem" }}>
+      <div className="d-flex flex-wrap align-items-center" style={{ gap: "0.5rem 1.25rem" }}>
         {eligible !== undefined && (
-          <span><b>Eligibility:</b> <Badge tone={eligible ? "success" : "danger"}>{eligible ? "ELIGIBLE" : "NOT ELIGIBLE"}</Badge></span>
+          <span><b>Loan Eligibility:</b> <Badge tone={eligible ? "success" : "danger"}>{eligible ? "Eligible" : "Not eligible"}</Badge></span>
         )}
-        <span><b>Freeze:</b> <Badge tone={view.tone}>{view.label}</Badge></span>
-        {eligible !== undefined && (
-          <span><b>Can apply:</b> <Badge tone={eligible && view.state !== "frozen" ? "success" : "danger"}>{eligible && view.state !== "frozen" ? "AVAILABLE" : "BLOCKED"}</Badge></span>
-        )}
+        <span><b>Re-borrowing Status:</b> <Badge tone={view.tone}>{view.label}</Badge></span>
       </div>
       {view.state === "frozen" && (
         <dl className="mf-dl mt-2 mb-0">
-          <div><dt>Reason</dt><dd>Re-borrowing freeze period</dd></div>
-          <div><dt>Remaining</dt><dd>{view.remaining}</dd></div>
+          <div><dt>Reason</dt><dd>{view.reason}</dd></div>
           <div><dt>Freeze Until</dt><dd>{view.until}</dd></div>
-          {freeze?.loan_number && <div><dt>Started by</dt><dd>{freeze.loan_number}{freeze.loan_category ? ` (${freeze.loan_category}, ${freeze.freeze_days ?? 0} days)` : ""}</dd></div>}
+          <div><dt>Remaining</dt><dd>{view.remaining}</dd></div>
         </dl>
       )}
-      {view.state === "expired" && <p className="text-muted mt-2 mb-0">Freeze ended {view.until}.</p>}
+      {view.state === "frozen" && freeze?.message && <div className="alert alert-danger py-1 mt-2 mb-0">{freeze.message}</div>}
+      {view.state === "expired" && <p className="text-muted mt-2 mb-0">Freeze ended {view.until}. Normal eligibility rules apply.</p>}
+      {showPrevious && previous && (
+        <dl className="mf-dl mt-2 mb-0">
+          {settlementRows(previous).map(([label, value]) => (
+            <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
 
 /**
- * Re-borrowing freeze shown next to eligibility: FROZEN with reason, remaining time and end, FREEZE EXPIRED, or
- * NO FREEZE. Eligibility and freeze are separate; the customer can apply only when eligible AND not frozen.
+ * Loan Eligibility (normal rules) and, separately, Re-borrowing Status: Frozen with reason, freeze end and remaining
+ * time while an early-settlement freeze is active, otherwise Available. The customer can apply only when eligible AND
+ * not frozen. `showPrevious` adds the previous loan's disbursement / expected completion / settlement / freeze window.
  */
-export function FreezeStatus({ freeze, eligible }: { freeze: CustomerFreeze | null | undefined; eligible?: boolean }) {
-  return <FreezeDetails key={freeze?.checked_at ?? "none"} freeze={freeze} eligible={eligible} />;
+export function FreezeStatus({ freeze, eligible, showPrevious = true }: { freeze: CustomerFreeze | null | undefined; eligible?: boolean; showPrevious?: boolean }) {
+  return <FreezeDetails key={freeze?.checked_at ?? "none"} freeze={freeze} eligible={eligible} showPrevious={showPrevious} />;
 }

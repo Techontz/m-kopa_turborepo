@@ -11,7 +11,7 @@ import { LoanActions } from "@/components/loans/LoanActions";
 import { LoanFormFields } from "@/components/loans/LoanFormFields";
 import { LoanSecurities } from "@/components/loans/LoanSecurities";
 import { LoanStatusBadge } from "@/components/loans/LoanStatusBadge";
-import { formatFreezeUntil } from "@/components/loans/freeze";
+import { settlementRows } from "@/components/loans/freeze";
 import type { CategoryOption, LoanDetail, LoanForm } from "@/components/loans/types";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -148,16 +148,32 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
 
       <LoanActions detail={detail} onEdit={openEdit} />
 
-      {detail.customer_freeze && detail.customer_freeze.status !== "none" && (
-        <Card title="Customer Re-borrowing Freeze">
-          <FreezeStatus freeze={detail.customer_freeze} />
-          {detail.loan.freeze_started_at && (
-            <p className="text-muted mt-2 mb-0">
-              This loan started a {detail.loan.freeze_days ?? 0}-day freeze on {formatFreezeUntil(detail.loan.freeze_started_at)}{detail.loan.frozen_until ? `, until ${formatFreezeUntil(detail.loan.frozen_until)}` : " (no freeze)"}.
-            </p>
-          )}
-        </Card>
-      )}
+      <Card title="Loan Eligibility & Re-borrowing">
+        <FreezeStatus freeze={detail.customer_freeze} eligible={detail.customer_eligible} showPrevious={detail.customer_freeze?.previous_loan?.id !== detail.loan.id} />
+        {detail.loan.disbursed_at_iso && (
+          <>
+            <div className="mf-section-title mt-3">This Loan</div>
+            <dl className="mf-dl mb-0">
+              {settlementRows({
+                id: detail.loan.id,
+                loan_number: detail.loan.loan_number,
+                loan_category: detail.loan.category ?? null,
+                disbursed_at: detail.loan.disbursed_at_iso,
+                expected_completion_date: detail.loan.expected_completion_date,
+                settled_at: detail.loan.settled_at,
+                early_settlement: detail.loan.early_settlement,
+                freeze_days: detail.loan.freeze_days,
+                freeze_started_at: detail.loan.freeze_started_at,
+                frozen_until: detail.loan.frozen_until,
+                frozen_until_label: detail.loan.frozen_until_label,
+                freeze_status: detail.loan.freeze_status,
+              }, "Loan").map(([label, value]) => (
+                <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>
+              ))}
+            </dl>
+          </>
+        )}
+      </Card>
 
       <LoanSecurities detail={detail} editable={editable} />
 

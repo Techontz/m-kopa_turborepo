@@ -207,6 +207,7 @@ class LoanController extends LoanApiController
             ])->values(),
             'customer_loans' => LoanResource::collection($customer->loans()->with('category')->latest('id')->get()),
             'customer_freeze' => $eligibility->freeze($customer),
+            'customer_eligible' => $this->workflow->borrowingStatus($customer)['eligible'],
         ]]);
     }
 

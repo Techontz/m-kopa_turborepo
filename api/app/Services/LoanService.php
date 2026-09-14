@@ -281,8 +281,6 @@ class LoanService
 
             if ($this->outstanding($loan->fresh())['total'] <= 0.5) {
                 $this->close($loan, $date);
-            } elseif ($this->reachedTopupThreshold($loan)) {
-                $this->startFreeze($loan);
             }
 
             return $transaction;
@@ -428,20 +426,23 @@ class LoanService
 
     /**
      * Loan closure once fully paid (Documents: "LOAN CLOSURE → CLOSED", then "FREEZE PERIOD → cannot borrow").
-     * Closure starts the re-borrowing freeze unless the top-up threshold already started it.
+     * closed_at is the ACTUAL FULL SETTLEMENT moment (nothing outstanding per outstanding(): principal, penalty,
+     * interest and insurance); the early-settlement freeze decision is recorded in the same transaction.
      */
     public function close(Loan $loan, ?CarbonImmutable $date = null): void
     {
-        $loan->update([
-            'status' => LoanStatus::Closed,
-            'days_past_due' => 0,
-            'closed_at' => now(),
-        ]);
-        $this->startFreeze($loan);
+        DB::transaction(function () use ($loan): void {
+            $loan->update([
+                'status' => LoanStatus::Closed,
+                'days_past_due' => 0,
+                'closed_at' => $loan->closed_at ?? now(),
+            ]);
+            $this->recordSettlement($loan);
 
-        if (! $loan->customer->loans()->status(...LoanStatus::repayable())->exists()) {
-            $loan->customer->update(['status' => 'close']);
-        }
+            if (! $loan->customer->loans()->status(...LoanStatus::repayable())->exists()) {
+                $loan->customer->update(['status' => 'close']);
+            }
+        });
     }
 
     /**
@@ -455,39 +456,82 @@ class LoanService
     }
 
     /**
-     * Repayment reached the category's top-up percent, i.e. the customer has repaid enough to qualify for another loan.
+     * Early full settlement freeze (loan category "Freeze Time (Days)"), decided once when the loan is fully settled.
+     *
+     *  - Early = settlement DATE (closed_at) before the maturity DATE (end_date = last schedule due date, else
+     *    MAX(schedule due_date)), both in the app timezone. Settled on the maturity date or later is not early.
+     *  - A loan closed by a top-up (a disbursed loan has topup_of_loan_id = this loan) is a refinance, never an early
+     *    settlement — otherwise a top-up would freeze the very loan that paid it off.
+     *  - Freeze window = [disbursed_at, disbursed_at + the category's freeze_time_days], the days snapshotted on the loan.
+     *    It may already be over at settlement (then it is recorded as expired and blocks nothing). 0 days = no freeze.
+     *  - Not early: every freeze field stays null.
+     *
+     * Idempotent: a loan whose decision exists (early_settlement not null) is never re-evaluated. Audited as
+     * SETTLEMENT_FREEZE_DECISION.
      */
-    public function reachedTopupThreshold(Loan $loan): bool
+    public function recordSettlement(Loan $loan): void
     {
-        $required = (float) ($loan->category?->topup_percent ?? 0);
+        $columns = ['early_settlement', 'expected_completion_date', 'freeze_started_at', 'freeze_days', 'frozen_until'];
 
-        return $required > 0 && $this->paidPercent($loan) >= $required;
-    }
+        DB::transaction(function () use ($loan, $columns): void {
+            $locked = Loan::whereKey($loan->id)->lockForUpdate()->with('category')->firstOrFail();
 
-    /**
-     * Re-borrowing freeze (loan category "Freeze Time (Days)"). Starts at the first event that makes the customer
-     * eligible to borrow again — repayment reaching the category's top-up percent, or closure (full repayment) —
-     * and is recorded once: later repayments or the closure never restart it. The length is copied from the category
-     * at that moment; 0 days records the event without a freeze.
-     */
-    public function startFreeze(Loan $loan): void
-    {
-        DB::transaction(function () use ($loan): void {
-            $locked = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
-            $columns = ['freeze_started_at', 'freeze_days', 'frozen_until'];
-
-            if ($locked->freeze_started_at === null) {
-                $startedAt = CarbonImmutable::now()->startOfSecond();
-                $days = (int) ($loan->category?->freeze_time_days ?? 0);
-                $locked->update([
-                    'freeze_started_at' => $startedAt,
-                    'freeze_days' => $days,
-                    'frozen_until' => $days > 0 ? $startedAt->addDays($days) : null,
-                ]);
+            if ($locked->early_settlement === null && $locked->closed_at !== null) {
+                $decision = $this->settlementDecision($locked);
+                $locked->update($decision['attributes']);
+                app(LoanWorkflow::class)->record($locked, 'SETTLEMENT_FREEZE_DECISION', $locked->status, null, $decision['context']);
             }
 
             $loan->forceFill($locked->only($columns))->syncOriginalAttributes($columns);
         });
+    }
+
+    /**
+     * @return array{attributes: array<string, mixed>, context: array<string, mixed>}
+     */
+    public function settlementDecision(Loan $loan): array
+    {
+        $settledAt = CarbonImmutable::parse($loan->closed_at);
+        $maturity = $loan->end_date?->toDateString() ?? $loan->schedules()->max('due_date');
+        $maturity = $maturity !== null ? substr((string) $maturity, 0, 10) : null;
+        $byTopup = Loan::where('topup_of_loan_id', $loan->id)->whereNotNull('disbursed_at')->exists();
+        $early = ! $byTopup && $maturity !== null && $settledAt->toDateString() < $maturity;
+        $days = (int) ($loan->category?->freeze_time_days ?? 0);
+        $start = $loan->disbursed_at !== null
+            ? CarbonImmutable::parse($loan->disbursed_at)->startOfSecond()
+            : ($loan->withdrawn_at !== null ? CarbonImmutable::parse($loan->withdrawn_at)->startOfDay() : null);
+        $freezes = $early && $days > 0 && $start !== null;
+        $until = $freezes ? $start->addDays($days) : null;
+
+        $decision = match (true) {
+            $byTopup => 'SETTLED_BY_TOPUP',
+            $maturity === null => 'NO_MATURITY_DATE',
+            ! $early => 'SETTLED_ON_OR_AFTER_MATURITY',
+            $days === 0 => 'NO_FREEZE_TIME',
+            $start === null => 'NO_DISBURSEMENT_DATE',
+            $until->lte(CarbonImmutable::now()) => 'EARLY_SETTLEMENT_FREEZE_ALREADY_EXPIRED',
+            default => 'EARLY_SETTLEMENT_FROZEN',
+        };
+
+        return [
+            'attributes' => [
+                'expected_completion_date' => $maturity,
+                'early_settlement' => $early,
+                'freeze_days' => $early ? $days : null,
+                'freeze_started_at' => $freezes ? $start : null,
+                'frozen_until' => $until,
+            ],
+            'context' => [
+                'decision' => $decision,
+                'disbursed_at' => $start?->toIso8601String(),
+                'expected_completion_date' => $maturity,
+                'settled_at' => $settledAt->toIso8601String(),
+                'early_settlement' => $early,
+                'freeze_days' => $early ? $days : null,
+                'freeze_started_at' => $freezes ? $start->toIso8601String() : null,
+                'frozen_until' => $until?->toIso8601String(),
+            ],
+        ];
     }
 
     public function payPenalty(Penalty $penalty, float $amount, CarbonImmutable $date): void

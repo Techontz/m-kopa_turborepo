@@ -4,6 +4,7 @@ namespace App\Http\Resources\Api\V1\Loans;
 
 use App\Models\Loan;
 use App\Models\LoanDisbursement;
+use App\Services\CustomerEligibility;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -83,9 +84,16 @@ class LoanResource extends JsonResource
             'withdrawn_at' => $this->withdrawn_at?->toDateString(),
             'end_date' => $this->end_date?->toDateString(),
             'closed_at' => $this->closed_at?->toDateString(),
+            // Early full settlement freeze (LoanService::recordSettlement()): disbursement → maturity → settlement.
+            'disbursed_at_iso' => $this->disbursed_at?->toIso8601String(),
+            'expected_completion_date' => ($this->expected_completion_date ?? $this->end_date)?->toDateString(),
+            'settled_at' => $this->closed_at?->toIso8601String(),
+            'early_settlement' => $this->early_settlement,
             'freeze_started_at' => $this->freeze_started_at?->toIso8601String(),
             'freeze_days' => $this->freeze_days,
             'frozen_until' => $this->frozen_until?->toIso8601String(),
+            'frozen_until_label' => $this->frozen_until ? CustomerEligibility::freezeUntilLabel($this->frozen_until) : null,
+            'freeze_status' => $this->resource->freezeStatus(),
         ];
     }
 }

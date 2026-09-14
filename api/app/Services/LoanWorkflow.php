@@ -28,7 +28,7 @@ use Illuminate\Validation\ValidationException;
  * APPLY (loan officer) → MANAGER (approve / reject / modify) → E-MANDATE + OTP when the product requires it →
  * CREDIT OFFICER (Vodacom KYC name/number verification, approve / reject / modify; reference number on approval)
  * → FINANCE (prepare batch) → VODACOM DISBURSEMENT (callback; retry max 3 with a new batch each, then ESCALATED
- * → cancel / suspense / other channel) → ACTIVE (ledger + schedules + SMS) → OVERDUE / DEFAULT → CLOSED → freeze.
+ * → cancel / suspense / other channel) → ACTIVE (ledger + schedules + SMS) → OVERDUE / DEFAULT → CLOSED → early-settlement freeze.
  *
  * Every transition is written to the audit trail (audit_logs, auditable = loan). No ledger entry is posted before a
  * disbursement succeeds; the posting itself is LoanService::withdraw().
@@ -582,7 +582,7 @@ class LoanWorkflow
 
         $from = $loan->status;
         $this->loans->close($loan);
-        $this->record($loan, 'CLOSED', $from, $employee, ['freeze_started_at' => $loan->freeze_started_at?->toIso8601String(), 'freeze_days' => $loan->freeze_days, 'frozen_until' => $loan->frozen_until?->toIso8601String()]);
+        $this->record($loan, 'CLOSED', $from, $employee, ['early_settlement' => $loan->early_settlement, 'freeze_started_at' => $loan->freeze_started_at?->toIso8601String(), 'freeze_days' => $loan->freeze_days, 'frozen_until' => $loan->frozen_until?->toIso8601String()]);
 
         return $loan;
     }

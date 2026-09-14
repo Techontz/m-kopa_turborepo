@@ -1,6 +1,6 @@
 import type { BadgeTone } from "@/components/ui/Badge";
 
-import type { CustomerFreeze } from "./freeze";
+import type { CustomerFreeze, FreezeState } from "./freeze";
 
 export interface Loan {
   id: number;
@@ -65,9 +65,16 @@ export interface Loan {
   withdrawn_at: string | null;
   end_date: string | null;
   closed_at: string | null;
+  /** Early full settlement freeze: disbursement (ISO) → expected completion → settlement → freeze window. */
+  disbursed_at_iso: string | null;
+  expected_completion_date: string | null;
+  settled_at: string | null;
+  early_settlement: boolean | null;
   freeze_started_at: string | null;
   freeze_days: number | null;
   frozen_until: string | null;
+  frozen_until_label: string | null;
+  freeze_status: FreezeState;
 }
 
 export interface Schedule {
@@ -172,6 +179,8 @@ export interface LoanDetail {
   timeline: { id: number; action: string; from: string | null; to: string | null; context: Record<string, unknown> | null; user: string; created_at: string | null }[];
   customer_loans: Loan[];
   customer_freeze: CustomerFreeze;
+  /** normal eligibility rules of the loan's customer (LoanWorkflow::borrowingStatus()['eligible']) */
+  customer_eligible: boolean;
 }
 
 export interface JournalEntrySummary {

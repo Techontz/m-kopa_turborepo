@@ -64,7 +64,7 @@ export const EMPTY_LOAN_CATEGORY: LoanCategoryForm = {
 const yesNo = (value: boolean) => (value ? "YES" : "NO");
 
 export const FREEZE_TIME_HELP =
-  "How long a customer must wait, after repaying enough to qualify for another loan in this category, before a new loan can be issued. This is a re-borrowing freeze — not a penalty, grace, repayment or approval period. 0 = no freeze.";
+  "Number of days, counted from the loan's disbursement date, during which a customer who fully settles the loan before its scheduled completion date cannot take another loan. 0 = no freeze.";
 
 /** "Freeze Time: 30 Days" / "No freeze". */
 export function freezeTimeLabel(days: number | null | undefined): string {

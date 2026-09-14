@@ -218,7 +218,7 @@ class CustomerRegistrationApiTest extends TestCase
         $this->postJson('/api/v1/customers', $this->registrationPayload($admin, ['accountTypeId' => 7, 'maritalStatusId' => null]))
             ->assertUnprocessable()
             ->assertJsonPath('errors.maritalStatusId.0', 'Marital status is required for this account type.')
-            ->assertJsonPath('errors.customerCategoryId.0', 'A customer category is required for this account type — it decides which loan products the customer may take.')
+            ->assertJsonPath('errors.customerCategoryId.0', 'A customer type is required for this account type — it decides which loan products the customer may take.')
             ->assertJsonPath('errors.employer.0', 'An employer or place of employment is required for this account type.')
             ->assertJsonPath('errors.workType.0', 'Work type or type of employment is required for this account type.')
             ->assertJsonPath('errors.takeHome.0', 'An income figure is required for this account type.')

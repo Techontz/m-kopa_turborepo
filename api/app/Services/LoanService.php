@@ -281,6 +281,8 @@ class LoanService
 
             if ($this->outstanding($loan->fresh())['total'] <= 0.5) {
                 $this->close($loan, $date);
+            } elseif ($this->reachedTopupThreshold($loan)) {
+                $this->startFreeze($loan);
             }
 
             return $transaction;
@@ -426,23 +428,66 @@ class LoanService
 
     /**
      * Loan closure once fully paid (Documents: "LOAN CLOSURE → CLOSED", then "FREEZE PERIOD → cannot borrow").
-     * The freeze length is the company setting loan_freeze_days (0 = no freeze).
+     * Closure starts the re-borrowing freeze unless the top-up threshold already started it.
      */
     public function close(Loan $loan, ?CarbonImmutable $date = null): void
     {
-        $date ??= CarbonImmutable::today();
-        $freezeDays = (int) ($loan->company?->loan_freeze_days ?? 0);
-
         $loan->update([
             'status' => LoanStatus::Closed,
             'days_past_due' => 0,
             'closed_at' => now(),
-            'frozen_until' => $freezeDays > 0 ? $date->addDays($freezeDays)->toDateString() : null,
         ]);
+        $this->startFreeze($loan);
 
         if (! $loan->customer->loans()->status(...LoanStatus::repayable())->exists()) {
             $loan->customer->update(['status' => 'close']);
         }
+    }
+
+    /**
+     * Share of the loan repaid, as used by the top-up rule: repayments over principal + interest + insurance.
+     */
+    public function paidPercent(Loan $loan): float
+    {
+        $totalDue = (float) $loan->amount_approved + (float) $loan->interest_amount + (float) $loan->insurance;
+
+        return $totalDue > 0 ? round($loan->paid_amount / $totalDue * 100, 2) : 0.0;
+    }
+
+    /**
+     * Repayment reached the category's top-up percent, i.e. the customer has repaid enough to qualify for another loan.
+     */
+    public function reachedTopupThreshold(Loan $loan): bool
+    {
+        $required = (float) ($loan->category?->topup_percent ?? 0);
+
+        return $required > 0 && $this->paidPercent($loan) >= $required;
+    }
+
+    /**
+     * Re-borrowing freeze (loan category "Freeze Time (Days)"). Starts at the first event that makes the customer
+     * eligible to borrow again — repayment reaching the category's top-up percent, or closure (full repayment) —
+     * and is recorded once: later repayments or the closure never restart it. The length is copied from the category
+     * at that moment; 0 days records the event without a freeze.
+     */
+    public function startFreeze(Loan $loan): void
+    {
+        DB::transaction(function () use ($loan): void {
+            $locked = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
+            $columns = ['freeze_started_at', 'freeze_days', 'frozen_until'];
+
+            if ($locked->freeze_started_at === null) {
+                $startedAt = CarbonImmutable::now()->startOfSecond();
+                $days = (int) ($loan->category?->freeze_time_days ?? 0);
+                $locked->update([
+                    'freeze_started_at' => $startedAt,
+                    'freeze_days' => $days,
+                    'frozen_until' => $days > 0 ? $startedAt->addDays($days) : null,
+                ]);
+            }
+
+            $loan->forceFill($locked->only($columns))->syncOriginalAttributes($columns);
+        });
     }
 
     public function payPenalty(Penalty $penalty, float $amount, CarbonImmutable $date): void

@@ -99,8 +99,9 @@ class StaffApiTest extends TestCase
         $this->postJson("/api/v1/hrm/staff/{$staff->id}/block");
         $this->assertSame('active', $staff->fresh()->status);
 
+        config(['hrm.default_staff_password' => 'Test-Default#Staff9!']);
         $this->postJson("/api/v1/hrm/staff/{$staff->id}/reset-password")->assertOk();
-        $this->assertTrue(Hash::check('0711', $staff->fresh()->password));
+        $this->assertTrue(Hash::check('Test-Default#Staff9!', $staff->fresh()->password));
 
         $this->postJson("/api/v1/hrm/staff/{$staff->id}/reject")->assertOk();
         $this->assertSame('rejected', $staff->fresh()->status);

@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('registration/requirements', RegistrationRequirementController::class)->name('registration.requirements');
 
 Route::apiResource('customer-categories', CustomerCategoryController::class);
+// Read-only alias: the selectable (active) customer types, from the same controller, query and resource.
+Route::get('customer-types', [CustomerCategoryController::class, 'types'])->name('customer-types.index');
 
 Route::controller(GeographyController::class)->group(function (): void {
     Route::get('regions', 'regions')->name('geography.regions');

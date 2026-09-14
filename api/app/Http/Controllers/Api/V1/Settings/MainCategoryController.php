@@ -8,7 +8,8 @@ use App\Models\MainCategory;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Settings → Main Loan Category (live admin/main_loan_category) and its sub categories (customer types).
+ * Settings → Main Loan Category (live admin/main_loan_category) and its legacy loan sub categories (table customer_types —
+ * not the configured Customer Types, which live in customer_categories).
  */
 class MainCategoryController extends ApiController
 {

@@ -57,6 +57,23 @@ describe("Step 2 composition", () => {
     expect(composed).toEqual(item.resolvedStep2Fields);
   });
 
+  it.each([
+    ["Mtumishi wa Umma", ["taasisi", "idara", "cheo", "kituo", "check_number", "aina_ajira", "basic_salary", "take_home", "retirement_date"]],
+    ["Sekta Binafsi", ["sb_sekta", "sb_taasisi", "sb_idara", "sb_cheo", "sb_kituo", "sb_aina_mkataba", "sb_kitambulisho", "basic_salary", "take_home", "retirement_date"]],
+    ["Mjasiriamali/Mfanyabiashara", ["sekta", "aina", "jina_biashara", "muda_biashara", "mapato", "wafanyakazi", "mahali_biashara", "tin_number"]],
+    ["Mwanafunzi wa Chuo", ["chuo", "kozi", "level", "mwaka", "email_chuo", "mdhamini", "mdhamini_simu", "monthly_income"]],
+    ["Mstaafu (Umma)", ["mstaafu_taasisi", "mstaafu_idara", "mstaafu_cheo", "makazi", "pensheni", "mfuko", "namba_mfuko", "retirement_date"]],
+  ])("customer type %s shows the documented Step 2 field keys", (name, keys) => {
+    const type = TYPES.find((item) => item.name === name) as CustomerType;
+    expect(composeStep2Fields(type, FALLBACK_PROFILE).map((field) => field.key)).toEqual(keys);
+  });
+
+  it("the five customer types are ordered as configured", () => {
+    expect([...TYPES].sort((a, b) => a.sortOrder - b.sortOrder).map((type) => type.name)).toEqual([
+      "Mtumishi wa Umma", "Sekta Binafsi", "Mjasiriamali/Mfanyabiashara", "Mwanafunzi wa Chuo", "Mstaafu (Umma)",
+    ]);
+  });
+
   it("returns nothing without a type", () => {
     expect(composeStep2Fields(null)).toEqual([]);
   });

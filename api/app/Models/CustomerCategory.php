@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Customer category acting as a rule engine: allowed loan products, loan limits,
+ * Customer type (shown as "Customer Type" everywhere in the UI; the table keeps its historical name) acting as a rule engine: allowed loan products, loan limits,
  * required documents, risk level and dynamic registration form (form_schema).
  */
 class CustomerCategory extends Model
@@ -40,6 +41,15 @@ class CustomerCategory extends Model
             'requires_salary' => 'boolean',
             'requires_extra_approval' => 'boolean',
         ];
+    }
+
+    /**
+     * The customer types a user may choose for one company: active, not deleted, in display order. The single
+     * source for every Customer Type select, filter and option list.
+     */
+    public function scopeSelectable(Builder $query, int $companyId): void
+    {
+        $query->where('company_id', $companyId)->where('is_active', true)->orderBy('sort_order')->orderBy('name');
     }
 
     public function company(): BelongsTo

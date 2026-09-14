@@ -15,6 +15,7 @@ use App\Models\Loan;
 use App\Models\LoanCategory;
 use App\Models\LoanDisbursement;
 use App\Models\LoanTransaction;
+use App\Services\CustomerEligibility;
 use App\Services\LoanCalculator;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
@@ -87,7 +88,7 @@ class LoanController extends LoanApiController
      * Loan detail (live view_Dataloan): customer header, guarantors, collateral, deductions, application, schedule,
      * repayments, mandate, disbursement attempts, top-up link and timeline.
      */
-    public function show(Loan $loan): JsonResponse
+    public function show(Loan $loan, CustomerEligibility $eligibility): JsonResponse
     {
         $this->authorizeAny('loans.view');
         $this->ensureVisible($loan);
@@ -205,6 +206,7 @@ class LoanController extends LoanApiController
                 'created_at' => $log->created_at?->toDateTimeString(),
             ])->values(),
             'customer_loans' => LoanResource::collection($customer->loans()->with('category')->latest('id')->get()),
+            'customer_freeze' => $eligibility->freeze($customer),
         ]]);
     }
 
@@ -345,7 +347,7 @@ class LoanController extends LoanApiController
 
     /**
      * Loan products for the application form: those assigned to the customer's branch and allowed by the
-     * customer category, as "NAME / from - to".
+     * customer type, as "NAME / from - to".
      */
     public function categories(Customer $customer): JsonResponse
     {

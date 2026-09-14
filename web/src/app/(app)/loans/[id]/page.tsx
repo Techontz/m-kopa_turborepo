@@ -6,10 +6,12 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { DisbursementChainCard } from "@/components/loans/DisbursementChainCard";
+import { FreezeStatus } from "@/components/loans/FreezeStatus";
 import { LoanActions } from "@/components/loans/LoanActions";
 import { LoanFormFields } from "@/components/loans/LoanFormFields";
 import { LoanSecurities } from "@/components/loans/LoanSecurities";
 import { LoanStatusBadge } from "@/components/loans/LoanStatusBadge";
+import { formatFreezeUntil } from "@/components/loans/freeze";
 import type { CategoryOption, LoanDetail, LoanForm } from "@/components/loans/types";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -145,6 +147,17 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
       </div>
 
       <LoanActions detail={detail} onEdit={openEdit} />
+
+      {detail.customer_freeze && detail.customer_freeze.status !== "none" && (
+        <Card title="Customer Re-borrowing Freeze">
+          <FreezeStatus freeze={detail.customer_freeze} />
+          {detail.loan.freeze_started_at && (
+            <p className="text-muted mt-2 mb-0">
+              This loan started a {detail.loan.freeze_days ?? 0}-day freeze on {formatFreezeUntil(detail.loan.freeze_started_at)}{detail.loan.frozen_until ? `, until ${formatFreezeUntil(detail.loan.frozen_until)}` : " (no freeze)"}.
+            </p>
+          )}
+        </Card>
+      )}
 
       <LoanSecurities detail={detail} editable={editable} />
 

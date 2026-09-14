@@ -157,7 +157,8 @@ class CompanySettingController extends ApiController
     }
 
     /**
-     * Documents (LOAN PROCESS OVERVIEW "freeze period"): days a customer must wait after closing a loan before applying again.
+     * Default Freeze Time (Days) prefilled for NEW loan categories. The freeze a loan actually gets comes from its loan
+     * category (loan_categories.freeze_time_days); changing this default never changes existing categories or loans.
      */
     public function updateLoanFreeze(Request $request): JsonResponse
     {

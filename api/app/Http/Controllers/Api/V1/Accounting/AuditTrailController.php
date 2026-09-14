@@ -50,7 +50,7 @@ class AuditTrailController extends ApiController
             'employee' => $log->employee?->full_name ?? 'SYSTEM',
             'action' => $log->action,
             'event' => str_contains($log->action, '.') ? substr($log->action, strrpos($log->action, '.') + 1) : $log->action,
-            'model' => $log->auditable_type ? class_basename($log->auditable_type) : null,
+            'model' => $log->auditable_type ? $this->modelLabel(class_basename($log->auditable_type)) : null,
             'model_id' => $log->auditable_id,
             'changes' => $this->diff($log->before, $log->after),
             'before' => $log->before,
@@ -74,9 +74,17 @@ class AuditTrailController extends ApiController
             ->pluck('auditable_type')
             ->map(fn (string $type): string => class_basename($type))
             ->unique()->sort()->values()
-            ->map(fn (string $name): array => ['value' => $name, 'label' => $name]);
+            ->map(fn (string $name): array => ['value' => $name, 'label' => $this->modelLabel($name)]);
 
         return response()->json(['data' => $models]);
+    }
+
+    /**
+     * The record name shown to users: classes whose table keeps a historical name are shown by their UI name.
+     */
+    private function modelLabel(string $basename): string
+    {
+        return ['CustomerCategory' => 'CustomerType'][$basename] ?? $basename;
     }
 
     /**

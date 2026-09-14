@@ -12,6 +12,7 @@ use App\Http\Resources\Api\V1\Hrm\StaffSalaryAdvanceResource;
 use App\Models\AuditLog;
 use App\Models\Branch;
 use App\Models\Employee;
+use App\Services\Hrm\StaffPasswordReset;
 use App\Services\Ledger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -273,21 +274,26 @@ class StaffController extends HrmController
     }
 
     /**
-     * Inferred: "reset_panel" restores the default password (the phone number).
+     * Live "reset_panel": resets the staff password to the single configured default password
+     * (config hrm.default_staff_password / env DEFAULT_STAFF_PASSWORD) and revokes the staff member's tokens.
+     * Nobody resets their own password here (use Change password), and only a Super Admin resets a Super Admin.
      */
-    public function resetPassword(Employee $employee): JsonResponse
+    public function resetPassword(Employee $employee, StaffPasswordReset $passwordReset): JsonResponse
     {
-        $this->authorizeAny('users.manage');
+        $this->authorizeAny('hrm.staff_reset_password');
         $this->ensureVisible($employee);
 
-        if ($employee->is($this->currentEmployee())) {
-            return $this->message('You can not reset your own password here', 422);
+        $actor = $this->currentEmployee();
+        abort_if($employee->is($actor), 403, 'You can not reset your own password here. Use Change password instead.');
+        abort_if($employee->role?->key === 'super_admin' && $actor->role?->key !== 'super_admin', 403, 'Only a Super Admin can reset a Super Admin password.');
+
+        if (! $passwordReset->isConfigured()) {
+            return $this->message('The default staff password is not configured.', 503);
         }
 
-        $employee->update(['password' => $employee->phone]);
-        $this->audit('Employee.password_reset', $employee, null, null);
+        $passwordReset->reset($employee, $actor);
 
-        return $this->message('Password reset successfully');
+        return $this->message('Password reset successfully to the configured default password.');
     }
 
     /**

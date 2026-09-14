@@ -15,7 +15,7 @@ const TABS: Array<[Dimension, string]> = [
   ["gender", "Gender"],
   ["age", "Age Group"],
   ["occupation", "Occupation"],
-  ["category", "Customer Category"],
+  ["category", "Customer Type"],
   ["region", "Location (Mkoa)"],
   ["branch", "Branch"],
   ["loan_size", "Loan Size"],
@@ -41,7 +41,7 @@ export default function SegmentationPage() {
         ) : (
           <>
             <ReportBarChart data={rows} xKey="segment" series={[{ key: "repayment_rate", label: "Repayment rate %" }, { key: "default_rate", label: "Default rate %" }]} format={(value) => `${value}%`} />
-            <SegmentTable key={dimension} rows={rows} heading={label} filename={`segmentation-${dimension}`} />
+            <SegmentTable key={dimension} rows={rows} heading={label} filename={`segmentation-${dimension === "category" ? "customer-type" : dimension}`} />
           </>
         )}
       </Card>

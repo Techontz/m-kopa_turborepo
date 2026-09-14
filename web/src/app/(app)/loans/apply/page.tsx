@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { FreezeStatus } from "@/components/loans/FreezeStatus";
 import { LoanFormFields } from "@/components/loans/LoanFormFields";
 import { LoanPreview } from "@/components/loans/LoanPreview";
 import { LoanSecurities } from "@/components/loans/LoanSecurities";
@@ -58,14 +59,15 @@ export default function LoanApplicationPage() {
             <Card title="Customer Eligibility">
               <div className="row">
                 <div className="col-md-3"><b>KYC:</b> {eligibility.rules.kyc_complete ? <span className="badge badge-success">COMPLETE</span> : <span className="badge badge-danger">NOT VERIFIED</span>}</div>
-                <div className="col-md-3"><b>Category:</b> {eligibility.rules.category?.name ?? "—"}</div>
+                <div className="col-md-3"><b>Customer Type:</b> {eligibility.rules.category?.name ?? "—"}</div>
                 <div className="col-md-3"><b>Risk level:</b> {eligibility.rules.risk_level ?? "—"}</div>
                 <div className="col-md-3"><b>Limit:</b> {eligibility.rules.min_amount !== null || eligibility.rules.max_amount !== null ? `${money(eligibility.rules.min_amount)} - ${eligibility.rules.max_amount !== null ? money(eligibility.rules.max_amount) : "∞"}` : "—"}</div>
               </div>
               {eligibility.topup && (
                 <p className="mt-2 mb-0"><b>Top-up of {eligibility.topup.loan_number}:</b> paid {eligibility.topup.paid_percent}% of required {eligibility.topup.required_percent}% · outstanding {money(eligibility.topup.outstanding)} {eligibility.topup.eligible ? <span className="badge badge-success">ELIGIBLE</span> : <span className="badge badge-danger">NOT ELIGIBLE</span>}</p>
               )}
-              {eligibility.reasons.map((reason) => <div key={reason} className="alert alert-danger py-1 mt-2 mb-0">{reason}</div>)}
+              <div className="mt-2"><FreezeStatus freeze={eligibility.freeze} eligible={eligibility.eligible} /></div>
+              {eligibility.eligibility_reasons.map((reason) => <div key={reason} className="alert alert-danger py-1 mt-2 mb-0">{reason}</div>)}
             </Card>
           )}
 

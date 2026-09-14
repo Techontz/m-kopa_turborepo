@@ -51,7 +51,17 @@ class StoreCustomerRequest extends FormRequest
             'dob.required' => 'Date of birth is required.',
             'dob.before' => 'Date of birth must be in the past.',
             'nidaNumber.unique' => 'A customer with this NIDA number is already registered.',
+            'customerCategoryId.integer' => 'Select a customer type from the list.',
+            'customerCategoryId.exists' => 'The selected customer type is not an active customer type of this company.',
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return ['customerCategoryId' => 'customer type'];
     }
 
     /**
@@ -86,6 +96,14 @@ class StoreCustomerRequest extends FormRequest
     }
 
     /**
+     * The customer type already on the record being edited (none for a registration).
+     */
+    protected function currentCustomerCategoryId(): ?int
+    {
+        return null;
+    }
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     protected function staticRules(): array
@@ -98,7 +116,9 @@ class StoreCustomerRequest extends FormRequest
         $rules = [
             'branchId' => ['required', 'integer', Rule::exists('branches', 'id')->where('company_id', $companyId)],
             'employeeId' => ['nullable', 'integer', Rule::exists('employees', 'id')->where('company_id', $companyId)],
-            'customerCategoryId' => ['nullable', 'integer', Rule::exists('customer_categories', 'id')->where('company_id', $companyId)->whereNull('deleted_at')],
+            // Only an active type of the company; an update may keep the customer's current (since deactivated) type.
+            'customerCategoryId' => ['nullable', 'integer', Rule::exists('customer_categories', 'id')->where('company_id', $companyId)->whereNull('deleted_at')
+                ->where(fn ($query) => $query->where('is_active', true)->when($this->currentCustomerCategoryId(), fn ($query, int $current) => $query->orWhere('id', $current)))],
             'accountTypeId' => ['nullable', 'integer'],
             'customerTypeId' => ['nullable', 'integer'],
             'loanTypeId' => ['nullable', 'integer'],
@@ -307,7 +327,7 @@ class StoreCustomerRequest extends FormRequest
         }
 
         if ($profile['requires_customer_category'] && ! $filled('customerCategoryId')) {
-            $add('customerCategoryId', 'A customer category is required for this account type — it decides which loan products the customer may take.');
+            $add('customerCategoryId', 'A customer type is required for this account type — it decides which loan products the customer may take.');
         }
 
         if ($profile['requires_employment_details']) {

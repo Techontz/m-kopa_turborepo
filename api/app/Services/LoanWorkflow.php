@@ -51,23 +51,20 @@ class LoanWorkflow
     ) {}
 
     /**
-     * Whether a customer may apply now: category/KYC rules, one application at a time, freeze period after
-     * closure and top-up conditions when a loan is still running.
+     * Whether a customer may apply now. Two separate answers: `eligible` (category/KYC rules, one application at a
+     * time, top-up conditions when a loan is still running) and `freeze` (re-borrowing freeze, see
+     * CustomerEligibility::freeze()). `allowed` = eligible AND not frozen; `reasons` lists both.
      *
-     * @return array{allowed: bool, reasons: list<string>, frozen_until: string|null, topup: array{loan_id: int, loan_number: string, eligible: bool, paid_percent: float, required_percent: float, outstanding: float, reasons: list<string>}|null, rules: array<string, mixed>}
+     * @return array{allowed: bool, eligible: bool, frozen: bool, reasons: list<string>, eligibility_reasons: list<string>, frozen_until: string|null, freeze: array<string, mixed>, topup: array{loan_id: int, loan_number: string, eligible: bool, paid_percent: float, required_percent: float, outstanding: float, reasons: list<string>}|null, rules: array<string, mixed>}
      */
     public function borrowingStatus(Customer $customer, ?int $loanCategoryId = null, ?float $amount = null): array
     {
         $reasons = $this->eligibility->violations($customer, $loanCategoryId, $amount);
         $rules = $this->eligibility->for($customer);
+        $freeze = $rules['freeze'];
 
         if ($customer->loans()->status(...LoanStatus::inPipeline())->exists()) {
             $reasons[] = 'Customer already has a loan waiting for approval or withdrawal';
-        }
-
-        $frozenUntil = $customer->loans()->status(LoanStatus::Closed)->whereDate('frozen_until', '>=', today())->max('frozen_until');
-        if ($frozenUntil !== null) {
-            $reasons[] = 'Customer is in freeze period until '.CarbonImmutable::parse($frozenUntil)->toDateString();
         }
 
         $running = $customer->loans()->status(...LoanStatus::repayable())->latest('id')->first();
@@ -76,10 +73,16 @@ class LoanWorkflow
             $reasons[] = 'NOT ELIGIBLE for top-up: '.implode(', ', $topup['reasons']);
         }
 
+        $eligibilityReasons = array_values(array_unique($reasons));
+
         return [
-            'allowed' => $reasons === [],
-            'reasons' => array_values(array_unique($reasons)),
-            'frozen_until' => $frozenUntil !== null ? CarbonImmutable::parse($frozenUntil)->toDateString() : null,
+            'allowed' => $eligibilityReasons === [] && ! $freeze['frozen'],
+            'eligible' => $eligibilityReasons === [],
+            'frozen' => $freeze['frozen'],
+            'reasons' => $freeze['frozen'] ? [$freeze['message'], ...$eligibilityReasons] : $eligibilityReasons,
+            'eligibility_reasons' => $eligibilityReasons,
+            'frozen_until' => $freeze['frozen'] ? $freeze['frozen_until'] : null,
+            'freeze' => $freeze,
             'topup' => $topup,
             'rules' => $rules,
         ];
@@ -93,8 +96,7 @@ class LoanWorkflow
      */
     public function topupEligibility(Loan $loan): array
     {
-        $totalDue = (float) $loan->amount_approved + (float) $loan->interest_amount + (float) $loan->insurance;
-        $paidPercent = $totalDue > 0 ? round($loan->paid_amount / $totalDue * 100, 2) : 0.0;
+        $paidPercent = $this->loans->paidPercent($loan);
         $required = (float) ($loan->category?->topup_percent ?? 0);
         $reasons = [];
 
@@ -190,6 +192,7 @@ class LoanWorkflow
         $this->assertStatus($loan, LoanStatus::PendingManagerApproval);
         $loan->loadMissing(['category', 'customer']);
 
+        $this->eligibility->assertNotFrozen($loan->customer, 'loan_aprove');
         if (! $this->eligibility->for($loan->customer)['kyc_complete']) {
             throw ValidationException::withMessages(['loan_aprove' => "Please wait for the customer's KYC to be verified!"]);
         }
@@ -327,6 +330,7 @@ class LoanWorkflow
     public function approveCredit(Loan $loan, Employee $employee): Loan
     {
         $this->assertStatus($loan, LoanStatus::PendingCreditReview);
+        $this->eligibility->assertNotFrozen($loan->customer, 'loan');
 
         if ($loan->telco_matched !== true) {
             throw ValidationException::withMessages(['loan' => $loan->telco_verified_at === null
@@ -562,7 +566,7 @@ class LoanWorkflow
 
         $from = $loan->status;
         $this->loans->close($loan);
-        $this->record($loan, 'CLOSED', $from, $employee, ['frozen_until' => $loan->frozen_until?->toDateString()]);
+        $this->record($loan, 'CLOSED', $from, $employee, ['freeze_started_at' => $loan->freeze_started_at?->toIso8601String(), 'freeze_days' => $loan->freeze_days, 'frozen_until' => $loan->frozen_until?->toIso8601String()]);
 
         return $loan;
     }

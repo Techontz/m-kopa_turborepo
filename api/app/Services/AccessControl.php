@@ -32,9 +32,32 @@ class AccessControl
     }
 
     /**
+     * Effective permissions: the role's permissions plus the employee's granted overrides minus the revoked ones.
+     * The system Super Admin always holds every permission (overrides do not apply). Unknown keys are ignored.
+     *
      * @return list<string>
      */
     public function permissionsFor(Employee $employee): array
+    {
+        if ($employee->role?->key === 'super_admin') {
+            return array_keys(config('permissions.permissions'));
+        }
+
+        $overrides = $employee->permissionOverrides;
+        $granted = $overrides->where('granted', true)->pluck('permission')->all();
+        $revoked = $overrides->where('granted', false)->pluck('permission')->all();
+
+        $effective = array_diff(array_unique([...$this->rolePermissionsFor($employee), ...$granted]), $revoked);
+
+        return array_values(array_intersect(array_keys(config('permissions.permissions')), $effective));
+    }
+
+    /**
+     * Permissions coming from the employee's role alone (no per-employee overrides).
+     *
+     * @return list<string>
+     */
+    public function rolePermissionsFor(Employee $employee): array
     {
         if ($employee->role === null) {
             return [];
@@ -45,6 +68,38 @@ class AccessControl
         }
 
         return $employee->role->permissions->pluck('permission')->values()->all();
+    }
+
+    /**
+     * Store the employee's overrides so that their effective permissions become exactly $desired, and drop the
+     * cached relations so the next check in this request resolves the new set.
+     *
+     * @param  list<string>  $desired
+     */
+    public function syncEmployeePermissions(Employee $employee, array $desired): void
+    {
+        $role = $this->rolePermissionsFor($employee);
+        $overrides = [
+            ...array_fill_keys(array_values(array_diff($desired, $role)), true),
+            ...array_fill_keys(array_values(array_diff($role, $desired)), false),
+        ];
+
+        $employee->permissionOverrides()->whereNotIn('permission', array_keys($overrides))->delete();
+        foreach ($overrides as $permission => $granted) {
+            $employee->permissionOverrides()->updateOrCreate(['permission' => $permission], ['granted' => $granted]);
+        }
+
+        $this->forgetCachedPermissions($employee);
+    }
+
+    /**
+     * Permissions are resolved from the employee's loaded relations (no application cache); unset them so a change
+     * made in this request is visible immediately.
+     */
+    public function forgetCachedPermissions(Employee $employee): void
+    {
+        $employee->unsetRelation('permissionOverrides');
+        $employee->role?->unsetRelation('permissions');
     }
 
     public function can(Employee $employee, string $permission): bool

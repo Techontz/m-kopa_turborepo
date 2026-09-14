@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { HeaderButton, statusTone } from "@/components/hrm/common";
+import { staffRowActions, type StaffRowActionKey } from "@/components/hrm/staffActions";
 import { EMPTY_STAFF, StaffForm, type StaffFormValues } from "@/components/hrm/StaffForm";
 import type { Staff } from "@/components/hrm/types";
 import { Badge } from "@/components/ui/Badge";
@@ -26,6 +27,26 @@ export default function AllStaffPage() {
   const act = useAction<{ id: number; action: string }>("post", (body) => `hrm/staff/${body.id}/${body.action}`);
   const remove = useAction<{ id: number }>("delete", (body) => `hrm/staff/${body.id}`);
   const manageUsers = can("users.manage");
+
+  const runAction = async (key: StaffRowActionKey, id: number) => {
+    switch (key) {
+      case "block":
+      case "unblock":
+        act.mutate({ id, action: "block" });
+        break;
+      case "delete":
+        if (await confirmAction("Are you sure?")) remove.mutate({ id });
+        break;
+      case "reject":
+        if (await confirmAction("Are you sure to reject?")) act.mutate({ id, action: "reject" });
+        break;
+      case "reset-password":
+        if (await confirmAction("Reset password?", "The staff member's password will be reset to the configured default password and they will be signed out of every device.")) {
+          act.mutate({ id, action: "reset-password" });
+        }
+        break;
+    }
+  };
 
   return (
     <>
@@ -73,20 +94,14 @@ export default function AllStaffPage() {
               className: "text-nowrap",
               render: (row) => (
                 <>
-                  <Link href={`/hrm/staff/${row.id}`} className="btn btn-primary btn-sm mr-1" title="View"><i className="icon-eye" /></Link>
-                  {manageUsers && (
-                    <>
-                      {row.status === "blocked" ? (
-                        <button type="button" className="btn btn-success btn-sm mr-1" title="Un Block" onClick={() => act.mutate({ id: row.id, action: "block" })}><i className="icon-key" /></button>
-                      ) : (
-                        <button type="button" className="btn btn-danger btn-sm mr-1" title="Block" onClick={() => act.mutate({ id: row.id, action: "block" })}><i className="icon-lock" /></button>
-                      )}
-                      <Link href={`/hrm/staff/${row.id}#role`} className="btn btn-info btn-sm mr-1" title="Privilege (Role)"><i className="icon-arrow-right" /></Link>
-                      <button type="button" className="btn btn-danger btn-sm mr-1" title="Delete" onClick={async () => (await confirmAction("Are you sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
-                      <button type="button" className="btn btn-danger btn-sm mr-1" title="Reject" onClick={async () => (await confirmAction("Are you sure to reject?")) && act.mutate({ id: row.id, action: "reject" })}><i className="icon-close" /></button>
-                      <button type="button" className="btn btn-warning btn-sm" title="Reset password" onClick={async () => (await confirmAction()) && act.mutate({ id: row.id, action: "reset-password" })}><i className="icon-key" /></button>
-                    </>
-                  )}
+                  {staffRowActions(row, can).map((action, index, all) => {
+                    const className = `btn btn-${action.tone} btn-sm${index < all.length - 1 ? " mr-1" : ""}`;
+                    const icon = <i className={action.icon} />;
+                    if (action.href) {
+                      return <Link key={action.key} href={action.href} className={className} title={action.title}>{icon}</Link>;
+                    }
+                    return <button key={action.key} type="button" className={className} title={action.title} onClick={() => runAction(action.key, row.id)}>{icon}</button>;
+                  })}
                 </>
               ),
             },

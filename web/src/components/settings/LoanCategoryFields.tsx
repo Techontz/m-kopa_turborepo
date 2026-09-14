@@ -23,6 +23,8 @@ export interface LoanCategory {
   approve_level: string;
   requires_mandate: boolean;
   topup_percent: number;
+  /** Re-borrowing freeze length in days (0 = no freeze). */
+  freeze_time_days: number;
   take_home_percent: number;
   fee_type: "money" | "percentage";
   fee_value: number;
@@ -45,6 +47,7 @@ export interface LoanCategoryForm {
   aprove_status: string;
   requires_mandate: string;
   topup_percent: string;
+  freeze_time_days: string;
   take_home_percent: string;
   main_id: string;
   customer_category_ids: number[];
@@ -52,10 +55,19 @@ export interface LoanCategoryForm {
 
 export const EMPTY_LOAN_CATEGORY: LoanCategoryForm = {
   loan_name: "", loan_price: "", loan_perday: "", interest_formular: "", formular: "", duration: "", from_repayment: "", to_repayment: "",
-  fee_deduct: "", penart: "", aprove_status: "", requires_mandate: "", topup_percent: "", take_home_percent: "", main_id: "", customer_category_ids: [],
+  fee_deduct: "", penart: "", aprove_status: "", requires_mandate: "", topup_percent: "", freeze_time_days: "", take_home_percent: "", main_id: "", customer_category_ids: [],
 };
 
 const yesNo = (value: boolean) => (value ? "YES" : "NO");
+
+export const FREEZE_TIME_HELP =
+  "How long a customer must wait, after repaying enough to qualify for another loan in this category, before a new loan can be issued. This is a re-borrowing freeze — not a penalty, grace, repayment or approval period. 0 = no freeze.";
+
+/** "Freeze Time: 30 Days" / "No freeze". */
+export function freezeTimeLabel(days: number | null | undefined): string {
+  const value = Number(days ?? 0);
+  return value > 0 ? `Freeze Time: ${value} ${value === 1 ? "Day" : "Days"}` : "No freeze";
+}
 
 export function toLoanCategoryForm(category: LoanCategory): LoanCategoryForm {
   return {
@@ -72,6 +84,7 @@ export function toLoanCategoryForm(category: LoanCategory): LoanCategoryForm {
     aprove_status: category.approve_level,
     requires_mandate: yesNo(category.requires_mandate),
     topup_percent: String(category.topup_percent),
+    freeze_time_days: String(category.freeze_time_days ?? 0),
     take_home_percent: String(category.take_home_percent),
     main_id: String(category.main_category_id ?? ""),
     customer_category_ids: (category.customer_categories ?? []).map((item) => item.id),
@@ -143,17 +156,34 @@ export function LoanCategoryFields({ form, setForm, fieldError, creating = false
       <Field label="Top-up percent(%)" className="col-lg-4 col-6" error={fieldError("topup_percent")}>
         <input className="form-control" placeholder="top-up percent" value={form.topup_percent} onChange={set("topup_percent")} required />
       </Field>
+      <Field label="Freeze Time (Days)" required className="col-lg-4 col-6" error={fieldError("freeze_time_days")}>
+        <input
+          type="number"
+          min={0}
+          max={365}
+          step={1}
+          className="form-control"
+          placeholder="0"
+          value={form.freeze_time_days}
+          onChange={set("freeze_time_days")}
+          aria-describedby="freeze-time-help"
+          required
+        />
+        <small id="freeze-time-help" className="form-text text-muted">
+          {FREEZE_TIME_HELP}
+        </small>
+      </Field>
       <Field label="Take home Percent(%)" className="col-lg-4 col-6" error={fieldError("take_home_percent")}>
         <input className="form-control" placeholder="Take home percent" value={form.take_home_percent} onChange={set("take_home_percent")} required />
       </Field>
-      <Field label="Types of loans" className="col-lg-4 col-6" error={fieldError("main_id")}>
+      <Field label="Main Loan Category" className="col-lg-4 col-6" error={fieldError("main_id")}>
         {select("main_id", "Select", mains)}
       </Field>
       <Field label="Requires E-Mandate? (Bank deduction)" required className="col-lg-4 col-6" error={fieldError("requires_mandate")}>
         {select("requires_mandate", "Select", yesNoOptions)}
       </Field>
       <div className="col-lg-8 mb-2">
-        <span>Allowed Customer Categories:</span>
+        <span>Allowed Customer Types:</span>
         <div className="d-flex flex-wrap">
           {customerCategories.map((option) => (
             <label key={option.value} className="fancy-checkbox mr-3 mb-0">

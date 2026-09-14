@@ -1,5 +1,7 @@
 import type { BadgeTone } from "@/components/ui/Badge";
 
+import type { CustomerFreeze } from "./freeze";
+
 export interface Loan {
   id: number;
   loan_number: string;
@@ -63,6 +65,8 @@ export interface Loan {
   withdrawn_at: string | null;
   end_date: string | null;
   closed_at: string | null;
+  freeze_started_at: string | null;
+  freeze_days: number | null;
   frozen_until: string | null;
 }
 
@@ -75,9 +79,16 @@ export interface Schedule {
 }
 
 export interface Eligibility {
+  /** eligible AND not frozen */
   allowed: boolean;
+  /** normal eligibility rules only (KYC, customer type, one application at a time, top-up) */
+  eligible: boolean;
+  frozen: boolean;
+  /** eligibility reasons plus the freeze message */
   reasons: string[];
+  eligibility_reasons: string[];
   frozen_until: string | null;
+  freeze: CustomerFreeze;
   topup: { loan_id: number; loan_number: string; eligible: boolean; paid_percent: number; required_percent: number; outstanding: number; reasons: string[] } | null;
   rules: { kyc_complete: boolean; risk_level: string | null; min_amount: number | null; max_amount: number | null; category: { name: string } | null };
 }
@@ -158,6 +169,7 @@ export interface LoanDetail {
   topup_of: { id: number; loan_number: string; status_label: string } | null;
   timeline: { id: number; action: string; from: string | null; to: string | null; context: Record<string, unknown> | null; user: string; created_at: string | null }[];
   customer_loans: Loan[];
+  customer_freeze: CustomerFreeze;
 }
 
 export interface JournalEntrySummary {

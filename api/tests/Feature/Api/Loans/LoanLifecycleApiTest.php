@@ -221,7 +221,9 @@ class LoanLifecycleApiTest extends TestCase
 
     public function test_overdue_processing_penalty_dpd_closure_and_freeze(): void
     {
-        $this->admin->company->update(['penalty_type' => 'percentage', 'penalty_value' => 10, 'loan_freeze_days' => 30]);
+        $this->travelTo('2026-09-10 10:00:00');
+        $this->admin->company->update(['penalty_type' => 'percentage', 'penalty_value' => 10]);
+        $this->category->update(['freeze_time_days' => 30]);
         $loan = $this->toActive();
         $loan->schedules()->update(['due_date' => today()->subDays(3)]);
         $loan->update(['end_date' => today()->addDays(10)]);
@@ -235,11 +237,11 @@ class LoanLifecycleApiTest extends TestCase
         app(LoanService::class)->deposit($loan, 143000, now()->toImmutable());
         $loan->refresh();
         $this->assertSame(LoanStatus::Closed, $loan->status);
-        $this->assertSame(today()->addDays(30)->toDateString(), $loan->frozen_until->toDateString());
+        $this->assertSame('2026-10-10 10:00:00', $loan->frozen_until->toDateTimeString());
 
         $this->postJson(route('api.v1.loans.store'), $this->form())
             ->assertUnprocessable()
-            ->assertJsonPath('errors.customer_id.0', 'Customer is in freeze period until '.today()->addDays(30)->toDateString());
+            ->assertJsonPath('errors.customer_id.0', 'Customer is currently frozen and cannot apply for another loan until 10 October 2026 10:00.');
     }
 
     public function test_top_up_requires_paid_percentage_and_settles_previous_loan(): void

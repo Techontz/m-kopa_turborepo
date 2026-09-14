@@ -23,7 +23,7 @@ export interface FieldDef {
 
 export type Sector = "employment" | "business" | "other";
 
-/** Customer category resource ("customer type" in the UI). */
+/** Customer Type resource (API: GET /customer-types; stored in the customer_categories table). */
 export interface CustomerType {
   id: number;
   name: string;
@@ -44,6 +44,7 @@ export interface CustomerType {
   omittedStandardFields: string[] | null;
   requiresExtraApproval?: boolean;
   customerCount?: number;
+  deletedAt?: string | null;
 }
 
 /** Requirement profile as returned by GET /registration/requirements. */

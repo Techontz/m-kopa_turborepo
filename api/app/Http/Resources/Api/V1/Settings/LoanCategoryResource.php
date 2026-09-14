@@ -35,6 +35,7 @@ class LoanCategoryResource extends JsonResource
             'approve_level' => $this->approve_level,
             'requires_mandate' => (bool) $this->requires_mandate,
             'topup_percent' => (float) $this->topup_percent,
+            'freeze_time_days' => (int) $this->freeze_time_days,
             'take_home_percent' => (float) $this->take_home_percent,
             'fee_type' => $this->fee_type,
             'fee_value' => (float) $this->fee_value,

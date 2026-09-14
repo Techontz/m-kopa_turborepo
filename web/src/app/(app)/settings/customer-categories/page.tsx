@@ -244,7 +244,7 @@ function TypeEditor({ type, onDone }: { type: CustomerType | null; onDone: () =>
           <input className="form-control" value={form.name} onChange={(e) => set({ name: e.target.value })} required />
         </Field>
         <Field label="Code:" required className="col-md-3" error={save.fieldError("code")}>
-          <input className="form-control" value={form.code} onChange={(e) => set({ code: e.target.value.toUpperCase() })} placeholder="SEKTA_BINAFSI" required />
+          <input className="form-control" value={form.code} onChange={(e) => set({ code: e.target.value.toUpperCase() })} placeholder="CUSTOMER_TYPE_CODE" required />
         </Field>
         <Field label="Step 2 card title:" className="col-md-5" error={save.fieldError("formTitle")}>
           <input className="form-control" value={form.formTitle} onChange={(e) => set({ formTitle: e.target.value })} />
@@ -371,8 +371,8 @@ function TypeViewer({ type, onClose }: { type: CustomerType; onClose: () => void
   );
 }
 
-/** Settings → Customer Categories: the customer types. Everyone may look; only the Super Administrator may change them. */
-export default function CustomerCategoriesPage() {
+/** Settings → Customer Types (also served at the older /settings/customer-categories path). Everyone may look; only the Super Administrator may change them. */
+export default function CustomerTypesPage() {
   const { user } = useAuth();
   const canEdit = user?.role?.key === "super_admin";
   const { data: types, isLoading } = useApi<CustomerType[]>("customer-categories");
@@ -382,7 +382,7 @@ export default function CustomerCategoriesPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Setting", "Customer Categories"]} />
+      <PageHeader crumbs={["Setting", "Customer Types"]} />
       <Card
         title="Customer Type List"
         actions={canEdit ? <button type="button" className="btn btn-primary btn-sm" onClick={() => setEditing("new")}><i className="icon-plus" /> Add Customer Type</button> : undefined}

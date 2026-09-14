@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * KYC document uploaded for one of the customer category's required documents.
+ * KYC document uploaded for one of the customer type's required documents.
  */
 class CustomerDocument extends Model
 {

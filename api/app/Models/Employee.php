@@ -107,6 +107,14 @@ class Employee extends Authenticatable
         return app(AccessControl::class)->permissionsFor($this);
     }
 
+    /**
+     * Per-employee grants/revocations applied on top of the role's permissions.
+     */
+    public function permissionOverrides(): HasMany
+    {
+        return $this->hasMany(EmployeePermission::class);
+    }
+
     public function privileges(): HasMany
     {
         return $this->hasMany(EmployeePrivilege::class);

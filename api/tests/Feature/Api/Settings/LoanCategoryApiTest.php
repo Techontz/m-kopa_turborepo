@@ -86,6 +86,37 @@ class LoanCategoryApiTest extends TestCase
         $this->assertModelMissing($loanCategory);
     }
 
+    public function test_freeze_time_is_stored_returned_editable_and_validated(): void
+    {
+        $admin = $this->signInAdmin();
+        $admin->company->update(['loan_freeze_days' => 5]);
+
+        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['freeze_time_days' => 30]))
+            ->assertCreated()
+            ->assertJsonPath('data.freeze_time_days', 30);
+        $category = LoanCategory::firstWhere('name', 'BIASHARA');
+        $this->assertSame(30, $category->freeze_time_days);
+
+        $this->getJson('/api/v1/settings/loan-categories')->assertOk()->assertJsonPath('data.0.freeze_time_days', 30);
+        $this->getJson("/api/v1/settings/loan-categories/{$category->id}")->assertOk()->assertJsonPath('data.freeze_time_days', 30);
+
+        $this->putJson("/api/v1/settings/loan-categories/{$category->id}", $this->payload($admin, ['freeze_time_days' => 0]))
+            ->assertOk()
+            ->assertJsonPath('data.freeze_time_days', 0);
+        $this->putJson("/api/v1/settings/loan-categories/{$category->id}", $this->payload($admin, ['freeze_time_days' => 12]))->assertOk();
+        $this->putJson("/api/v1/settings/loan-categories/{$category->id}", $this->payload($admin))->assertOk();
+        $this->assertSame(12, $category->fresh()->freeze_time_days, 'Omitting the field keeps the stored value.');
+
+        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['loan_name' => 'DEFAULTED']))->assertCreated()->assertJsonPath('data.freeze_time_days', 5);
+
+        foreach ([-1, 366, 'abc', 1.5] as $invalid) {
+            $this->putJson("/api/v1/settings/loan-categories/{$category->id}", $this->payload($admin, ['freeze_time_days' => $invalid]))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('freeze_time_days');
+        }
+        $this->assertSame(12, $category->fresh()->freeze_time_days);
+    }
+
     public function test_validation_rejects_disabled_formula_bad_range_and_foreign_customer_category(): void
     {
         $admin = $this->signInAdmin();

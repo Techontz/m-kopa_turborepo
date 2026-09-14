@@ -49,6 +49,11 @@ class UpdateCustomerRequest extends StoreCustomerRequest
         return $this->customer()->id;
     }
 
+    protected function currentCustomerCategoryId(): ?int
+    {
+        return $this->customer()->customer_category_id !== null ? (int) $this->customer()->customer_category_id : null;
+    }
+
     /**
      * @return array<string, mixed>
      */

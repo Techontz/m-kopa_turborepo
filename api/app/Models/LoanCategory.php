@@ -32,6 +32,7 @@ class LoanCategory extends Model
             'has_penalty' => 'boolean',
             'requires_mandate' => 'boolean',
             'topup_percent' => 'decimal:2',
+            'freeze_time_days' => 'integer',
             'take_home_percent' => 'decimal:2',
             'fee_value' => 'decimal:2',
             'insurance' => 'decimal:2',
@@ -50,7 +51,7 @@ class LoanCategory extends Model
     }
 
     /**
-     * Customer categories allowed to borrow this product (Documents: "Category = Rule Engine").
+     * Customer types allowed to borrow this product (Documents: "Category = Rule Engine").
      */
     public function customerCategories(): BelongsToMany
     {

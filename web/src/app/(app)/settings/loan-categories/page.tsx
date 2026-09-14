@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { EMPTY_LOAN_CATEGORY, LoanCategoryFields, type LoanCategory, type LoanCategoryForm } from "@/components/settings/LoanCategoryFields";
+import { EMPTY_LOAN_CATEGORY, freezeTimeLabel, LoanCategoryFields, type LoanCategory, type LoanCategoryForm } from "@/components/settings/LoanCategoryFields";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -18,6 +18,13 @@ export default function LoanCategoriesPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<LoanCategoryForm>(EMPTY_LOAN_CATEGORY);
   const [branchesOf, setBranchesOf] = useState<LoanCategory | null>(null);
+  const { data: freezeDefault } = useApi<{ loan_freeze_days: number }>("settings/loan-freeze");
+  const openCreate = () => {
+    if (form.freeze_time_days === "" && freezeDefault) {
+      setForm({ ...form, freeze_time_days: String(freezeDefault.loan_freeze_days) });
+    }
+    setCreating(true);
+  };
 
   const create = useAction<LoanCategoryForm>("post", "settings/loan-categories");
   const remove = useAction<{ id: number }>("delete", (body) => `settings/loan-categories/${body.id}`);
@@ -26,7 +33,7 @@ export default function LoanCategoriesPage() {
     <>
       <PageHeader crumbs={["Loan Category"]} />
 
-      <Card title="Loan Category List" actions={<button type="button" className="btn btn-sm btn-primary" onClick={() => setCreating(true)}><i className="icon-plus" /></button>}>
+      <Card title="Loan Category List" actions={<button type="button" className="btn btn-sm btn-primary" onClick={openCreate}><i className="icon-plus" /></button>}>
         <DataTable
           rows={categories}
           loading={isLoading}
@@ -44,6 +51,13 @@ export default function LoanCategoriesPage() {
             { key: "has_penalty", header: "Penalty", value: (row) => (row.has_penalty ? "YES" : "NO") },
             { key: "approve_level", header: "Approve status", className: "text-nowrap" },
             { key: "topup_percent", header: "Top-up percent", render: (row) => percent(row.topup_percent) },
+            {
+              key: "freeze_time_days",
+              header: "Freeze Time",
+              className: "text-nowrap",
+              value: (row) => row.freeze_time_days,
+              render: (row) => <Badge tone={row.freeze_time_days > 0 ? "info" : "default"}>{freezeTimeLabel(row.freeze_time_days)}</Badge>,
+            },
             { key: "take_home_percent", header: "Take home percent", render: (row) => percent(row.take_home_percent) },
             {
               key: "requires_mandate",
@@ -53,7 +67,7 @@ export default function LoanCategoriesPage() {
             },
             {
               key: "customer_categories",
-              header: "Customer Categories",
+              header: "Customer Types",
               className: "text-nowrap",
               value: (row) => (row.customer_categories ?? []).map((item) => item.name).join(", "),
             },

@@ -35,7 +35,7 @@ const GROUPS: Array<[keyof Omit<Portfolio, "summary">, string, string]> = [
   ["by_branch", "Portfolio per Branch", "Branch"],
   ["by_product", "Portfolio per Loan Product", "Loan Product"],
   ["by_officer", "Portfolio per Loan Officer", "Loan Officer"],
-  ["by_category", "Portfolio per Customer Category", "Customer Category"],
+  ["by_category", "Portfolio per Customer Type", "Customer Type"],
 ];
 
 function GroupTable({ rows, heading }: { rows: GroupRow[]; heading: string }) {
@@ -99,7 +99,7 @@ export default function LoanPortfolioPage() {
             title={title}
             actions={
               <CsvButton
-                filename={`loan-portfolio-${key}`}
+                filename={`loan-portfolio-${key === "by_category" ? "by_customer_type" : key}`}
                 header={[heading, "Loans Issued", "Active", "Completed", "Default", "Disbursed", "Outstanding Principal", "Total Outstanding", "% of Portfolio"]}
                 rows={data[key].map((row) => [row.label, row.loans, row.active, row.completed, row.default, row.disbursed, row.outstanding_principal, row.outstanding_total, row.share])}
               />

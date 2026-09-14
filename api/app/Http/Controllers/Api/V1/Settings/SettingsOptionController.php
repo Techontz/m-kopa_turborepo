@@ -46,7 +46,7 @@ class SettingsOptionController extends ApiController
 
     public function customerCategories(): JsonResponse
     {
-        return $this->options(CustomerCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get()->map(fn (CustomerCategory $category): array => ['value' => (string) $category->id, 'label' => $category->name]));
+        return $this->options(CustomerCategory::query()->selectable($this->currentEmployee()->company_id)->get()->map(fn (CustomerCategory $category): array => ['value' => (string) $category->id, 'label' => $category->name]));
     }
 
     public function zones(): JsonResponse

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Settings → Loan Category (live admin/loan_category, edit_loan_category, loan_category_blanch), extended with the
- * Documents' requires_mandate flag and allowed customer categories.
+ * Documents' requires_mandate flag and allowed customer types.
  */
 class LoanCategoryController extends ApiController
 {
@@ -34,7 +34,11 @@ class LoanCategoryController extends ApiController
         $this->authorizeAny('settings.manage');
 
         $category = DB::transaction(function () use ($request): LoanCategory {
-            $category = LoanCategory::create($request->categoryData() + ['company_id' => $this->currentEmployee()->company_id]);
+            $company = $this->currentEmployee()->company;
+            $category = LoanCategory::create($request->categoryData() + [
+                'company_id' => $company->id,
+                'freeze_time_days' => (int) $company->loan_freeze_days,
+            ]);
             $category->customerCategories()->sync($request->customerCategoryIds());
 
             return $category;

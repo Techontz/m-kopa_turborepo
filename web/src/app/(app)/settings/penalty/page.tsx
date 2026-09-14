@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { Card } from "@/components/ui/Card";
@@ -52,8 +53,11 @@ function LoanFreezeForm({ days }: { days: number }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); update.mutate({ loan_freeze_days: value }); }}>
       <div className="form-group">
-        <span>Days after a loan is closed before the customer can apply again (0 = no freeze)</span>
-        <input type="number" min={0} className="form-control" value={value} onChange={(e) => setValue(e.target.value)} required />
+        <span>Default Freeze Time (Days) prefilled when creating a new loan category (0 = no freeze)</span>
+        <input type="number" min={0} max={365} step={1} className="form-control" value={value} onChange={(e) => setValue(e.target.value)} required />
+        <small className="form-text text-muted">
+          The freeze a customer gets is set per loan category in <Link href="/settings/loan-categories">Settings → Loan Categories</Link>. Changing this default does not change existing categories or loans.
+        </small>
         {update.fieldError("loan_freeze_days") && <div className="field-error">{update.fieldError("loan_freeze_days")}</div>}
       </div>
       <div className="text-center m-t-20">
@@ -94,7 +98,7 @@ export default function PenaltySettingPage() {
           </table>
         </div>
       </Card>
-      <Card title="Loan Freeze Period">{freeze ? <LoanFreezeForm key={freeze.loan_freeze_days} days={freeze.loan_freeze_days} /> : <div className="mf-loading">Loading...</div>}</Card>
+      <Card title="Default Freeze Time for New Loan Categories">{freeze ? <LoanFreezeForm key={freeze.loan_freeze_days} days={freeze.loan_freeze_days} /> : <div className="mf-loading">Loading...</div>}</Card>
     </>
   );
 }

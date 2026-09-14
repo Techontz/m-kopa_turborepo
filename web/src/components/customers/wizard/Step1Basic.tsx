@@ -2,6 +2,7 @@
 
 import { useApi } from "@/lib/hooks";
 
+import { CUSTOMER_TYPE_LABEL, customerTypeOptions } from "../customerTypes";
 import type { CustomerType, GeoRow, MasterData, RegistrationOptions, RequirementProfile } from "../types";
 import { Cell, Combo, GroupHeading, type ComboOption } from "./Controls";
 import { fieldDomId } from "./errors";
@@ -61,10 +62,7 @@ export function Step1Basic({ form, update, errors, profile, options, types, mast
   const officerOptions = toOptions(officers);
   const currentOfficer = officers.find((officer) => officer.id === (form.employeeId ?? options?.currentEmployeeId));
   const age = ageFrom(form.dob);
-  const typeOptions: ComboOption[] = [...(types ?? [])]
-    .filter((type) => type.isActive)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((type) => ({ value: String(type.id), label: type.name, hint: type.requiresExtraApproval ? "Needs extra approval" : undefined }));
+  const typeOptions: ComboOption[] = customerTypeOptions(types, { withHints: true });
   const chosenType = types?.find((type) => type.id === form.customerCategoryId);
 
   const address = profile.requiresAddress;
@@ -116,7 +114,7 @@ export function Step1Basic({ form, update, errors, profile, options, types, mast
             </div>
           )}
         </Cell>
-        <Cell field="customerCategoryId" label="Customer Type" required={profile.requiresCustomerCategory} error={errors.customerCategoryId} help={chosenType?.requiresExtraApproval ? "Needs extra approval" : undefined}>
+        <Cell field="customerCategoryId" label={CUSTOMER_TYPE_LABEL} required={profile.requiresCustomerCategory} error={errors.customerCategoryId} help={chosenType?.requiresExtraApproval ? "Needs extra approval" : undefined}>
           <Combo
             field="customerCategoryId"
             value={form.customerCategoryId}

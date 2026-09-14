@@ -48,7 +48,7 @@ class PortfolioReports
 
     /**
      * Loan Portfolio: loans issued / active / completed / default and the outstanding portfolio per branch, product,
-     * loan officer and customer category.
+     * loan officer and customer type.
      *
      * @return array<string, mixed>
      */
@@ -396,7 +396,7 @@ class PortfolioReports
     }
 
     /**
-     * Customer Segmentation: per gender, age group, occupation, customer category, region, branch and loan size.
+     * Customer Segmentation: per gender, age group, occupation, customer type, region, branch and loan size.
      *
      * @return array<string, list<array<string, mixed>>>
      */
@@ -507,7 +507,7 @@ class PortfolioReports
         $age = $row->date_of_birth ? (int) CarbonImmutable::parse($row->date_of_birth)->diffInYears($today) : ($row->customer_age !== null ? (int) $row->customer_age : null);
 
         return [
-            'category' => $row->category_name ?? 'Not categorised',
+            'category' => $row->category_name ?? 'No customer type',
             'gender' => $row->gender ? ucfirst(strtolower($row->gender)) : 'Unknown',
             'age' => self::ageBand($age),
             'occupation' => $row->business_type ?: ($row->work_status ?: 'Unknown'),

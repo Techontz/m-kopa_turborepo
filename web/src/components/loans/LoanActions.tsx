@@ -12,6 +12,7 @@ import { useAction } from "@/lib/hooks";
 
 import { DisbursementSourceFields } from "./DisbursementSourceFields";
 import { EMPTY_SOURCE, sourcePayload, type SourceChoice } from "./disbursementSource";
+import { formatFreezeUntil } from "./freeze";
 import type { LoanDetail } from "./types";
 
 /** Workflow panel on the loan detail page: the next step for the loan's status, limited to the user's permissions. */
@@ -168,7 +169,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
       );
       break;
     default:
-      body = <p>{loan.status_label}{loan.decision_reason ? `: ${loan.decision_reason}` : ""}{loan.frozen_until ? ` · Freeze period until ${loan.frozen_until}` : ""}</p>;
+      body = <p>{loan.status_label}{loan.decision_reason ? `: ${loan.decision_reason}` : ""}{loan.frozen_until ? ` · Freeze until ${formatFreezeUntil(loan.frozen_until)}` : ""}</p>;
   }
 
   return (

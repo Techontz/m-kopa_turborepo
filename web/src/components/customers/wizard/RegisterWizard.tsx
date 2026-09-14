@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/hooks";
 
 import { FaceVerification } from "../face/FaceVerification";
+import { CUSTOMER_TYPES_ENDPOINT } from "../customerTypes";
 import { toastError, toastInfo, toastSuccess } from "../toast";
 import type { Customer, CustomerType, DraftResource, FieldDef, MasterData, MasterRow, RegistrationOptions, RequirementProfile } from "../types";
 import { composeStep2Fields } from "./composition";
@@ -73,7 +74,7 @@ export function RegisterWizard() {
   const touchedRef = useRef(false);
 
   const { data: options } = useApi<RegistrationOptions>("customers/registration-options");
-  const { data: types } = useApi<CustomerType[]>("customer-categories", { activeOnly: 1 });
+  const { data: types } = useApi<CustomerType[]>(CUSTOMER_TYPES_ENDPOINT);
   const { data: masterData } = useApi<MasterData>("master-data");
   const { data: requirements } = useApi<{ profiles: RequirementProfile[] }>("registration/requirements");
   const { data: drafts } = useApi<DraftResource[]>("customer-drafts");

@@ -19,15 +19,33 @@ use Illuminate\Support\Str;
  */
 class CustomerCategoryController extends ApiController
 {
+    /**
+     * GET /customer-categories — every type of the company (Settings); `activeOnly=1` limits it to the selectable ones.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
-        return CustomerCategoryResource::collection(CustomerCategory::query()
-            ->where('company_id', $this->currentEmployee()->company_id)
-            ->when($request->boolean('activeOnly'), fn ($query) => $query->where('is_active', true))
+        return $this->listing($request->boolean('activeOnly'));
+    }
+
+    /**
+     * GET /customer-types — read-only alias listing only the selectable (active) customer types in display order:
+     * the options for registration, customer filters, loans and reports.
+     */
+    public function types(): AnonymousResourceCollection
+    {
+        return $this->listing(activeOnly: true);
+    }
+
+    private function listing(bool $activeOnly): AnonymousResourceCollection
+    {
+        $companyId = $this->currentEmployee()->company_id;
+        $query = $activeOnly
+            ? CustomerCategory::query()->selectable($companyId)
+            : CustomerCategory::query()->where('company_id', $companyId)->orderBy('sort_order')->orderBy('name');
+
+        return CustomerCategoryResource::collection($query
             ->withCount('customers')
             ->with(['loanCategories' => fn ($query) => $query->orderBy('loan_categories.id')])
-            ->orderBy('sort_order')
-            ->orderBy('name')
             ->get());
     }
 

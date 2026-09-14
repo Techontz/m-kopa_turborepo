@@ -83,7 +83,9 @@ class LoanResource extends JsonResource
             'withdrawn_at' => $this->withdrawn_at?->toDateString(),
             'end_date' => $this->end_date?->toDateString(),
             'closed_at' => $this->closed_at?->toDateString(),
-            'frozen_until' => $this->frozen_until?->toDateString(),
+            'freeze_started_at' => $this->freeze_started_at?->toIso8601String(),
+            'freeze_days' => $this->freeze_days,
+            'frozen_until' => $this->frozen_until?->toIso8601String(),
         ];
     }
 }

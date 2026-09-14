@@ -58,6 +58,8 @@ return [
         'reports.view' => 'View operational reports',
         'reports.financial' => 'View financial, commission and strategic reports',
         'hrm.manage' => 'Manage staff records, leave, allowances and deductions',
+        'hrm.staff_privileges' => 'Grant or revoke individual staff privileges (per-employee permissions)',
+        'hrm.staff_reset_password' => 'Reset a staff member\'s password to the configured default password',
         'payroll.approve' => 'Generate and approve payroll and commission',
         'payroll.pay' => 'Pay approved payroll',
         'crm.use' => 'Use customer relationship tools',
@@ -70,7 +72,7 @@ return [
     'roles' => [
         'super_admin' => ['name' => 'Super Admin', 'scope' => 'company', 'permissions' => ['*']],
         'admin' => ['name' => 'Admin', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'settings.manage', 'users.manage', 'float.manage', 'bank.manage', 'expenses.request',
+            'dashboard.view', 'settings.manage', 'users.manage', 'hrm.staff_privileges', 'hrm.staff_reset_password', 'float.manage', 'bank.manage', 'expenses.request',
             'expenses.approve_hq', 'hq.manage', 'customers.view', 'customers.manage', 'customers.approve',
             'customers.assign_officer', 'branches.view_all', 'loans.view', 'loans.write_off',
             'accounting.view', 'salary_advance.manage', 'penalties.manage', 'agent.manage', 'savings.manage', 'visa.manage',
@@ -83,7 +85,7 @@ return [
             'agent.manage', 'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'messages.use', 'goals.view',
         ]],
         'hr' => ['name' => 'HR', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'users.manage', 'hrm.manage', 'payroll.approve', 'branches.view_all', 'reports.view', 'messages.use', 'goals.view',
+            'dashboard.view', 'users.manage', 'hrm.manage', 'hrm.staff_privileges', 'payroll.approve', 'branches.view_all', 'reports.view', 'messages.use', 'goals.view',
         ]],
         'zone_manager' => ['name' => 'Zone Manager', 'scope' => 'zone', 'permissions' => [
             'dashboard.view', 'customers.view', 'loans.view', 'reports.view', 'crm.use', 'messages.use', 'goals.view',

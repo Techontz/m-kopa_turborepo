@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 
+import { FreezeStatus } from "@/components/loans/FreezeStatus";
+import type { CustomerFreeze } from "@/components/loans/freeze";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { confirmAction } from "@/components/ui/notify";
 import { api, ApiError, backendUrl } from "@/lib/api";
@@ -27,7 +29,16 @@ const title = (value: string | null | undefined) => (value ? value.replace(/_/g,
 
 /* ------------------------------------------------------------------ Overview ------------------------------------------------------------------ */
 
+/** GET customers/{id}/eligibility: normal eligibility rules and the separate re-borrowing freeze. */
+interface LoanEligibility {
+  eligible: boolean;
+  reasons: string[];
+  freeze: CustomerFreeze;
+  can_apply: boolean;
+}
+
 export function OverviewTab({ customer, overview }: { customer: Customer; overview: Overview | undefined }) {
+  const { data: eligibility } = useApi<LoanEligibility>(`customers/${customer.id}/eligibility`);
   const stats: Array<[string, string | number]> = overview
     ? [
         ["Loans", overview.loans.total],
@@ -54,6 +65,16 @@ export function OverviewTab({ customer, overview }: { customer: Customer; overvi
         <Detail label="Registered">{formatDateTime(customer.createdAt)}</Detail>
       </dl>
       {customer.rejectionReason && <div className="alert alert-danger mt-2 mb-0">Returned: {customer.rejectionReason}</div>}
+
+      <div className="mf-section-title">Loan Eligibility</div>
+      {!eligibility ? (
+        <p className="mf-loading">Loading...</p>
+      ) : (
+        <>
+          <FreezeStatus freeze={eligibility.freeze} eligible={eligibility.eligible} />
+          {eligibility.reasons.map((reason) => <div key={reason} className="alert alert-danger py-1 mt-2 mb-0">{reason}</div>)}
+        </>
+      )}
 
       <div className="mf-section-title">Loans</div>
       {!overview ? (

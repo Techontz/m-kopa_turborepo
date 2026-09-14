@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\Hrm\SettingController;
 use App\Http\Controllers\Api\V1\Hrm\StaffController;
 use App\Http\Controllers\Api\V1\Hrm\StaffFundController;
 use App\Http\Controllers\Api\V1\Hrm\StaffLoanController;
+use App\Http\Controllers\Api\V1\Hrm\StaffPrivilegeController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('hrm')->name('hrm.')->group(function (): void {
@@ -31,6 +32,9 @@ Route::prefix('hrm')->name('hrm.')->group(function (): void {
         Route::post('staff/{employee}/reset-password', 'resetPassword')->name('staff.reset-password');
         Route::get('branches', 'branches')->name('branches');
     });
+
+    Route::get('staff/{employee}/privileges', [StaffPrivilegeController::class, 'show'])->name('staff.privileges.show');
+    Route::put('staff/{employee}/privileges', [StaffPrivilegeController::class, 'update'])->name('staff.privileges.update');
 
     Route::controller(SettingController::class)->group(function (): void {
         Route::get('settings', 'show')->name('settings.show');

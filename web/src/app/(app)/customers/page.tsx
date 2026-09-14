@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 
 import { AccessDenied } from "@/components/customers/AccessDenied";
 import { CustomerAvatar, CustomerStatusBadges, Pager, usePaged } from "@/components/customers/common";
+import { CUSTOMER_TYPE_FILTER, CUSTOMER_TYPE_LABEL, CUSTOMER_TYPES_ENDPOINT, customerTypeOptions } from "@/components/customers/customerTypes";
 import type { Customer, CustomerType } from "@/components/customers/types";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -37,7 +38,7 @@ export default function AllCustomersPage() {
   const allowed = can("customers.view");
 
   const { data, isLoading, isFetching } = usePaged<Customer>(allowed ? "customers" : null, { ...filters, include_deleted: filters.include_deleted ? 1 : undefined, page, per_page: perPage });
-  const { data: types } = useApi<CustomerType[]>(allowed ? "customer-categories" : null, { activeOnly: 1 });
+  const { data: types } = useApi<CustomerType[]>(allowed ? CUSTOMER_TYPES_ENDPOINT : null);
   const remove = useAction<{ id: number }>("delete", (body) => `customers/${body.id}`);
 
   if (!allowed) {
@@ -111,10 +112,11 @@ export default function AllCustomersPage() {
             <option value="0">Not loan eligible</option>
           </select>
           <SelectBox inputId="filter-branch" placeholder="Branch: all" optionsUrl="options/branches" value={filters.branch_id} isClearable onChange={(value) => setFilter({ branch_id: value ?? "" })} />
+          <label htmlFor={CUSTOMER_TYPE_FILTER.inputId} className="sr-only">{CUSTOMER_TYPE_FILTER.label}</label>
           <SelectBox
-            inputId="filter-type"
-            placeholder="Customer type: all"
-            options={(types ?? []).map((type) => ({ value: String(type.id), label: type.name }))}
+            inputId={CUSTOMER_TYPE_FILTER.inputId}
+            placeholder={CUSTOMER_TYPE_FILTER.placeholder}
+            options={customerTypeOptions(types)}
             value={filters.customer_category_id}
             isClearable
             onChange={(value) => setFilter({ customer_category_id: value ?? "" })}
@@ -132,6 +134,7 @@ export default function AllCustomersPage() {
                 <th>Date of Birth</th>
                 <th>Age</th>
                 <th>Gender</th>
+                <th>{CUSTOMER_TYPE_LABEL}</th>
                 <th>Phone</th>
                 <th>Branch</th>
                 <th>Status</th>
@@ -140,9 +143,9 @@ export default function AllCustomersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={8} className="mf-loading">Loading...</td></tr>
+                <tr><td colSpan={9} className="mf-loading">Loading...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="text-center">No customers match these filters.</td></tr>
+                <tr><td colSpan={9} className="text-center">No customers match these filters.</td></tr>
               ) : (
                 rows.map((customer) => (
                   <tr key={customer.id} style={{ opacity: isFetching ? 0.7 : 1 }}>
@@ -151,13 +154,14 @@ export default function AllCustomersPage() {
                         <CustomerAvatar customer={customer} />
                         <div>
                           <Link href={`/customers/${customer.id}`}>{customer.fullName}</Link>
-                          <small>{customer.customerNumber}{customer.categoryName ? ` · ${customer.categoryName}` : ""}</small>
+                          <small>{customer.customerNumber}</small>
                         </div>
                       </div>
                     </td>
                     <td className="text-nowrap">{customer.dob ?? ""}</td>
                     <td>{customer.age ?? ""}</td>
                     <td className="text-capitalize">{customer.gender ?? ""}</td>
+                    <td>{customer.categoryName ?? ""}</td>
                     <td className="text-nowrap">{customer.phone}</td>
                     <td>{customer.branchName ?? ""}</td>
                     <td><CustomerStatusBadges customer={customer} /></td>

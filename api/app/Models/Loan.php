@@ -47,7 +47,9 @@ class Loan extends Model
             'telco_verified_at' => 'datetime',
             'disbursed_at' => 'datetime',
             'closed_at' => 'datetime',
-            'frozen_until' => 'date',
+            'freeze_started_at' => 'datetime',
+            'freeze_days' => 'integer',
+            'frozen_until' => 'datetime',
             'status' => LoanStatus::class,
             'duration' => Duration::class,
         ];

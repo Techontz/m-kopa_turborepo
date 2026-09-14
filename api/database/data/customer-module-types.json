@@ -269,7 +269,10 @@
         "national_id"
       ],
       "optionalDocuments": [],
-      "omittedStandardFields": [],
+      "omittedStandardFields": [
+        "place_of_employment",
+        "monthly_income"
+      ],
       "dynamicFormSchema": [
         {
           "key": "taasisi",
@@ -374,14 +377,6 @@
           "origin": "configured"
         },
         {
-          "key": "place_of_employment",
-          "label": "Place of Employment",
-          "type": "text",
-          "required": false,
-          "storesIn": "placeOfEmployment",
-          "origin": "standard"
-        },
-        {
           "key": "basic_salary",
           "label": "Basic Salary",
           "type": "currency",
@@ -395,14 +390,6 @@
           "type": "currency",
           "required": false,
           "storesIn": "takeHome",
-          "origin": "standard"
-        },
-        {
-          "key": "monthly_income",
-          "label": "Monthly Income",
-          "type": "currency",
-          "required": false,
-          "storesIn": "monthlyIncome",
           "origin": "standard"
         },
         {
@@ -482,7 +469,8 @@
           "label": "Aina ya Mkataba",
           "options": [
             "Ajira ya Kudumu",
-            "Mkataba wa Muda"
+            "Mkataba wa Muda",
+            "Vibarua"
           ],
           "required": true
         },
@@ -543,7 +531,8 @@
           "label": "Aina ya Mkataba",
           "options": [
             "Ajira ya Kudumu",
-            "Mkataba wa Muda"
+            "Mkataba wa Muda",
+            "Vibarua"
           ],
           "required": true,
           "origin": "configured"

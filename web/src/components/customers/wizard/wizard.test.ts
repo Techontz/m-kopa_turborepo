@@ -76,7 +76,7 @@ describe("Step 2 composition", () => {
   });
 
   it("inserts contract fields after Check Number when requiresContract", () => {
-    const type: CustomerType = { ...byCode("WATUMISHI_WA_UMMA"), dynamicFormSchema: [], requiresContract: true, requiresSector: true };
+    const type: CustomerType = { ...byCode("WATUMISHI_WA_UMMA"), dynamicFormSchema: [], omittedStandardFields: [], requiresContract: true, requiresSector: true };
     expect(composeStep2Fields(type).map((field) => field.key)).toEqual([
       "sector_id",
       "sector_category_id",
@@ -89,6 +89,42 @@ describe("Step 2 composition", () => {
       "monthly_income",
       "retirement_date",
     ]);
+  });
+});
+
+describe("customer-type corrections", () => {
+  it("Mtumishi wa Umma asks Basic Salary and Take Home but not Place of Employment or Monthly Income", () => {
+    const fields = composeStep2Fields(byCode("WATUMISHI_WA_UMMA"), FALLBACK_PROFILE);
+    const labels = fields.map((field) => field.label);
+    expect(labels).not.toContain("Place of Employment");
+    expect(labels).not.toContain("Monthly Income");
+    expect(labels).toEqual(expect.arrayContaining(["Basic Salary", "Take Home"]));
+
+    const form = setAnswer(setAnswer({ ...validStep1(), placeOfEmployment: "Hospitali", monthlyIncome: "700000" }, fields, "basic_salary", "900000"), fields, "take_home", "650000");
+    const payload = buildRegistrationPayload(form, fields);
+    expect(payload).toMatchObject({ basicSalary: 900000, takeHome: 650000 });
+    expect(payload).not.toHaveProperty("placeOfEmployment");
+    expect(payload).not.toHaveProperty("monthlyIncome");
+    expect(validateStep2(form, fields, FALLBACK_PROFILE)).not.toHaveProperty("placeOfEmployment");
+    expect(validateStep2(form, fields, FALLBACK_PROFILE)).not.toHaveProperty("monthlyIncome");
+  });
+
+  it("the other types keep their Place of Employment / Monthly Income handling", () => {
+    const keys = (code: string) => composeStep2Fields(byCode(code), FALLBACK_PROFILE).map((field) => field.key);
+    expect(keys("MWANAFUNZI_CHUO")).toContain("monthly_income");
+    expect(keys("SEKTA_BINAFSI")).toEqual(expect.arrayContaining(["basic_salary", "take_home"]));
+    expect(keys("MSTAAFU_UMMA")).not.toContain("basic_salary");
+  });
+
+  it("Sekta Binafsi Aina ya Mkataba offers Vibarua and submits it", () => {
+    const fields = composeStep2Fields(byCode("SEKTA_BINAFSI"), FALLBACK_PROFILE);
+    const contract = fields.find((field) => field.key === "sb_aina_mkataba");
+    expect(contract?.options).toEqual(["Ajira ya Kudumu", "Mkataba wa Muda", "Vibarua"]);
+    const form = setAnswer(validStep1(), fields, "sb_aina_mkataba", "Vibarua");
+    expect(buildRegistrationPayload(form, fields)).toMatchObject({ dynamicFormData: { sb_aina_mkataba: "Vibarua" } });
+    expect(Object.keys(validateStep2(form, fields, FALLBACK_PROFILE))).not.toContain("dynamicFormData.sb_aina_mkataba");
+    const invalid = setAnswer(validStep1(), fields, "sb_aina_mkataba", "Kibarua cha Siku");
+    expect(Object.keys(validateStep2(invalid, fields, FALLBACK_PROFILE))).toContain("dynamicFormData.sb_aina_mkataba");
   });
 });
 

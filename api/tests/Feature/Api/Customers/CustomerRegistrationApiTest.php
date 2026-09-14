@@ -454,9 +454,9 @@ class CustomerRegistrationApiTest extends TestCase
         return match ($code) {
             'WATUMISHI_WA_UMMA' => [
                 ['dynamicFormData' => ['taasisi' => (string) $ids['body'], 'idara' => (string) $ids['department'], 'cheo' => (string) $ids['cadre'], 'kituo' => 'Hospitali ya Wilaya', 'check_number' => 'CHK-123', 'aina_ajira' => 'Ajira ya Kudumu'],
-                    'placeOfEmployment' => 'Hospitali ya Wilaya Kakonko', 'basicSalary' => 900000, 'takeHome' => 650000, 'monthlyIncome' => 700000, 'retirementDate' => '2050-06-30'] + $mno,
+                    'basicSalary' => 900000, 'takeHome' => 650000, 'retirementDate' => '2050-06-30'] + $mno,
                 ['taasisi' => $ids['body'], 'idara' => $ids['department'], 'cheo' => $ids['cadre'], 'kituo' => 'Hospitali ya Wilaya', 'check_number' => 'CHK-123', 'aina_ajira' => 'Ajira ya Kudumu'],
-                ['placeOfEmployment' => 'Hospitali ya Wilaya Kakonko', 'basicSalary' => 900000, 'takeHome' => 650000, 'monthlyIncome' => 700000, 'retirementDate' => '2050-06-30', 'checkNumber' => null] + $mno,
+                ['placeOfEmployment' => null, 'basicSalary' => 900000, 'takeHome' => 650000, 'monthlyIncome' => null, 'retirementDate' => '2050-06-30', 'checkNumber' => null] + $mno,
             ],
             'SEKTA_BINAFSI' => [
                 ['dynamicFormData' => ['sb_sekta' => $ids['privateSector'], 'sb_taasisi' => $ids['privateEmployer'], 'sb_idara' => $ids['privateDepartment'], 'sb_cheo' => $ids['privateCadre'], 'sb_kituo' => 'Tawi la Kigoma', 'sb_aina_mkataba' => 'Mkataba wa Muda', 'sb_kitambulisho' => 'NMB-778'],

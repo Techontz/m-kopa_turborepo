@@ -118,6 +118,36 @@ class StepTwoFields
     }
 
     /**
+     * Payload names (`storesIn`) of the standard fields the type omits, unless a configured field writes the same column
+     * (e.g. Mwanafunzi wa Chuo "Boom" → monthlyIncome). Answers to these are not part of the type and are not stored.
+     * A block the requirement profile demands (employment / business details) keeps its columns, because the profile
+     * rules read them.
+     *
+     * @param  array<string, mixed>  $profile  resolved requirement profile (RequirementProfiles::resolve), snake_case flags
+     * @return list<string>
+     */
+    public function omittedColumns(CustomerCategory $type, array $profile = []): array
+    {
+        $omitted = (array) ($type->omitted_standard_fields ?? []);
+        $configuredColumns = array_column(array_filter((array) ($type->dynamic_form_schema ?? []), 'is_array'), 'storesIn');
+        $kept = array_column([
+            ...(empty($profile['requires_employment_details']) ? [] : self::EMPLOYMENT),
+            ...(empty($profile['requires_business_details']) ? [] : self::BUSINESS),
+        ], 'storesIn');
+
+        $columns = [];
+        foreach ([...self::EMPLOYMENT, ...self::BUSINESS] as $field) {
+            if (in_array($field['key'], $omitted, true)
+                && ! in_array($field['storesIn'], $configuredColumns, true)
+                && ! in_array($field['storesIn'], $kept, true)) {
+                $columns[$field['storesIn']] = true;
+            }
+        }
+
+        return array_keys($columns);
+    }
+
+    /**
      * The standard fields in order: the sector's block, then any block the requirement profile adds.
      *
      * @param  array<string, mixed>  $profile

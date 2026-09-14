@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -11,13 +11,9 @@ import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
 import { Detail, formatDateTime } from "../common";
-import { FaceVerification } from "../face/FaceVerification";
-import { QUALITY_CHECKS, POSES } from "../face/liveness";
 import { toastError, toastSuccess } from "../toast";
-import type { Customer, CustomerType, DocumentResource, FaceScanResource, FieldDef, GuarantorResource, MasterData, MasterRow, NextOfKinResource } from "../types";
-import { composeStep2Fields } from "../wizard/composition";
+import type { Customer, DocumentResource, GuarantorResource, MasterData, NextOfKinResource } from "../types";
 import { RELATIONSHIPS } from "../wizard/form";
-import { fetchParented, parentedKey } from "../wizard/Step2Details";
 import { KYC_ACCEPT, kycFileProblem } from "../wizard/Step3Kyc";
 
 export interface Overview {
@@ -28,7 +24,6 @@ export interface Overview {
 }
 
 const title = (value: string | null | undefined) => (value ? value.replace(/_/g, " ").replace(/^\w/, (letter) => letter.toUpperCase()) : "");
-const nameOf = (rows: MasterRow[] | undefined, id: number | string | null | undefined) => (id === null || id === undefined || id === "" ? "" : rows?.find((row) => String(row.id) === String(id))?.name ?? String(id));
 
 /* ------------------------------------------------------------------ Overview ------------------------------------------------------------------ */
 
@@ -111,141 +106,7 @@ export function OverviewTab({ customer, overview }: { customer: Customer; overvi
   );
 }
 
-/* ------------------------------------------------------------------ Details ------------------------------------------------------------------ */
-
-function TypeAnswers({ customer, fields, masterData }: { customer: Customer; fields: FieldDef[]; masterData: MasterData | undefined }) {
-  const valueOf = (field: FieldDef): string => {
-    const raw = field.storesIn ? (customer as unknown as Record<string, unknown>)[field.storesIn] : customer.dynamicFormData?.[field.key];
-    return raw === null || raw === undefined ? "" : String(raw);
-  };
-  const parented = fields.filter((field) => field.type === "select" && field.dataSource && field.dependsOn);
-  const lookups = useQueries({
-    queries: parented.map((field) => {
-      const parent = fields.find((item) => item.key === field.dependsOn);
-      const parentValue = parent ? valueOf(parent) : "";
-      return { queryKey: parentedKey(field.dataSource as string, parentValue), queryFn: () => fetchParented(field.dataSource as string, parentValue), enabled: parentValue !== "", staleTime: 300_000 };
-    }),
-  });
-
-  const display = (field: FieldDef) => {
-    const value = valueOf(field);
-    if (value === "") {
-      return "";
-    }
-    if (field.type === "select" && field.dataSource) {
-      const index = parented.indexOf(field);
-      return nameOf(index >= 0 ? lookups[index]?.data : masterData?.[field.dataSource], value);
-    }
-    if (field.type === "currency") {
-      return money(value);
-    }
-    if (field.type === "boolean") {
-      return ["1", "true", "yes", "ndiyo"].includes(value.toLowerCase()) ? "Yes" : "No";
-    }
-    return value;
-  };
-
-  return (
-    <>
-      {fields.map((field) => (
-        <Detail key={field.key} label={field.label}>{display(field)}</Detail>
-      ))}
-    </>
-  );
-}
-
-export function DetailsTab({ customer, types, masterData }: { customer: Customer; types: CustomerType[] | undefined; masterData: MasterData | undefined }) {
-  const type = types?.find((item) => item.id === customer.customerCategoryId);
-  const composed = composeStep2Fields(type);
-  const configured = composed.filter((field) => field.origin === "configured");
-  const hasCard = customer.paymentMethod === "bank" || Boolean(customer.cardLastFour);
-
-  return (
-    <>
-      <div className="mf-section-title">Basic Information</div>
-      <dl className="mf-dl">
-        <Detail label="Customer number">{customer.customerNumber}</Detail>
-        <Detail label="First Name">{customer.firstName}</Detail>
-        <Detail label="Middle name">{customer.middleName}</Detail>
-        <Detail label="Last name">{customer.lastName}</Detail>
-        <Detail label="Gender">{title(customer.gender)}</Detail>
-        <Detail label="Date of Birth">{customer.dob}</Detail>
-        <Detail label="Age">{customer.age}</Detail>
-        <Detail label="Phone Number">{customer.phone}</Detail>
-        <Detail label="Branch">{customer.branchName}</Detail>
-        <Detail label="Assigned Officer">{customer.employeeName}</Detail>
-        <Detail label="Customer Type">{customer.categoryName}</Detail>
-      </dl>
-
-      <div className="mf-section-title">Additional Detail</div>
-      <dl className="mf-dl">
-        <Detail label="Marital Status">{nameOf(masterData?.["marital-statuses"], customer.maritalStatusId) || title(customer.maritalStatus)}</Detail>
-        <Detail label="Number of Dependents">{customer.dependentsCount}</Detail>
-        <Detail label="Residence Type">{title(customer.residenceType)}</Detail>
-        {customer.alternativePhone && <Detail label="Alternative Phone">{customer.alternativePhone}</Detail>}
-        {customer.email && <Detail label="Email">{customer.email}</Detail>}
-        {customer.nationality && <Detail label="Nationality">{customer.nationality}</Detail>}
-        {type && <TypeAnswers customer={customer} fields={configured} masterData={masterData} />}
-      </dl>
-
-      <div className="mf-section-title">Employment</div>
-      <dl className="mf-dl">
-        <TypeAnswers customer={customer} fields={Object.values(STANDARD_DISPLAY)} masterData={masterData} />
-        {customer.employer && <Detail label="Employer">{customer.employer}</Detail>}
-        {customer.occupation && <Detail label="Occupation">{customer.occupation}</Detail>}
-      </dl>
-
-      <div className="mf-section-title">Business</div>
-      <dl className="mf-dl">
-        <Detail label="Business Name">{customer.businessName}</Detail>
-        <Detail label="Business Type">{customer.businessType}</Detail>
-        <Detail label="Business Address">{customer.businessAddress}</Detail>
-        <Detail label="TIN Number">{customer.tinNumber}</Detail>
-      </dl>
-
-      <div className="mf-section-title">Address</div>
-      <dl className="mf-dl">
-        <Detail label="Region">{customer.regionName}</Detail>
-        <Detail label="District">{customer.districtName}</Detail>
-        <Detail label="Ward">{customer.wardName}</Detail>
-        <Detail label="Street">{customer.streetName}</Detail>
-      </dl>
-
-      <div className="mf-section-title">Identity Documents</div>
-      <dl className="mf-dl">
-        <Detail label="ID Type">{customer.idTypeName ?? nameOf(masterData?.["id-types"], customer.idTypeId)}</Detail>
-        <Detail label="ID Number">{customer.idNumber}</Detail>
-        {customer.nidaNumber && <Detail label="NIDA Number">{customer.nidaNumber}</Detail>}
-        {customer.nationalIdNumber && <Detail label="National ID Number">{customer.nationalIdNumber}</Detail>}
-        {customer.voterIdNumber && <Detail label="Voter ID Number">{customer.voterIdNumber}</Detail>}
-        {customer.driverLicenceNumber && <Detail label="Driver's Licence Number">{customer.driverLicenceNumber}</Detail>}
-        {customer.passportNumber && <Detail label="Passport Number">{customer.passportNumber}</Detail>}
-        {customer.workIdNumber && <Detail label="Work ID Number">{customer.workIdNumber}</Detail>}
-      </dl>
-
-      <div className="mf-section-title">Bank &amp; Mobile Money</div>
-      <dl className="mf-dl">
-        <Detail label="Pays by">{customer.paymentMethod === "mno" ? "Mobile Money" : customer.paymentMethod === "bank" ? "Bank Account" : ""}</Detail>
-        <Detail label="Bank">{customer.bankName ?? nameOf(masterData?.banks, customer.bankId)}</Detail>
-        <Detail label="Bank Branch">{customer.bankBranch}</Detail>
-        <Detail label="Account name">{customer.accountName}</Detail>
-        <Detail label="Account number">{customer.accountNumber}</Detail>
-        <Detail label="MNO Provider">{customer.mobileMoneyProvider ?? nameOf(masterData?.["mobile-money-providers"], customer.mobileMoneyProviderId)}</Detail>
-        <Detail label="Phone / Wallet Number">{customer.walletNumber}</Detail>
-        {hasCard && customer.cardLastFour && <Detail label="Card">•••• {customer.cardLastFour}</Detail>}
-      </dl>
-    </>
-  );
-}
-
-const STANDARD_DISPLAY: Record<string, FieldDef> = {
-  place_of_employment: { key: "place_of_employment", label: "Place of Employment", type: "text", storesIn: "placeOfEmployment" },
-  check_number: { key: "check_number", label: "Check Number", type: "text", storesIn: "checkNumber" },
-  basic_salary: { key: "basic_salary", label: "Basic Salary", type: "currency", storesIn: "basicSalary" },
-  take_home: { key: "take_home", label: "Take Home", type: "currency", storesIn: "takeHome" },
-  monthly_income: { key: "monthly_income", label: "Monthly Income", type: "currency", storesIn: "monthlyIncome" },
-  retirement_date: { key: "retirement_date", label: "Date of Retirement", type: "date", storesIn: "retirementDate" },
-};
+export { DetailsTab } from "./DetailsTab";
 
 /* -------------------------------------------------------------------- KYC -------------------------------------------------------------------- */
 
@@ -296,83 +157,7 @@ export function KycTab({ customer }: { customer: Customer }) {
   );
 }
 
-/* ------------------------------------------------------------------ Face KYC ------------------------------------------------------------------ */
-
-export function FaceKycTab({ customer, canManage, onVerified }: { customer: Customer; canManage: boolean; onVerified: () => void }) {
-  const { data: scans, isLoading } = useApi<FaceScanResource[]>(`customers/${customer.id}/face-scans`);
-  const [scanning, setScanning] = useState(false);
-
-  return (
-    <>
-      <div className="mf-section-title">Face verification</div>
-      <p className="mb-2">
-        {customer.faceVerifiedAt ? (
-          <><Badge tone="success">Verified</Badge> {formatDateTime(customer.faceVerifiedAt)}{customer.faceScannedByName ? ` · by ${customer.faceScannedByName}` : ""}</>
-        ) : (
-          <Badge tone="warning">Awaiting face verification</Badge>
-        )}
-      </p>
-      {canManage && !scanning && (
-        <button type="button" className="btn btn-info mb-2" onClick={() => setScanning(true)}>
-          <i className="icon-camera" /> {customer.faceVerifiedAt ? "Run the face scan again" : "Run face verification"}
-        </button>
-      )}
-      {canManage && scanning && (
-        <div className="mf-section-box mb-3">
-          <FaceVerification
-            customerId={customer.id}
-            onVerified={() => {
-              setScanning(false);
-              onVerified();
-            }}
-          />
-        </div>
-      )}
-
-      <div className="mf-section-title">Scan history</div>
-      {isLoading ? (
-        <p className="mf-loading">Loading...</p>
-      ) : (scans ?? []).length === 0 ? (
-        <p className="text-muted">No face scans are on file.</p>
-      ) : (
-        <div className="table-responsive">
-          <table className="table table-custom mf-table">
-            <thead className="thead-info">
-              <tr><th>Capture</th><th>Result</th><th>Quality</th><th>Checks</th><th>Device</th><th>Scanned</th></tr>
-            </thead>
-            <tbody>
-              {(scans ?? []).map((scan) => {
-                const failedChecks = [...QUALITY_CHECKS.map((check) => ({ key: check.key, label: check.label })), ...POSES.map((pose) => ({ key: pose.key, label: pose.instruction }))].filter((check) => !scan.checks?.[check.key]);
-                return (
-                  <tr key={scan.id}>
-                    <td>
-                      {scan.imageUrl && (
-                        <a href={backendUrl(scan.imageUrl)} target="_blank" rel="noreferrer">
-                          {/* eslint-disable-next-line @next/next/no-img-element -- authorised API image stream */}
-                          <img src={backendUrl(scan.imageUrl)} alt={`Scan ${scan.id}`} className="mf-avatar" style={{ borderRadius: 4, width: 56, height: 42 }} />
-                        </a>
-                      )}
-                    </td>
-                    <td>
-                      <Badge tone={scan.status === "passed" ? "success" : "danger"}>{scan.status === "passed" ? "Passed" : "Failed"}</Badge> {scan.isActive && <Badge tone="info">Active</Badge>}
-                    </td>
-                    <td className="text-nowrap">
-                      {scan.qualityScore}/100
-                      <small className="d-block text-muted">light {scan.brightnessScore} · sharp {scan.blurScore} · distance {scan.distanceScore} · centre {scan.centeringScore} · eyes {scan.eyesOpenScore}</small>
-                    </td>
-                    <td>{failedChecks.length === 0 ? <span className="text-success">All 11 passed</span> : <small className="text-danger">Not met: {failedChecks.map((check) => check.label).join(", ")}</small>}</td>
-                    <td><small>{[scan.captureDevice, scan.captureResolution, scan.scannerVersion].filter(Boolean).join(" · ")}</small></td>
-                    <td className="text-nowrap">{formatDateTime(scan.scannedAt)}<small className="d-block text-muted">{scan.scannedByName}</small></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  );
-}
+export { FaceKycTab } from "./FaceKycTab";
 
 /* ------------------------------------------------------------------ Timeline ------------------------------------------------------------------ */
 

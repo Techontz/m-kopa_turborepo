@@ -165,7 +165,7 @@ export default function CustomerProfilePage() {
         </ul>
         <div className="pt-3" role="tabpanel">
           {tab === "overview" && <OverviewTab customer={customer} overview={overview} />}
-          {tab === "details" && <DetailsTab customer={customer} types={types} masterData={masterData} />}
+          {tab === "details" && <DetailsTab customer={customer} types={types} masterData={masterData} onOpenFace={() => setTab("face")} />}
           {tab === "kyc" && <KycTab customer={customer} />}
           {tab === "face" && <FaceKycTab customer={customer} canManage={canManage} onVerified={() => void client.invalidateQueries()} />}
           {tab === "timeline" && <TimelineTab customerId={customer.id} />}

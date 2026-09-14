@@ -103,6 +103,8 @@ class CustomerRegistrar
     public function __construct(
         private DynamicFormValidator $forms,
         private KycStatusCalculator $kyc,
+        private StepTwoFields $stepTwo,
+        private RequirementProfiles $profiles,
     ) {}
 
     /**
@@ -270,6 +272,15 @@ class CustomerRegistrar
             if (array_key_exists($field, $payload)) {
                 $value = $payload[$field];
                 $columns[$column] = is_string($value) && trim($value) === '' ? null : (is_string($value) ? trim($value) : $value);
+            }
+        }
+
+        // Standard Step 2 fields the customer type omits are not part of its answers and are never stored.
+        if ($category !== null) {
+            $accountTypeId = filled($payload['accountTypeId'] ?? null) ? (int) $payload['accountTypeId'] : null;
+            $profile = $this->profiles->resolve((int) $category->company_id, $accountTypeId, (int) $category->id);
+            foreach ($this->stepTwo->omittedColumns($category, $profile) as $field) {
+                unset($columns[self::COLUMNS[$field]]);
             }
         }
 

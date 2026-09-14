@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\Duration;
 use App\Models\Concerns\Auditable;
 use Database\Factories\LoanCategoryFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -51,11 +52,13 @@ class LoanCategory extends Model
     }
 
     /**
-     * Customer types allowed to borrow this product (Documents: "Category = Rule Engine").
+     * Active loan categories: the main loan category is enabled and the category is assigned to at least one branch (a
+     * category with no branch cannot be applied for anywhere). Pass a branch to require that branch.
      */
-    public function customerCategories(): BelongsToMany
+    public function scopeActive(Builder $query, ?int $branchId = null): void
     {
-        return $this->belongsToMany(CustomerCategory::class);
+        $query->whereHas('mainCategory', fn (Builder $main) => $main->where('is_enabled', true))
+            ->whereHas('branches', fn (Builder $branches) => $branchId === null ? $branches : $branches->whereKey($branchId));
     }
 
     public function loans(): HasMany

@@ -8,21 +8,23 @@ use App\Http\Resources\Api\V1\Settings\LoanCategoryResource;
 use App\Models\Branch;
 use App\Models\LoanCategory;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Settings → Loan Category (live admin/loan_category, edit_loan_category, loan_category_blanch), extended with the
- * Documents' requires_mandate flag and allowed customer types.
+ * Documents' requires_mandate flag and Freeze Time. Each loan category belongs to one main loan category, i.e. one customer type.
  */
 class LoanCategoryController extends ApiController
 {
-    public function index(): AnonymousResourceCollection
+    public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorizeAny('settings.manage');
 
         $categories = LoanCategory::where('company_id', $this->currentEmployee()->company_id)
-            ->with(['mainCategory', 'branches' => fn ($query) => $query->orderBy('branches.id'), 'customerCategories'])
+            ->when($request->filled('main_category_id'), fn ($query) => $query->where('main_category_id', $request->integer('main_category_id')))
+            ->with(['mainCategory.customerType', 'branches' => fn ($query) => $query->orderBy('branches.id')])
+            ->orderBy('main_category_id')
             ->orderBy('id')
             ->get();
 
@@ -33,39 +35,29 @@ class LoanCategoryController extends ApiController
     {
         $this->authorizeAny('settings.manage');
 
-        $category = DB::transaction(function () use ($request): LoanCategory {
-            $company = $this->currentEmployee()->company;
-            $category = LoanCategory::create($request->categoryData() + [
-                'company_id' => $company->id,
-                'freeze_time_days' => (int) $company->loan_freeze_days,
-            ]);
-            $category->customerCategories()->sync($request->customerCategoryIds());
+        $company = $this->currentEmployee()->company;
+        $category = LoanCategory::create($request->categoryData() + [
+            'company_id' => $company->id,
+            'freeze_time_days' => (int) $company->loan_freeze_days,
+        ]);
 
-            return $category;
-        });
-
-        return $this->message('Loan Category Registered successfully', 201, ['data' => new LoanCategoryResource($category->load(['mainCategory', 'customerCategories']))]);
+        return $this->message('Loan Category Registered successfully', 201, ['data' => new LoanCategoryResource($category->load('mainCategory.customerType'))]);
     }
 
     public function show(LoanCategory $loanCategory): LoanCategoryResource
     {
         $this->authorizeAny('settings.manage');
 
-        return new LoanCategoryResource($loanCategory->load(['mainCategory', 'branches' => fn ($query) => $query->orderBy('branches.id'), 'customerCategories']));
+        return new LoanCategoryResource($loanCategory->load(['mainCategory.customerType', 'branches' => fn ($query) => $query->orderBy('branches.id')]));
     }
 
     public function update(LoanCategoryRequest $request, LoanCategory $loanCategory): JsonResponse
     {
         $this->authorizeAny('settings.manage');
 
-        DB::transaction(function () use ($request, $loanCategory): void {
-            $loanCategory->update($request->categoryData());
-            if ($request->has('customer_category_ids')) {
-                $loanCategory->customerCategories()->sync($request->customerCategoryIds());
-            }
-        });
+        $loanCategory->update($request->categoryData());
 
-        return $this->message('Loan Category Updated successfully', 200, ['data' => new LoanCategoryResource($loanCategory->load(['mainCategory', 'customerCategories']))]);
+        return $this->message('Loan Category Updated successfully', 200, ['data' => new LoanCategoryResource($loanCategory->load('mainCategory.customerType'))]);
     }
 
     public function destroy(LoanCategory $loanCategory): JsonResponse

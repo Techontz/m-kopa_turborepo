@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { FreezeStatus } from "@/components/loans/FreezeStatus";
+import { applicationCategoryEmptyState } from "@/components/settings/loanHierarchy";
 import { LoanFormFields } from "@/components/loans/LoanFormFields";
 import { LoanPreview } from "@/components/loans/LoanPreview";
 import { LoanSecurities } from "@/components/loans/LoanSecurities";
@@ -17,7 +18,9 @@ import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
 interface CategoriesResponse {
+  /** Only the active loan categories of the customer's customer type (API-filtered). */
   data: CategoryOption[];
+  customer_type: { id: number; code: string | null; name: string } | null;
   groups: Option[];
   eligibility: Eligibility;
 }
@@ -38,6 +41,7 @@ export default function LoanApplicationPage() {
   const create = useAction<LoanForm & { customer_id: string }, { message: string; data: Loan }>("post", "loans");
 
   const eligibility = options?.eligibility;
+  const emptyMessage = options ? applicationCategoryEmptyState(options.customer_type, options.data.length) : null;
 
   return (
     <>
@@ -59,9 +63,9 @@ export default function LoanApplicationPage() {
             <Card title="Customer Eligibility">
               <div className="row">
                 <div className="col-md-3"><b>KYC:</b> {eligibility.rules.kyc_complete ? <span className="badge badge-success">COMPLETE</span> : <span className="badge badge-danger">NOT VERIFIED</span>}</div>
-                <div className="col-md-3"><b>Customer Type:</b> {eligibility.rules.category?.name ?? "—"}</div>
+                <div className="col-md-3"><b>Customer Type:</b> {options?.customer_type?.name ?? <span className="badge badge-warning">NOT ASSIGNED</span>}</div>
                 <div className="col-md-3"><b>Risk level:</b> {eligibility.rules.risk_level ?? "—"}</div>
-                <div className="col-md-3"><b>Limit:</b> {eligibility.rules.min_amount !== null || eligibility.rules.max_amount !== null ? `${money(eligibility.rules.min_amount)} - ${eligibility.rules.max_amount !== null ? money(eligibility.rules.max_amount) : "∞"}` : "—"}</div>
+                <div className="col-md-3"><b>Loan categories:</b> {options?.data.length ?? 0}</div>
               </div>
               {eligibility.topup && (
                 <p className="mt-2 mb-0"><b>Top-up of {eligibility.topup.loan_number}:</b> paid {eligibility.topup.paid_percent}% of required {eligibility.topup.required_percent}% · outstanding {money(eligibility.topup.outstanding)} {eligibility.topup.eligible ? <span className="badge badge-success">ELIGIBLE</span> : <span className="badge badge-danger">NOT ELIGIBLE</span>}</p>
@@ -74,7 +78,8 @@ export default function LoanApplicationPage() {
           <Card title="Loan Application Form">
             {isLoading ? <p>Loading...</p> : (
               <form onSubmit={(e) => { e.preventDefault(); create.mutate({ ...form, customer_id: customerId }, { onSuccess: (result) => setLoanId(result.data.id) }); }}>
-                <LoanFormFields form={form} setForm={setForm} categories={options?.data ?? []} groups={options?.groups ?? []} fieldError={(field) => create.fieldError(field) ?? (field === "category_id" ? create.fieldError("customer_id") : undefined)} />
+                {emptyMessage && options?.customer_type && <div className="alert alert-warning py-1">{emptyMessage}</div>}
+                <LoanFormFields form={form} setForm={setForm} categories={options?.data ?? []} emptyMessage={emptyMessage} groups={options?.groups ?? []} fieldError={(field) => create.fieldError(field) ?? (field === "category_id" ? create.fieldError("customer_id") : undefined)} />
                 <div className="text-center m-t-20">
                   <button type="submit" className="btn btn-primary mr-1" disabled={create.isPending || eligibility?.allowed === false}>Next</button>
                   <button type="button" className="btn btn-danger" onClick={() => { setCustomerId(""); setForm(EMPTY_LOAN_FORM); }}>Cancel</button>

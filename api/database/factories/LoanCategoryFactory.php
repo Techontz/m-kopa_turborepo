@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\Duration;
 use App\Models\Company;
+use App\Models\CustomerCategory;
 use App\Models\LoanCategory;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -19,6 +20,8 @@ class LoanCategoryFactory extends Factory
     {
         return [
             'company_id' => Company::factory(),
+            // Every loan category belongs to a main loan category, i.e. to one customer type of the same company.
+            'main_category_id' => fn (array $attributes): int => CustomerCategory::factory()->create(['company_id' => $attributes['company_id']])->mainLoanCategory()->value('id'),
             'name' => 'WAJASILIAMALI',
             'amount_from' => 20000,
             'amount_to' => 2000000,
@@ -36,5 +39,16 @@ class LoanCategoryFactory extends Factory
             'fee_value' => 5000,
             'insurance' => 0,
         ];
+    }
+
+    /**
+     * A loan category of the given customer type's main loan category (same company).
+     */
+    public function forCustomerType(CustomerCategory $customerType): static
+    {
+        return $this->state(fn (): array => [
+            'company_id' => $customerType->company_id,
+            'main_category_id' => $customerType->ensureMainLoanCategory()->id,
+        ]);
     }
 }

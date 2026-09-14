@@ -5,6 +5,7 @@ namespace Tests\Feature\Api\Loans;
 use App\Enums\Account;
 use App\Enums\LoanStatus;
 use App\Models\Customer;
+use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\Loan;
 use App\Models\LoanCategory;
@@ -27,6 +28,8 @@ class LoanFreezeTimeApiTest extends TestCase
 
     private LoanCategory $category;
 
+    private CustomerCategory $customerType;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -34,7 +37,8 @@ class LoanFreezeTimeApiTest extends TestCase
         config(['integrations.vodacom.driver' => 'test', 'integrations.bank_mandate.driver' => 'test', 'integrations.vodacom.test_outcome' => 'success']);
         $this->travelTo('2026-09-01 08:00:00');
         $this->admin = $this->signInAdmin();
-        $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123']);
+        $this->customerType = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id]);
+        $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $this->customerType->id]);
         $this->category = $this->category(['freeze_time_days' => 7, 'topup_percent' => 0]);
         app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 5000000, 'FLOAT', $this->admin->branch_id);
     }
@@ -190,7 +194,7 @@ class LoanFreezeTimeApiTest extends TestCase
     public function test_different_categories_have_different_periods_and_the_freeze_blocks_every_category(): void
     {
         $long = $this->category(['name' => 'MSHAHARA', 'freeze_time_days' => 14, 'topup_percent' => 0]);
-        $other = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000999']);
+        $other = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000999', 'customer_category_id' => $this->customerType->id]);
 
         $short = $this->closeLoanAt('2026-09-10 10:00:00');
         $this->assertSame('2026-09-17 10:00:00', $short->frozen_until->toDateTimeString());
@@ -249,7 +253,7 @@ class LoanFreezeTimeApiTest extends TestCase
      */
     private function category(array $attributes): LoanCategory
     {
-        $category = LoanCategory::factory()->create($attributes + ['company_id' => $this->admin->company_id, 'insurance' => 0]);
+        $category = LoanCategory::factory()->forCustomerType($this->customerType)->create($attributes + ['insurance' => 0]);
         $category->branches()->attach($this->admin->branch_id);
 
         return $category;

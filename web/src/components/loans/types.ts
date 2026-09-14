@@ -90,7 +90,8 @@ export interface Eligibility {
   frozen_until: string | null;
   freeze: CustomerFreeze;
   topup: { loan_id: number; loan_number: string; eligible: boolean; paid_percent: number; required_percent: number; outstanding: number; reasons: string[] } | null;
-  rules: { kyc_complete: boolean; risk_level: string | null; min_amount: number | null; max_amount: number | null; category: { name: string } | null };
+  /** `category` = the customer's customer type; `main_category` = its main loan category; limits live on each loan category. */
+  rules: { kyc_complete: boolean; risk_level: string | null; category: { id: number; code: string | null; name: string } | null; main_category: { id: number; name: string; is_enabled: boolean } | null; loan_category_ids: number[] };
 }
 
 export interface CategoryOption {
@@ -108,6 +109,7 @@ export interface CategoryOption {
   fee_deduct: boolean;
   requires_mandate: boolean;
   topup_percent: number;
+  freeze_time_days?: number;
 }
 
 export interface LoanDetail {

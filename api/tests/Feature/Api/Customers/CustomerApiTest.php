@@ -249,8 +249,8 @@ class CustomerApiTest extends TestCase
     public function test_legacy_actions_eligibility_mark_sms_balance_and_delete(): void
     {
         $admin = $this->signInAdmin();
-        $customer = Customer::factory()->create(['branch_id' => $admin->branch_id]);
-        LoanCategory::factory()->create(['company_id' => $admin->company_id]);
+        $category = LoanCategory::factory()->create(['company_id' => $admin->company_id]);
+        $customer = Customer::factory()->create(['branch_id' => $admin->branch_id, 'customer_category_id' => $category->mainCategory->customer_category_id]);
 
         $this->getJson("/api/v1/customers/{$customer->id}/eligibility")->assertOk()->assertJsonPath('data.kyc_complete', true)->assertJsonPath('data.eligible', true);
         $customer->update(['kyc_status' => 'incomplete']);

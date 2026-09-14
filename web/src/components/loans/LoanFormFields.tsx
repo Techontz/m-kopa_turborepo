@@ -3,6 +3,8 @@
 import { Field } from "@/components/ui/Field";
 import { SelectBox, type Option } from "@/components/ui/SelectBox";
 
+import { applicationCategoryOptions } from "@/components/settings/loanHierarchy";
+
 import type { CategoryOption, LoanForm } from "./types";
 
 interface Props {
@@ -12,10 +14,13 @@ interface Props {
   groups: Option[];
   fieldError: (field: string) => string | undefined;
   showInstalment?: boolean;
+  /** Shown instead of the placeholder when the customer has no loan category to choose (no customer type / none active). */
+  emptyMessage?: string | null;
 }
 
 /** Live "Loan Application Form" fields (4 columns): category, group, amount, duration, repayments, formula, fee, reason. */
-export function LoanFormFields({ form, setForm, categories, groups, fieldError, showInstalment }: Props) {
+export function LoanFormFields({ form, setForm, categories: apiCategories, groups, fieldError, showInstalment, emptyMessage }: Props) {
+  const categories = applicationCategoryOptions(apiCategories);
   const category = categories.find((item) => item.value === form.category_id);
   const col = "col-lg-3 col-md-6";
 
@@ -31,10 +36,10 @@ export function LoanFormFields({ form, setForm, categories, groups, fieldError, 
           }}
           required
         >
-          <option value="">Select Loan Category</option>
+          <option value="">{categories.length === 0 && emptyMessage ? emptyMessage : "Select Loan Category"}</option>
           {categories.map((item) => (
-            <option key={item.value} value={item.value} disabled={!item.allowed}>
-              {item.label}{item.allowed ? "" : " (not allowed)"}
+            <option key={item.value} value={item.value}>
+              {item.label}
             </option>
           ))}
         </select>

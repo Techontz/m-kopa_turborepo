@@ -3,10 +3,10 @@
 namespace App\Http\Middleware;
 
 use App\Models\Collateral;
-use App\Models\CustomerType;
 use App\Models\EmployeePrivilege;
 use App\Models\Guarantor;
 use App\Models\LoanSchedule;
+use App\Models\LoanSubCategory;
 use App\Models\PenaltyPayment;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
@@ -41,7 +41,7 @@ class EnsureCompanyOwnership
         $owner = match (true) {
             $model instanceof Guarantor => $model->customer,
             $model instanceof Collateral, $model instanceof LoanSchedule => $model->loan,
-            $model instanceof CustomerType => $model->mainCategory,
+            $model instanceof LoanSubCategory => $model->mainCategory,
             $model instanceof PenaltyPayment => $model->penalty,
             $model instanceof EmployeePrivilege => $model->employee,
             default => $model,

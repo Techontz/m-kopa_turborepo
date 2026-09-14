@@ -43,56 +43,52 @@ class CustomerCategoryController extends ApiController
             ? CustomerCategory::query()->selectable($companyId)
             : CustomerCategory::query()->where('company_id', $companyId)->orderBy('sort_order')->orderBy('name');
 
-        return CustomerCategoryResource::collection($query
-            ->withCount('customers')
-            ->with(['loanCategories' => fn ($query) => $query->orderBy('loan_categories.id')])
-            ->get());
+        return CustomerCategoryResource::collection($query->withCount('customers')->get());
     }
 
     public function show(CustomerCategory $customerCategory): CustomerCategoryResource
     {
-        return new CustomerCategoryResource($customerCategory->loadCount('customers')->load('loanCategories'));
+        return new CustomerCategoryResource($customerCategory->loadCount('customers'));
     }
 
     public function store(CustomerCategoryRequest $request): JsonResponse
     {
-        $category = DB::transaction(function () use ($request): CustomerCategory {
-            $category = CustomerCategory::query()->create($request->categoryData() + [
-                'company_id' => $this->currentEmployee()->company_id,
-                'key' => Str::lower($request->string('code')->toString()),
-                'form_schema' => [],
-                'created_by' => $this->currentEmployee()->id,
-            ]);
+        // The created event adds the customer type's main loan category inside the same transaction.
+        $category = DB::transaction(fn (): CustomerCategory => CustomerCategory::query()->create($request->categoryData() + [
+            'company_id' => $this->currentEmployee()->company_id,
+            'key' => Str::lower($request->string('code')->toString()),
+            'form_schema' => [],
+            'created_by' => $this->currentEmployee()->id,
+        ]));
 
-            if ($request->has('loanCategoryIds')) {
-                $category->loanCategories()->sync(array_map('intval', $request->input('loanCategoryIds', [])));
-            }
-
-            return $category;
-        });
-
-        return $this->message('Customer type created.', 201, ['data' => new CustomerCategoryResource($category->loadCount('customers')->load('loanCategories'))]);
+        return $this->message('Customer type created.', 201, ['data' => new CustomerCategoryResource($category->loadCount('customers'))]);
     }
 
     public function update(CustomerCategoryRequest $request, CustomerCategory $customerCategory): JsonResponse
     {
-        DB::transaction(function () use ($request, $customerCategory): void {
-            $customerCategory->update($request->categoryData());
+        DB::transaction(fn () => $customerCategory->update($request->categoryData()));
 
-            if ($request->has('loanCategoryIds')) {
-                $customerCategory->loanCategories()->sync(array_map('intval', $request->input('loanCategoryIds', [])));
-            }
-        });
-
-        return $this->message('Customer type updated.', 200, ['data' => new CustomerCategoryResource($customerCategory->loadCount('customers')->load('loanCategories'))]);
+        return $this->message('Customer type updated.', 200, ['data' => new CustomerCategoryResource($customerCategory->loadCount('customers'))]);
     }
 
+    /**
+     * A customer type whose main loan category holds loan categories cannot be deleted (422). Otherwise the type is
+     * soft-deleted and its main loan category disabled (kept, so the link and history stay valid).
+     */
     public function destroy(CustomerCategory $customerCategory): JsonResponse
     {
         $employee = $this->currentEmployee();
         abort_unless($employee instanceof Employee && $employee->role?->key === 'super_admin', 403, 'Only the Super Administrator can create, edit or delete customer types.');
 
-        $customerCategory->delete();
+        $main = $customerCategory->mainLoanCategory;
+        if ($main !== null && $main->loanCategories()->exists()) {
+            return $this->message('This customer type has loan categories and cannot be deleted. Move or delete its loan categories first.', 422);
+        }
+
+        DB::transaction(function () use ($customerCategory, $main): void {
+            $main?->update(['is_enabled' => false]);
+            $customerCategory->delete();
+        });
 
         return $this->message('Customer type deleted.');
     }

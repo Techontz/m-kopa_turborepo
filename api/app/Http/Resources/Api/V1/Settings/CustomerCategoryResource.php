@@ -7,7 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Customer type resource (CUSTOMER_MODULE_IMPLEMENTATION.md §3.3), plus the loan rules loans use.
+ * Customer type resource (CUSTOMER_MODULE_IMPLEMENTATION.md §3.3). No loan fields: loan categories and their limits belong
+ * to the customer type's main loan category.
  *
  * @mixin CustomerCategory
  */
@@ -40,9 +41,6 @@ class CustomerCategoryResource extends JsonResource
             'createdBy' => $this->created_by,
             'deletedAt' => $this->deleted_at?->toIso8601String(),
             'customerCount' => (int) ($this->customers_count ?? $this->customers()->count()),
-            'minLoanAmount' => (float) $this->min_loan_amount,
-            'maxLoanAmount' => (float) $this->max_loan_amount,
-            'loanCategories' => $this->whenLoaded('loanCategories', fn () => $this->loanCategories->map(fn ($product): array => ['id' => $product->id, 'name' => $product->name])->values()),
         ];
     }
 }

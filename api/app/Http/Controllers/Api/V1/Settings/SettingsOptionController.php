@@ -34,9 +34,12 @@ class SettingsOptionController extends ApiController
         return $this->options(collect(LoanCategoryRequest::APPROVE_LEVELS)->map(fn (string $label, string $value): array => ['value' => $value, 'label' => $label])->values());
     }
 
+    /**
+     * Main loan categories labelled by their customer type (the "Customer Type" select of the loan category form).
+     */
     public function mainCategories(): JsonResponse
     {
-        return $this->options(MainCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get()->map(fn (MainCategory $category): array => ['value' => (string) $category->id, 'label' => $category->name]));
+        return $this->options(MainCategory::query()->listed($this->currentEmployee()->company_id)->with('customerType')->get()->map(fn (MainCategory $category): array => ['value' => (string) $category->id, 'label' => $category->display_name]));
     }
 
     public function loanCategories(): JsonResponse

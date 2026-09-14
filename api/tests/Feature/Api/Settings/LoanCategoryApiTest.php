@@ -8,7 +8,7 @@ use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\InterestFormula;
 use App\Models\LoanCategory;
-use App\Models\MainCategory;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -29,8 +29,6 @@ class LoanCategoryApiTest extends TestCase
      */
     private function payload(Employee $admin, array $overrides = []): array
     {
-        $main = MainCategory::firstOrCreate(['company_id' => $admin->company_id, 'code' => 'ser'], ['name' => 'WAJASILIAMALI']);
-
         return array_merge([
             'loan_name' => 'BIASHARA',
             'loan_price' => '20,000',
@@ -46,28 +44,28 @@ class LoanCategoryApiTest extends TestCase
             'requires_mandate' => 'YES',
             'topup_percent' => '50',
             'take_home_percent' => '70',
-            'main_id' => $main->id,
+            'main_category_id' => $this->customerType($admin)->mainLoanCategory->id,
         ], $overrides);
     }
 
-    private function customerCategory(Employee $admin, string $key = 'mtumishi_umma'): CustomerCategory
+    private function customerType(Employee $admin, string $code = 'WAJASIRIAMALI', string $name = 'Mjasiriamali/Mfanyabiashara'): CustomerCategory
     {
-        return CustomerCategory::create([
-            'company_id' => $admin->company_id, 'key' => $key, 'name' => 'Mtumishi wa Umma', 'risk_level' => 'low',
-            'min_loan_amount' => 100000, 'max_loan_amount' => 10000000, 'required_documents' => ['NIDA'], 'form_schema' => [],
-        ]);
+        return CustomerCategory::where('company_id', $admin->company_id)->where('code', $code)->first()
+            ?? CustomerCategory::factory()->create(['company_id' => $admin->company_id, 'code' => $code, 'key' => strtolower($code), 'name' => $name]);
     }
 
     public function test_admin_creates_lists_updates_and_deletes_a_loan_category(): void
     {
         $admin = $this->signInAdmin();
-        $category = $this->customerCategory($admin);
+        $type = $this->customerType($admin);
 
-        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['customer_category_ids' => [$category->id]]))
+        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin))
             ->assertCreated()
             ->assertJsonPath('message', 'Loan Category Registered successfully')
             ->assertJsonPath('data.requires_mandate', true)
-            ->assertJsonPath('data.customer_categories.0.id', $category->id);
+            ->assertJsonPath('data.main_category_id', $type->mainLoanCategory->id)
+            ->assertJsonPath('data.customer_type.name', 'Mjasiriamali/Mfanyabiashara')
+            ->assertJsonMissingPath('data.customer_categories');
 
         $loanCategory = LoanCategory::firstWhere('name', 'BIASHARA');
         $this->assertSame(2000000.0, (float) $loanCategory->amount_to);
@@ -75,15 +73,36 @@ class LoanCategoryApiTest extends TestCase
         $this->getJson('/api/v1/settings/loan-categories')
             ->assertOk()
             ->assertJsonPath('data.0.level_label', '20,000 - 2,000,000')
-            ->assertJsonPath('data.0.main_category', 'WAJASILIAMALI');
+            ->assertJsonPath('data.0.main_category', 'Mjasiriamali/Mfanyabiashara')
+            ->assertJsonPath('data.0.customer_type.code', 'WAJASIRIAMALI');
 
-        $this->putJson("/api/v1/settings/loan-categories/{$loanCategory->id}", $this->payload($admin, ['loan_name' => 'BIASHARA 2', 'requires_mandate' => 'NO', 'customer_category_ids' => []]))
-            ->assertOk();
+        $employee = $this->customerType($admin, 'WATUMISHI_WA_UMMA', 'Mtumishi wa Umma');
+        $this->putJson("/api/v1/settings/loan-categories/{$loanCategory->id}", $this->payload($admin, ['loan_name' => 'BIASHARA 2', 'requires_mandate' => 'NO', 'main_category_id' => $employee->mainLoanCategory->id]))
+            ->assertOk()
+            ->assertJsonPath('data.customer_type.name', 'Mtumishi wa Umma');
         $this->assertFalse($loanCategory->fresh()->requires_mandate);
-        $this->assertSame(0, $loanCategory->customerCategories()->count());
+        $this->getJson('/api/v1/settings/loan-categories?main_category_id='.$type->mainLoanCategory->id)->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/settings/loan-categories?main_category_id='.$employee->mainLoanCategory->id)->assertOk()->assertJsonCount(1, 'data');
 
         $this->deleteJson("/api/v1/settings/loan-categories/{$loanCategory->id}")->assertOk();
         $this->assertModelMissing($loanCategory);
+    }
+
+    public function test_loan_category_requires_a_main_loan_category_of_the_same_company(): void
+    {
+        $admin = $this->signInAdmin();
+        $foreign = CustomerCategory::factory()->create(['company_id' => Company::factory()->create()->id]);
+
+        $this->postJson('/api/v1/settings/loan-categories', array_diff_key($this->payload($admin), ['main_category_id' => true]))
+            ->assertUnprocessable()->assertJsonValidationErrors('main_category_id');
+        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['main_category_id' => $foreign->mainLoanCategory->id]))
+            ->assertUnprocessable()->assertJsonValidationErrors('main_category_id');
+        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['main_category_id' => 999999]))
+            ->assertUnprocessable()->assertJsonValidationErrors('main_category_id');
+        $this->assertSame(0, LoanCategory::count());
+
+        $this->expectException(QueryException::class);
+        LoanCategory::factory()->create(['company_id' => $admin->company_id, 'main_category_id' => null]);
     }
 
     public function test_freeze_time_is_stored_returned_editable_and_validated(): void
@@ -117,16 +136,14 @@ class LoanCategoryApiTest extends TestCase
         $this->assertSame(12, $category->fresh()->freeze_time_days);
     }
 
-    public function test_validation_rejects_disabled_formula_bad_range_and_foreign_customer_category(): void
+    public function test_validation_rejects_disabled_formula_bad_range_and_customer_type_lists(): void
     {
         $admin = $this->signInAdmin();
-        $foreign = CustomerCategory::create([
-            'company_id' => Company::factory()->create()->id, 'key' => 'x', 'name' => 'X', 'required_documents' => [], 'form_schema' => [],
-        ]);
+        $type = $this->customerType($admin);
 
-        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['formular' => 'FLAT', 'loan_perday' => '100', 'requires_mandate' => 'MAYBE', 'customer_category_ids' => [$foreign->id]]))
+        $this->postJson('/api/v1/settings/loan-categories', $this->payload($admin, ['formular' => 'FLAT', 'loan_perday' => '100', 'requires_mandate' => 'MAYBE', 'customer_category_ids' => [$type->id]]))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['formular', 'loan_perday', 'requires_mandate', 'customer_category_ids.0']);
+            ->assertJsonValidationErrors(['formular', 'loan_perday', 'requires_mandate', 'customer_category_ids']);
     }
 
     public function test_branch_assignment_and_isolation(): void

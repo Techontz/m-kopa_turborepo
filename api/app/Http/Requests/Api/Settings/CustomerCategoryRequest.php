@@ -14,7 +14,8 @@ use Illuminate\Validation\Validator;
 
 /**
  * Create / update a customer type (CUSTOMER_MODULE_IMPLEMENTATION.md §3.3). Super Admin only; authorization
- * runs before validation. The loan rules (limits and allowed loan products) stay editable because loans use them.
+ * runs before validation. Customer types hold no loan configuration: loan limits and loan products are refused here
+ * (they belong to the loan categories of the customer type's main loan category).
  */
 class CustomerCategoryRequest extends FormRequest
 {
@@ -109,10 +110,9 @@ class CustomerCategoryRequest extends FormRequest
             'dynamicFormSchema.*.fullWidth' => ['sometimes', 'boolean'],
             'dynamicFormSchema.*.placeholder' => ['sometimes', 'nullable', 'string', 'max:255'],
             'dynamicFormSchema.*.helpText' => ['sometimes', 'nullable', 'string', 'max:500'],
-            'minLoanAmount' => ['sometimes', 'numeric', 'min:0'],
-            'maxLoanAmount' => ['sometimes', 'numeric', 'min:0', 'gte:minLoanAmount'],
-            'loanCategoryIds' => ['sometimes', 'array'],
-            'loanCategoryIds.*' => ['integer', Rule::exists('loan_categories', 'id')->where('company_id', $companyId)],
+            'minLoanAmount' => ['prohibited'],
+            'maxLoanAmount' => ['prohibited'],
+            'loanCategoryIds' => ['prohibited'],
         ];
     }
 
@@ -151,7 +151,6 @@ class CustomerCategoryRequest extends FormRequest
             'dynamicFormSchema.*.key' => 'field key',
             'dynamicFormSchema.*.label' => 'field label',
             'dynamicFormSchema.*.type' => 'field type',
-            'loanCategoryIds.*' => 'loan product',
             'requiredDocuments.*' => 'required document',
             'optionalDocuments.*' => 'optional document',
             'omittedStandardFields.*' => 'omitted standard field',
@@ -187,11 +186,6 @@ class CustomerCategoryRequest extends FormRequest
 
         if ($this->has('riskTier') && in_array($this->input('riskTier'), self::RISK_TIERS, true)) {
             $data['risk_level'] = $this->input('riskTier');
-        }
-        foreach (['minLoanAmount' => 'min_loan_amount', 'maxLoanAmount' => 'max_loan_amount'] as $input => $column) {
-            if ($this->has($input)) {
-                $data[$column] = $this->float($input);
-            }
         }
 
         return $data;

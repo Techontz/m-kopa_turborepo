@@ -7,11 +7,16 @@ use App\Models\Loan;
 use App\Models\LoanCategory;
 use App\Services\Customers\KycStatusCalculator;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Loan eligibility of a customer from the customer type (allowed loan products, loan limits, risk level)
- * and KYC completion (`kyc_status` = completed). Used by the Loans module.
+ * Loan eligibility of a customer from the business hierarchy CUSTOMER TYPE → MAIN LOAN CATEGORY → LOAN CATEGORY and KYC
+ * completion (`kyc_status` = completed). Used by the Loans module.
+ *
+ * A customer may take only the ACTIVE loan categories (LoanCategory::scopeActive — main loan category enabled, category
+ * assigned to the customer's branch) of its customer type's main loan category; the amount limits are the loan category's
+ * amount_from / amount_to. Customer types hold no loan rules.
  *
  * The re-borrowing freeze is reported separately (`freeze`): a customer can be eligible but frozen, and may apply
  * only when eligible AND not frozen (`can_apply`). A freeze started by a loan of any category blocks every new loan
@@ -19,29 +24,28 @@ use Illuminate\Validation\ValidationException;
  */
 class CustomerEligibility
 {
+    public const NO_CUSTOMER_TYPE = 'Assign a customer type to this customer before applying for a loan.';
+
     public function __construct(private KycStatusCalculator $kyc) {}
 
     /**
-     * A customer without a customer type may take every loan product of the company, without limits.
-     *
-     * @return array{customer_id: int, kyc_status: string, kyc_complete: bool, eligible: bool, category: array{id: int, key: string|null, code: string|null, name: string}|null, risk_level: string|null, min_amount: float|null, max_amount: float|null, loan_category_ids: list<int>, checklist: list<array{key: string, label: string, required: bool, complete: bool}>, reasons: list<string>, freeze: array<string, mixed>, can_apply: bool}
+     * @return array{customer_id: int, kyc_status: string, kyc_complete: bool, eligible: bool, category: array{id: int, key: string|null, code: string|null, name: string}|null, main_category: array{id: int, name: string, is_enabled: bool}|null, risk_level: string|null, loan_category_ids: list<int>, checklist: list<array{key: string, label: string, required: bool, complete: bool}>, reasons: list<string>, freeze: array<string, mixed>, can_apply: bool}
      */
     public function for(Customer $customer): array
     {
-        $customer->loadMissing('customerCategory.loanCategories');
+        $customer->loadMissing('customerCategory.mainLoanCategory');
         $category = $customer->customerCategory;
+        $main = $category?->mainLoanCategory;
         $kycComplete = $customer->kyc_status === KycStatusCalculator::COMPLETED;
 
-        $loanCategoryIds = $category !== null
-            ? $category->loanCategories->pluck('id')->map(fn ($id): int => (int) $id)->values()->all()
-            : LoanCategory::where('company_id', $customer->company_id)->pluck('id')->map(fn ($id): int => (int) $id)->values()->all();
-
         $reasons = [];
+        if ($category === null) {
+            $reasons[] = self::NO_CUSTOMER_TYPE;
+        } elseif (! $category->is_active || $category->trashed()) {
+            $reasons[] = 'Customer type is inactive';
+        }
         if (! $kycComplete) {
             $reasons[] = "Please wait for the customer's KYC to be verified!";
-        }
-        if ($category !== null && ! $category->is_active) {
-            $reasons[] = 'Customer type is inactive';
         }
 
         $freeze = $this->freeze($customer);
@@ -52,15 +56,80 @@ class CustomerEligibility
             'kyc_complete' => $kycComplete,
             'eligible' => $reasons === [],
             'category' => $category ? ['id' => $category->id, 'key' => $category->key, 'code' => $category->code, 'name' => $category->name] : null,
+            'main_category' => $main ? ['id' => $main->id, 'name' => $category->name, 'is_enabled' => (bool) $main->is_enabled] : null,
             'risk_level' => $category?->risk_level,
-            'min_amount' => $category && $category->min_loan_amount !== null ? (float) $category->min_loan_amount : null,
-            'max_amount' => $category && (float) $category->max_loan_amount > 0 ? (float) $category->max_loan_amount : null,
-            'loan_category_ids' => $loanCategoryIds,
+            'loan_category_ids' => $this->availableLoanCategories($customer)->pluck('id')->map(fn ($id): int => (int) $id)->values()->all(),
             'checklist' => $this->kyc->checklist($customer),
             'reasons' => $reasons,
             'freeze' => $freeze,
             'can_apply' => $reasons === [] && ! $freeze['frozen'],
         ];
+    }
+
+    /**
+     * Loan categories the customer may apply for: the active categories (at the customer's branch) of the customer type's
+     * main loan category. Empty without a customer type.
+     *
+     * @return Collection<int, LoanCategory>
+     */
+    public function availableLoanCategories(Customer $customer): Collection
+    {
+        $customer->loadMissing('customerCategory.mainLoanCategory');
+        $main = $customer->customerCategory?->mainLoanCategory;
+
+        if ($main === null) {
+            return new Collection;
+        }
+
+        return LoanCategory::query()
+            ->where('company_id', $customer->company_id)
+            ->where('main_category_id', $main->id)
+            ->active((int) $customer->branch_id)
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * Hierarchy check for one loan category: the customer has a customer type and the category is an active category of
+     * that type's main loan category (a loan category id sent manually for another type is refused).
+     *
+     * @return list<string>
+     */
+    public function loanCategoryViolations(Customer $customer, int $loanCategoryId): array
+    {
+        $customer->loadMissing('customerCategory.mainLoanCategory');
+        $type = $customer->customerCategory;
+
+        if ($type === null) {
+            return [self::NO_CUSTOMER_TYPE];
+        }
+
+        $category = LoanCategory::query()->where('company_id', $customer->company_id)->find($loanCategoryId);
+        if ($category === null || $type->mainLoanCategory === null || (int) $category->main_category_id !== (int) $type->mainLoanCategory->id) {
+            return ["This loan category is not available for the customer's customer type ({$type->name})."];
+        }
+        if (! $type->mainLoanCategory->is_enabled) {
+            return ["This loan category is not active for the customer's customer type ({$type->name})."];
+        }
+        if (! $this->availableLoanCategories($customer)->contains('id', $category->id)) {
+            return ['This loan category is not available for the customer branch'];
+        }
+
+        return [];
+    }
+
+    /**
+     * @throws ValidationException when the loan category is outside the customer's customer type hierarchy
+     */
+    public function assertLoanCategoryAvailable(Customer $customer, int $loanCategoryId, string $errorKey = 'category_id'): void
+    {
+        $violations = $this->loanCategoryViolations($customer, $loanCategoryId);
+
+        if ($violations !== []) {
+            $key = $violations === [self::NO_CUSTOMER_TYPE] && in_array($errorKey, ['category_id', 'loan_category_id'], true) ? 'customer_id' : $errorKey;
+
+            throw ValidationException::withMessages([$key => $violations]);
+        }
     }
 
     /**
@@ -136,21 +205,24 @@ class CustomerEligibility
     }
 
     /**
+     * Eligibility reasons plus, for a loan category, the hierarchy check and the category's amount limits.
+     *
      * @return list<string>
      */
     public function violations(Customer $customer, ?int $loanCategoryId = null, ?float $amount = null): array
     {
-        $rules = $this->for($customer);
-        $violations = $rules['reasons'];
+        $violations = $this->for($customer)['reasons'];
 
-        if ($loanCategoryId !== null && ! in_array($loanCategoryId, $rules['loan_category_ids'], true)) {
-            $violations[] = 'This loan product is not allowed for the customer type';
+        if ($loanCategoryId === null) {
+            return $violations;
         }
-        if ($amount !== null && $rules['min_amount'] !== null && $amount < $rules['min_amount']) {
-            $violations[] = 'Loan amount is below the customer type minimum of '.number_format($rules['min_amount']);
-        }
-        if ($amount !== null && $rules['max_amount'] !== null && $amount > $rules['max_amount']) {
-            $violations[] = 'Loan amount exceeds the customer type limit of '.number_format($rules['max_amount']);
+
+        $hierarchy = $this->loanCategoryViolations($customer, $loanCategoryId);
+        $violations = array_values(array_unique([...$violations, ...$hierarchy]));
+
+        $category = LoanCategory::find($loanCategoryId);
+        if ($hierarchy === [] && $amount !== null && $category !== null && ($amount < (float) $category->amount_from || $amount > (float) $category->amount_to)) {
+            $violations[] = "Loan amount must be between {$category->level_label}";
         }
 
         return $violations;

@@ -3,11 +3,11 @@
 namespace Tests\Feature\Api\Settings;
 
 use App\Models\Company;
-use App\Models\CustomerType;
+use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\InterestFormula;
 use App\Models\LoanCategory;
-use App\Models\MainCategory;
+use App\Models\LoanSubCategory;
 use App\Models\Region;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -30,19 +30,22 @@ class GeneralSettingsApiTest extends TestCase
     public function test_main_categories_and_sub_categories_toggle_with_isolation(): void
     {
         $admin = $this->signInAdmin();
-        $main = MainCategory::create(['company_id' => $admin->company_id, 'code' => 'ent', 'name' => 'WATUMISHI']);
-        $type = $main->customerTypes()->create(['code' => 'hazina', 'name' => 'HAZINA', 'is_enabled' => true]);
+        $main = CustomerCategory::factory()->create(['company_id' => $admin->company_id, 'name' => 'Mtumishi wa Umma'])->mainLoanCategory;
+        $subCategory = $main->subCategories()->create(['code' => 'hazina', 'name' => 'HAZINA', 'is_enabled' => true]);
 
-        $this->deleteJson("/api/v1/settings/main-categories/{$main->id}")->assertOk()->assertJsonPath('message', 'Category Deleted successfully');
+        $this->deleteJson("/api/v1/settings/main-categories/{$main->id}")->assertOk()->assertJsonPath('message', 'Main loan category disabled successfully');
         $this->assertFalse($main->fresh()->is_enabled);
-        $this->getJson("/api/v1/settings/main-categories/{$main->id}/types")->assertOk()->assertJsonPath('data.types.0.name', 'HAZINA');
-        $this->deleteJson("/api/v1/settings/customer-types/{$type->id}")->assertOk();
-        $this->assertFalse($type->fresh()->is_enabled);
+        $this->getJson("/api/v1/settings/main-categories/{$main->id}/sub-categories")->assertOk()
+            ->assertJsonPath('data.main_category.name', 'Mtumishi wa Umma')
+            ->assertJsonPath('data.sub_categories.0.name', 'HAZINA');
+        $this->deleteJson("/api/v1/settings/sub-categories/{$subCategory->id}")->assertOk();
+        $this->assertFalse($subCategory->fresh()->is_enabled);
 
-        $foreign = MainCategory::create(['company_id' => Company::factory()->create()->id, 'code' => 'ent', 'name' => 'WATUMISHI']);
-        $foreignType = CustomerType::create(['main_category_id' => $foreign->id, 'code' => 'vip', 'name' => 'VIP', 'is_enabled' => true]);
-        $this->getJson("/api/v1/settings/main-categories/{$foreign->id}/types")->assertNotFound();
-        $this->deleteJson("/api/v1/settings/customer-types/{$foreignType->id}")->assertNotFound();
+        $foreign = CustomerCategory::factory()->create(['company_id' => Company::factory()->create()->id])->mainLoanCategory;
+        $foreignSubCategory = LoanSubCategory::create(['main_category_id' => $foreign->id, 'code' => 'vip', 'name' => 'VIP', 'is_enabled' => true]);
+        $this->getJson("/api/v1/settings/main-categories/{$foreign->id}/sub-categories")->assertNotFound();
+        $this->deleteJson("/api/v1/settings/sub-categories/{$foreignSubCategory->id}")->assertNotFound();
+        $this->postJson("/api/v1/settings/main-categories/{$foreign->id}/enable")->assertNotFound();
     }
 
     public function test_loan_fee_mode_and_product_fee(): void

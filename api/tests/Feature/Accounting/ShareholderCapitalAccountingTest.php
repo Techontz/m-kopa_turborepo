@@ -483,8 +483,8 @@ class ShareholderCapitalAccountingTest extends TestCase
 
     private function loanAtFinance(float $amount, bool $feeDeducted = false): Loan
     {
-        $customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '2557540'.random_int(10000, 99999)]);
         $category = LoanCategory::factory()->create(['company_id' => $this->admin->company_id, 'insurance' => 0]);
+        $customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '2557540'.random_int(10000, 99999), 'customer_category_id' => $category->mainCategory->customer_category_id]);
         $category->branches()->attach($this->admin->branch_id);
 
         $this->postJson(route('api.v1.loans.store'), [

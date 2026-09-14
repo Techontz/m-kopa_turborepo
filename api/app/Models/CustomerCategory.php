@@ -3,20 +3,24 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use Database\Factories\CustomerCategoryFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Customer type (shown as "Customer Type" everywhere in the UI; the table keeps its historical name) acting as a rule engine: allowed loan products, loan limits,
- * required documents, risk level and dynamic registration form (form_schema).
+ * Customer type (shown as "Customer Type" everywhere in the UI; the table keeps its historical name): who the customer is —
+ * required documents, risk level and the dynamic registration form. It holds NO loan configuration: its loan products are the
+ * loan categories of its main loan category (created with the type, 1:1, name kept in sync).
  */
 class CustomerCategory extends Model
 {
-    use Auditable, SoftDeletes;
+    /** @use HasFactory<CustomerCategoryFactory> */
+    use Auditable, HasFactory, SoftDeletes;
 
     protected $guarded = ['id'];
 
@@ -26,8 +30,6 @@ class CustomerCategory extends Model
     protected function casts(): array
     {
         return [
-            'min_loan_amount' => 'decimal:2',
-            'max_loan_amount' => 'decimal:2',
             'required_documents' => 'array',
             'form_schema' => 'array',
             'is_active' => 'boolean',
@@ -62,8 +64,38 @@ class CustomerCategory extends Model
         return $this->hasMany(Customer::class);
     }
 
-    public function loanCategories(): BelongsToMany
+    /**
+     * The main loan category of this customer type (its loan group).
+     */
+    public function mainLoanCategory(): HasOne
     {
-        return $this->belongsToMany(LoanCategory::class);
+        return $this->hasOne(MainCategory::class, 'customer_category_id');
+    }
+
+    /**
+     * A new customer type gets its main loan category in the same transaction; a renamed type renames it.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (CustomerCategory $type): void {
+            $type->ensureMainLoanCategory();
+        });
+
+        static::updated(function (CustomerCategory $type): void {
+            if ($type->wasChanged('name')) {
+                MainCategory::where('customer_category_id', $type->id)->update(['name' => $type->name]);
+            }
+        });
+    }
+
+    /**
+     * Idempotent: returns the existing main loan category or creates it (enabled when the type is active).
+     */
+    public function ensureMainLoanCategory(): MainCategory
+    {
+        return MainCategory::firstOrCreate(
+            ['company_id' => $this->company_id, 'customer_category_id' => $this->id],
+            ['code' => $this->code ?? $this->key, 'name' => $this->name, 'is_enabled' => (bool) ($this->is_active ?? true)],
+        );
     }
 }

@@ -8,8 +8,9 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
 
 /**
- * Live loan category form plus the Documents additions: requires_mandate (E-MANDATE vs NORMAL flow),
- * the customer types allowed to borrow the product and Freeze Time (Days) — the re-borrowing freeze.
+ * Live loan category form plus the Documents additions: requires_mandate (E-MANDATE vs NORMAL flow) and Freeze Time (Days) —
+ * the re-borrowing freeze. The loan category's customer type is its main loan category (main_category_id); customer types
+ * are no longer attached one by one (customer_category_ids is refused).
  */
 class LoanCategoryRequest extends BaseLoanCategoryRequest
 {
@@ -22,8 +23,7 @@ class LoanCategoryRequest extends BaseLoanCategoryRequest
             'formular' => ['required', Rule::in(InterestFormula::where('is_enabled', true)->pluck('code')->all())],
             'requires_mandate' => ['required', 'in:YES,NO'],
             'freeze_time_days' => ['nullable', 'integer', 'min:0', 'max:365'],
-            'customer_category_ids' => ['nullable', 'array'],
-            'customer_category_ids.*' => ['integer', Rule::exists('customer_categories', 'id')->where('company_id', $this->user()->company_id)],
+            'customer_category_ids' => ['prohibited'],
         ]);
     }
 
@@ -32,7 +32,7 @@ class LoanCategoryRequest extends BaseLoanCategoryRequest
      */
     public function attributes(): array
     {
-        return ['customer_category_ids.*' => 'customer type', 'freeze_time_days' => 'freeze time (days)'];
+        return ['main_category_id' => 'customer type', 'freeze_time_days' => 'freeze time (days)'];
     }
 
     /**
@@ -45,13 +45,5 @@ class LoanCategoryRequest extends BaseLoanCategoryRequest
         return parent::categoryData()
             + ['requires_mandate' => $this->input('requires_mandate') === 'YES']
             + ($this->filled('freeze_time_days') ? ['freeze_time_days' => $this->integer('freeze_time_days')] : []);
-    }
-
-    /**
-     * @return list<int>
-     */
-    public function customerCategoryIds(): array
-    {
-        return array_map('intval', $this->input('customer_category_ids', []));
     }
 }

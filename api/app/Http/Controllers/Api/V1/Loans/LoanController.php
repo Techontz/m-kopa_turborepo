@@ -301,7 +301,6 @@ class LoanController extends LoanApiController
         $this->authorizeAny('loans.apply');
         $customer = Customer::findOrFail($request->integer('customer_id'));
         $this->assertBranchAccessible((int) $customer->branch_id);
-        $this->assertCategoryAvailable($request->integer('category_id'), (int) $customer->branch_id);
 
         try {
             $loan = $this->workflow->apply($customer, $request->loanData(), $this->currentEmployee());
@@ -346,24 +345,22 @@ class LoanController extends LoanApiController
     }
 
     /**
-     * Loan products for the application form: those assigned to the customer's branch and allowed by the
-     * customer type, as "NAME / from - to".
+     * Loan categories for the application form: only the ACTIVE loan categories (main loan category enabled, assigned to the
+     * customer's branch) of the customer's customer type → main loan category, as "NAME / from - to". A customer without a
+     * customer type gets none, with the reason in `eligibility`.
      */
-    public function categories(Customer $customer): JsonResponse
+    public function categories(Customer $customer, CustomerEligibility $eligibility): JsonResponse
     {
         $this->authorizeAny('loans.apply', 'loans.view');
         $this->assertBranchAccessible((int) $customer->branch_id);
         $status = $this->workflow->borrowingStatus($customer);
-        $allowed = $status['rules']['loan_category_ids'];
+        $type = $customer->customerCategory;
 
-        $categories = LoanCategory::where('company_id', $customer->company_id)
-            ->whereHas('branches', fn (Builder $query) => $query->whereKey($customer->branch_id))
-            ->orderBy('id')
-            ->get()
+        $categories = $eligibility->availableLoanCategories($customer)
             ->map(fn (LoanCategory $category): array => [
                 'value' => (string) $category->id,
                 'label' => $category->option_label,
-                'allowed' => in_array($category->id, $allowed, true),
+                'allowed' => true,
                 'amount_from' => (float) $category->amount_from,
                 'amount_to' => (float) $category->amount_to,
                 'interest_rate' => (float) $category->interest_rate,
@@ -375,10 +372,13 @@ class LoanController extends LoanApiController
                 'fee_deduct' => $category->fee_deduct,
                 'requires_mandate' => (bool) $category->requires_mandate,
                 'topup_percent' => (float) $category->topup_percent,
+                'freeze_time_days' => (int) $category->freeze_time_days,
             ]);
 
         return response()->json([
             'data' => $categories->values(),
+            'customer_type' => $type ? ['id' => $type->id, 'code' => $type->code, 'name' => $type->name] : null,
+            'main_category' => $status['rules']['main_category'],
             'groups' => Group::where('company_id', $customer->company_id)->orderBy('name')->get()->map(fn (Group $group): array => ['value' => (string) $group->id, 'label' => $group->name])->values(),
             'eligibility' => $status,
         ]);

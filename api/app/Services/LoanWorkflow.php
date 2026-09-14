@@ -89,6 +89,16 @@ class LoanWorkflow
     }
 
     /**
+     * @throws ValidationException when the amount is outside the loan category's limits (amount_from – amount_to)
+     */
+    private function assertWithinLimits(LoanCategory $category, float $amount, string $errorKey): void
+    {
+        if ($amount < (float) $category->amount_from || $amount > (float) $category->amount_to) {
+            throw ValidationException::withMessages([$errorKey => "Loan amount must be between {$category->level_label}"]);
+        }
+    }
+
+    /**
      * Top-up (Documents: "Paid certain % + No overdue → new loan allowed"). The required share is the
      * product's topup percent; the paid share is repayments over principal + interest + insurance.
      *
@@ -125,6 +135,10 @@ class LoanWorkflow
      */
     public function apply(Customer $customer, array $data, Employee $employee): Loan
     {
+        // Customer → customer type → main loan category → active loan category, then the category's limits, then eligibility and freeze.
+        $this->eligibility->assertLoanCategoryAvailable($customer, (int) $data['loan_category_id'], 'loan_category_id');
+        $this->assertWithinLimits(LoanCategory::findOrFail($data['loan_category_id']), (float) $data['amount_applied'], 'amount_applied');
+
         $status = $this->borrowingStatus($customer, $data['loan_category_id'], $data['amount_applied']);
         if (! $status['allowed']) {
             throw ValidationException::withMessages(['customer_id' => $status['reasons']]);
@@ -150,6 +164,7 @@ class LoanWorkflow
     public function update(Loan $loan, array $data, Employee $employee): Loan
     {
         $this->assertStatus($loan, LoanStatus::PendingManagerApproval, LoanStatus::Returned);
+        $this->eligibility->assertLoanCategoryAvailable($loan->customer, (int) $data['loan_category_id'], 'category_id');
         $category = LoanCategory::findOrFail($data['loan_category_id']);
 
         if ($data['amount_applied'] < (float) $category->amount_from || $data['amount_applied'] > (float) $category->amount_to) {
@@ -192,6 +207,7 @@ class LoanWorkflow
         $this->assertStatus($loan, LoanStatus::PendingManagerApproval);
         $loan->loadMissing(['category', 'customer']);
 
+        $this->eligibility->assertLoanCategoryAvailable($loan->customer, (int) $loan->loan_category_id, 'loan_aprove');
         $this->eligibility->assertNotFrozen($loan->customer, 'loan_aprove');
         if (! $this->eligibility->for($loan->customer)['kyc_complete']) {
             throw ValidationException::withMessages(['loan_aprove' => "Please wait for the customer's KYC to be verified!"]);

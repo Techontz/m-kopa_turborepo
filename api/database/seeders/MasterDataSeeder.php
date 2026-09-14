@@ -91,14 +91,15 @@ class MasterDataSeeder extends Seeder
             InterestFormula::updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => $enabled]);
         }
 
-        $watumishi = MainCategory::updateOrCreate(['company_id' => $company->id, 'code' => 'ent'], ['name' => 'WATUMISHI']);
-        $wajasiliamali = MainCategory::updateOrCreate(['company_id' => $company->id, 'code' => 'ser'], ['name' => 'WAJASILIAMALI']);
+        $this->seedCustomerTypes($company);
+        $watumishi = $this->mainLoanCategory($company, 'WATUMISHI_WA_UMMA');
+        $wajasiliamali = $this->mainLoanCategory($company, 'WAJASIRIAMALI');
 
         foreach ([['hazina', 'HAZINA', false], ['binafsi', 'BINAFSI', true], ['WASTAFU', 'WASTAFU', true], ['VIP', 'VIP', true]] as [$code, $name, $enabled]) {
-            $watumishi->customerTypes()->updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => $enabled]);
+            $watumishi->subCategories()->updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => $enabled]);
         }
         foreach ([['group', 'VIKUNDI'], ['binafsi', 'BINAFSI'], ['VIP', 'VIP']] as [$code, $name]) {
-            $wajasiliamali->customerTypes()->updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => true]);
+            $wajasiliamali->subCategories()->updateOrCreate(['code' => $code], ['name' => $name, 'is_enabled' => true]);
         }
 
         $products = [
@@ -138,8 +139,6 @@ class MasterDataSeeder extends Seeder
             ]);
             $category->branches()->syncWithoutDetaching($branches->pluck('id'));
         }
-
-        $this->seedCustomerCategories($company);
 
         Group::firstOrCreate(['company_id' => $company->id, 'name' => 'WAZURI']);
 
@@ -193,29 +192,27 @@ class MasterDataSeeder extends Seeder
     }
 
     /**
-     * The five customer types (CustomerModuleSeeder) plus this institution's loan rules per type: loan limits,
-     * the legacy risk level and the allowed loan products (loans read these).
+     * The five customer types (CustomerModuleSeeder), each with its main loan category, plus the legacy risk level.
+     * Customer types carry no loan rules: products and limits live on the loan categories of each main loan category.
      */
-    private function seedCustomerCategories(Company $company): void
+    private function seedCustomerTypes(Company $company): void
     {
         $customerModule = new CustomerModuleSeeder;
         $customerModule->seedReferenceData();
         $customerModule->seedGeography();
         $customerModule->seedCompany($company);
 
-        $rules = [
-            'WATUMISHI_WA_UMMA' => ['risk' => 'low', 'min' => 100000, 'max' => 10000000, 'products' => ['WATUMISHI 2', 'WATUMISHI 3', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'NEW WATUMISHI 3', 'VIP DESK', 'VVIP DESK', 'WATUMISHI LOAN']],
-            'SEKTA_BINAFSI' => ['risk' => 'medium', 'min' => 100000, 'max' => 5000000, 'products' => ['WATUMISHI 2', 'NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN']],
-            'WAJASIRIAMALI' => ['risk' => 'high', 'min' => 20000, 'max' => 2000000, 'products' => ['WAJASILIAMALI', 'GROUP LOAN', 'VIKUNDI 1', 'VIKUNDI 2']],
-            'MWANAFUNZI_CHUO' => ['risk' => 'high', 'min' => 20000, 'max' => 500000, 'products' => ['WAJASILIAMALI']],
-            'MSTAAFU_UMMA' => ['risk' => 'medium', 'min' => 100000, 'max' => 3000000, 'products' => ['NEW WATUMISHI 1', 'NEW WATUMISHI 2', 'WATUMISHI LOAN']],
-        ];
-
-        foreach ($rules as $code => $rule) {
-            $category = CustomerCategory::where('company_id', $company->id)->where('code', $code)->firstOrFail();
-            $category->update(['risk_level' => $rule['risk'], 'min_loan_amount' => $rule['min'], 'max_loan_amount' => $rule['max']]);
-            $category->loanCategories()->sync(LoanCategory::where('company_id', $company->id)->whereIn('name', $rule['products'])->pluck('id'));
+        foreach (['WATUMISHI_WA_UMMA' => 'low', 'SEKTA_BINAFSI' => 'medium', 'WAJASIRIAMALI' => 'high', 'MWANAFUNZI_CHUO' => 'high', 'MSTAAFU_UMMA' => 'medium'] as $code => $risk) {
+            CustomerCategory::where('company_id', $company->id)->where('code', $code)->firstOrFail()->update(['risk_level' => $risk]);
         }
+    }
+
+    /**
+     * The main loan category of the customer type with the given code.
+     */
+    private function mainLoanCategory(Company $company, string $customerTypeCode): MainCategory
+    {
+        return CustomerCategory::where('company_id', $company->id)->where('code', $customerTypeCode)->firstOrFail()->ensureMainLoanCategory();
     }
 
     private function region(string $name): int

@@ -7,6 +7,7 @@ use App\Enums\LoanStatus;
 use App\Models\AuditLog;
 use App\Models\Branch;
 use App\Models\Customer;
+use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\Loan;
 use App\Models\LoanCategory;
@@ -32,8 +33,10 @@ class LoanLifecycleApiTest extends TestCase
 
         config(['integrations.vodacom.driver' => 'test', 'integrations.bank_mandate.driver' => 'test', 'integrations.vodacom.test_outcome' => 'success']);
         $this->admin = $this->signInAdmin();
-        $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123']);
-        $this->category = LoanCategory::factory()->create(['company_id' => $this->admin->company_id, 'insurance' => 0]);
+        // Customer type → main loan category → loan category: the customer may apply for the category of its type.
+        $customerType = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id]);
+        $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $customerType->id]);
+        $this->category = LoanCategory::factory()->forCustomerType($customerType)->create(['insurance' => 0]);
         $this->category->branches()->attach($this->admin->branch_id);
         app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 1000000, 'FLOAT', $this->admin->branch_id);
     }

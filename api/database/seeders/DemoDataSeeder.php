@@ -10,6 +10,7 @@ use App\Models\Branch;
 use App\Models\Capital;
 use App\Models\Company;
 use App\Models\Customer;
+use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\EmployeeSalary;
 use App\Models\ExpenseRequest;
@@ -66,7 +67,8 @@ class DemoDataSeeder extends Seeder
             Employee::factory()->create(['company_id' => $company->id, 'branch_id' => $zone->branches()->value('id'), 'zone_id' => $zone->id, 'position' => 'zone', 'role_id' => $company->roles()->where('key', 'zone_manager')->value('id')]);
         }
 
-        $categories = LoanCategory::where('company_id', $company->id)->get()->keyBy('name');
+        $categories = LoanCategory::where('company_id', $company->id)->with('mainCategory')->get()->keyBy('name');
+        $typeIds = CustomerCategory::where('company_id', $company->id)->pluck('id', 'code');
         $scenarios = [
             // [category, amount, sessions, withdrawn days ago, repayments made, final status hint]
             ['WAJASILIAMALI', 200000, 3, 10, 1, null],
@@ -88,6 +90,10 @@ class DemoDataSeeder extends Seeder
                 'employee_id' => $branch->employees()->inRandomOrder()->value('id'),
                 'region_id' => $branch->region_id,
                 'work_status' => $index % 3 === 0 ? 'ent' : 'ser',
+                // Customer type → main loan category → loan category: a borrower's type is the one of its loan's main category.
+                'customer_category_id' => isset($scenarios[$index % 12])
+                    ? $categories[$scenarios[$index % 12][0]]->mainCategory->customer_category_id
+                    : $typeIds[$index % 3 === 0 ? 'WATUMISHI_WA_UMMA' : 'WAJASIRIAMALI'] ?? null,
                 'customer_type' => $index % 3 === 0 ? 'binafsi' : ($index % 5 === 0 ? 'group' : 'binafsi'),
                 'created_at' => $today->subDays(120 - $index),
             ]);

@@ -9,29 +9,29 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { confirmAction } from "@/components/ui/notify";
 import { useAction, useApi } from "@/lib/hooks";
 
-interface CustomerType {
+interface SubCategory {
   id: number;
   code: string;
   name: string;
   is_enabled: boolean;
 }
 
-/** Live admin/sub_main_watumishi/ent and sub_main_wajasiliamali/ser. */
+/** Live "Sub category Loan" (admin/sub_main_watumishi/ent, sub_main_wajasiliamali/ser): legacy sub categories of a main loan category; no loan rule uses them. */
 export default function SubCategoriesPage() {
   const { id } = useParams<{ id: string }>();
-  const { data, isLoading } = useApi<{ main_category: { id: number; name: string }; types: CustomerType[] }>(`settings/main-categories/${id}/types`);
-  const enable = useAction<{ id: number }>("post", (body) => `settings/customer-types/${body.id}/enable`);
-  const disable = useAction<{ id: number }>("delete", (body) => `settings/customer-types/${body.id}`);
+  const { data, isLoading } = useApi<{ main_category: { id: number; name: string }; sub_categories: SubCategory[] }>(`settings/main-categories/${id}/sub-categories`);
+  const enable = useAction<{ id: number }>("post", (body) => `settings/sub-categories/${body.id}/enable`);
+  const disable = useAction<{ id: number }>("delete", (body) => `settings/sub-categories/${body.id}`);
 
   return (
     <>
-      <PageHeader crumbs={["Loan category"]} />
+      <PageHeader crumbs={["Main Loan Categories", "Sub Category"]} />
       <Card
-        title={`Sub category Loan / ${data?.main_category.name ?? ""} LOAN`}
+        title={`Sub Category / ${data?.main_category.name ?? ""}`}
         actions={<Link href="/settings/main-categories" className="btn btn-primary"><i className="icon-arrow-left-circle" /></Link>}
       >
         <DataTable
-          rows={data?.types}
+          rows={data?.sub_categories}
           loading={isLoading}
           rowKey={(row) => row.id}
           columns={[
@@ -48,12 +48,12 @@ export default function SubCategoriesPage() {
       </Card>
       <Card title=" ">
         <DataTable
-          rows={data?.types.filter((type) => type.is_enabled)}
+          rows={data?.sub_categories.filter((subCategory) => subCategory.is_enabled)}
           loading={isLoading}
           rowKey={(row) => row.id}
           columns={[
             { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}`, sortable: false },
-            { key: "category", header: "Category Name", value: () => data?.main_category.name ?? "" },
+            { key: "category", header: "Main Loan Category", value: () => data?.main_category.name ?? "" },
             { key: "name", header: "Sub Category Name" },
             {
               key: "action",

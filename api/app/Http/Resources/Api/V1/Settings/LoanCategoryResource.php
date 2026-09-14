@@ -20,7 +20,12 @@ class LoanCategoryResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'main_category_id' => $this->main_category_id,
-            'main_category' => $this->whenLoaded('mainCategory', fn () => $this->mainCategory?->name),
+            'main_category' => $this->whenLoaded('mainCategory', fn () => $this->mainCategory?->display_name),
+            'customer_type' => $this->whenLoaded('mainCategory', fn () => $this->mainCategory?->customerType ? [
+                'id' => $this->mainCategory->customerType->id,
+                'code' => $this->mainCategory->customerType->code,
+                'name' => $this->mainCategory->customerType->name,
+            ] : null),
             'amount_from' => (float) $this->amount_from,
             'amount_to' => (float) $this->amount_to,
             'level_label' => $this->level_label,
@@ -41,7 +46,6 @@ class LoanCategoryResource extends JsonResource
             'fee_value' => (float) $this->fee_value,
             'insurance' => (float) $this->insurance,
             'branches' => $this->whenLoaded('branches', fn () => $this->branches->map(fn ($branch): array => ['id' => $branch->id, 'name' => $branch->name])->values()),
-            'customer_categories' => $this->whenLoaded('customerCategories', fn () => $this->customerCategories->map(fn ($category): array => ['id' => $category->id, 'name' => $category->name])->values()),
         ];
     }
 }

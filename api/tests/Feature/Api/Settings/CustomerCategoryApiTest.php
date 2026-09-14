@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\CustomerCategory;
 use App\Models\Employee;
 use App\Models\LoanCategory;
+use App\Models\MainCategory;
 use Database\Seeders\CustomerModuleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -78,14 +79,21 @@ class CustomerCategoryApiTest extends TestCase
         $admin = $this->signInAdmin();
         $product = LoanCategory::factory()->create(['company_id' => $admin->company_id]);
 
-        $created = $this->postJson('/api/v1/customer-categories', $this->payload(['loanCategoryIds' => [$product->id], 'minLoanAmount' => 1000, 'maxLoanAmount' => 5000]))
+        $this->postJson('/api/v1/customer-categories', $this->payload(['loanCategoryIds' => [$product->id], 'minLoanAmount' => 1000, 'maxLoanAmount' => 5000]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['loanCategoryIds', 'minLoanAmount', 'maxLoanAmount']);
+
+        $created = $this->postJson('/api/v1/customer-categories', $this->payload())
             ->assertCreated()
             ->assertJsonPath('data.code', 'MKULIMA')
             ->assertJsonPath('data.requiredDocuments', ['national_id'])
             ->assertJsonPath('data.dynamicFormSchema.0.options', ['Mahindi', 'Kahawa'])
             ->assertJsonPath('data.createdBy', $admin->id)
-            ->assertJsonPath('data.loanCategories.0.id', $product->id)
+            ->assertJsonMissingPath('data.loanCategories')
+            ->assertJsonMissingPath('data.maxLoanAmount')
             ->json('data');
+        $main = MainCategory::where('customer_category_id', $created['id'])->sole();
+        $this->assertSame([$admin->company_id, $created['name'], true], [$main->company_id, $main->name, $main->is_enabled]);
 
         $this->postJson('/api/v1/customer-categories', $this->payload())->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->postJson('/api/v1/customer-categories', $this->payload([
@@ -95,9 +103,16 @@ class CustomerCategoryApiTest extends TestCase
 
         $this->putJson("/api/v1/customer-categories/{$created['id']}", $this->payload(['name' => 'Mkulima Mdogo', 'isActive' => false]))
             ->assertOk()->assertJsonPath('data.name', 'Mkulima Mdogo')->assertJsonPath('data.isActive', false);
+        $this->assertSame('Mkulima Mdogo', $main->fresh()->name, 'Renaming the customer type renames its main loan category.');
+
+        $blocking = LoanCategory::factory()->create(['company_id' => $admin->company_id, 'main_category_id' => $main->id]);
+        $this->deleteJson("/api/v1/customer-categories/{$created['id']}")->assertUnprocessable();
+        $this->assertNotSoftDeleted('customer_categories', ['id' => $created['id']]);
+        $blocking->delete();
 
         $this->deleteJson("/api/v1/customer-categories/{$created['id']}")->assertOk();
         $this->assertSoftDeleted('customer_categories', ['id' => $created['id']]);
+        $this->assertFalse($main->fresh()->is_enabled);
     }
 
     public function test_only_super_admin_can_write_customer_types_and_refusal_comes_before_validation(): void

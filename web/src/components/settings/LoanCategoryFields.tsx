@@ -4,11 +4,15 @@ import { Field } from "@/components/ui/Field";
 import type { Option } from "@/components/ui/SelectBox";
 import { useApi } from "@/lib/hooks";
 
+import { CUSTOMER_TYPE_SELECT_LABEL, MAIN_CATEGORY_OPTIONS_ENDPOINT } from "./loanHierarchy";
+
 export interface LoanCategory {
   id: number;
   name: string;
-  main_category_id: number | null;
+  main_category_id: number;
+  /** Main loan category name = its customer type's name. */
   main_category: string | null;
+  customer_type?: { id: number; code: string | null; name: string } | null;
   amount_from: number;
   amount_to: number;
   level_label: string;
@@ -30,7 +34,6 @@ export interface LoanCategory {
   fee_value: number;
   insurance: number;
   branches?: { id: number; name: string }[];
-  customer_categories?: { id: number; name: string }[];
 }
 
 export interface LoanCategoryForm {
@@ -49,13 +52,13 @@ export interface LoanCategoryForm {
   topup_percent: string;
   freeze_time_days: string;
   take_home_percent: string;
-  main_id: string;
-  customer_category_ids: number[];
+  /** The main loan category, chosen by customer type. */
+  main_category_id: string;
 }
 
 export const EMPTY_LOAN_CATEGORY: LoanCategoryForm = {
   loan_name: "", loan_price: "", loan_perday: "", interest_formular: "", formular: "", duration: "", from_repayment: "", to_repayment: "",
-  fee_deduct: "", penart: "", aprove_status: "", requires_mandate: "", topup_percent: "", freeze_time_days: "", take_home_percent: "", main_id: "", customer_category_ids: [],
+  fee_deduct: "", penart: "", aprove_status: "", requires_mandate: "", topup_percent: "", freeze_time_days: "", take_home_percent: "", main_category_id: "",
 };
 
 const yesNo = (value: boolean) => (value ? "YES" : "NO");
@@ -86,8 +89,7 @@ export function toLoanCategoryForm(category: LoanCategory): LoanCategoryForm {
     topup_percent: String(category.topup_percent),
     freeze_time_days: String(category.freeze_time_days ?? 0),
     take_home_percent: String(category.take_home_percent),
-    main_id: String(category.main_category_id ?? ""),
-    customer_category_ids: (category.customer_categories ?? []).map((item) => item.id),
+    main_category_id: String(category.main_category_id ?? ""),
   };
 }
 
@@ -104,8 +106,7 @@ export function LoanCategoryFields({ form, setForm, fieldError, creating = false
   const { data: formulas = [] } = useApi<Option[]>("settings/options/formulas");
   const { data: durations = [] } = useApi<Option[]>("settings/options/durations");
   const { data: levels = [] } = useApi<Option[]>("settings/options/approve-levels");
-  const { data: mains = [] } = useApi<Option[]>("settings/options/main-categories");
-  const { data: customerCategories = [] } = useApi<Option[]>("settings/options/customer-categories");
+  const { data: mains = [] } = useApi<Option[]>(MAIN_CATEGORY_OPTIONS_ENDPOINT);
 
   const set = (field: keyof LoanCategoryForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
   const select = (field: keyof LoanCategoryForm, placeholder: string, options: Option[]) => (
@@ -115,12 +116,13 @@ export function LoanCategoryFields({ form, setForm, fieldError, creating = false
     </select>
   );
   const yesNoOptions: Option[] = [{ value: "YES", label: "YES" }, { value: "NO", label: "NO" }];
-  const toggleCategory = (id: number) =>
-    setForm({ ...form, customer_category_ids: form.customer_category_ids.includes(id) ? form.customer_category_ids.filter((item) => item !== id) : [...form.customer_category_ids, id] });
 
   return (
     <div className="row">
-      <Field label="Loan Product name:" required className="col-lg-3" error={fieldError("loan_name")}>
+      <Field label={CUSTOMER_TYPE_SELECT_LABEL} required className="col-lg-3" error={fieldError("main_category_id")}>
+        {select("main_category_id", "Select Customer Type", mains)}
+      </Field>
+      <Field label="Loan Category Name:" required className="col-lg-3" error={fieldError("loan_name")}>
         <input className="form-control input-sm" placeholder="Loan Category product name" value={form.loan_name} onChange={set("loan_name")} required />
       </Field>
       <Field label="From:" required className="col-lg-3 col-6" error={fieldError("loan_price")}>
@@ -176,23 +178,9 @@ export function LoanCategoryFields({ form, setForm, fieldError, creating = false
       <Field label="Take home Percent(%)" className="col-lg-4 col-6" error={fieldError("take_home_percent")}>
         <input className="form-control" placeholder="Take home percent" value={form.take_home_percent} onChange={set("take_home_percent")} required />
       </Field>
-      <Field label="Main Loan Category" className="col-lg-4 col-6" error={fieldError("main_id")}>
-        {select("main_id", "Select", mains)}
-      </Field>
       <Field label="Requires E-Mandate? (Bank deduction)" required className="col-lg-4 col-6" error={fieldError("requires_mandate")}>
         {select("requires_mandate", "Select", yesNoOptions)}
       </Field>
-      <div className="col-lg-8 mb-2">
-        <span>Allowed Customer Types:</span>
-        <div className="d-flex flex-wrap">
-          {customerCategories.map((option) => (
-            <label key={option.value} className="fancy-checkbox mr-3 mb-0">
-              <input type="checkbox" checked={form.customer_category_ids.includes(Number(option.value))} onChange={() => toggleCategory(Number(option.value))} /> <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-        {fieldError("customer_category_ids.0") && <div className="field-error">{fieldError("customer_category_ids.0")}</div>}
-      </div>
     </div>
   );
 }

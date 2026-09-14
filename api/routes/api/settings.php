@@ -23,11 +23,12 @@ Route::prefix('settings')->name('settings.')->group(function (): void {
 
     Route::controller(MainCategoryController::class)->group(function (): void {
         Route::get('main-categories', 'index')->name('main-categories.index');
+        Route::get('main-categories/{mainCategory}', 'show')->name('main-categories.show');
         Route::post('main-categories/{mainCategory}/enable', 'enable')->name('main-categories.enable');
         Route::delete('main-categories/{mainCategory}', 'disable')->name('main-categories.disable');
-        Route::get('main-categories/{mainCategory}/types', 'types')->name('main-categories.types');
-        Route::post('customer-types/{customerType}/enable', 'enableType')->name('customer-types.enable');
-        Route::delete('customer-types/{customerType}', 'disableType')->name('customer-types.disable');
+        Route::get('main-categories/{mainCategory}/sub-categories', 'subCategories')->name('main-categories.sub-categories');
+        Route::post('sub-categories/{subCategory}/enable', 'enableSubCategory')->name('sub-categories.enable');
+        Route::delete('sub-categories/{subCategory}', 'disableSubCategory')->name('sub-categories.disable');
     });
 
     Route::apiResource('loan-categories', LoanCategoryController::class);

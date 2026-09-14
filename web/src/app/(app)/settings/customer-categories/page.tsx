@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 
+import { CUSTOMER_TYPE_COLUMNS } from "@/components/settings/loanHierarchy";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
-import type { Option } from "@/components/ui/SelectBox";
 import { confirmAction } from "@/components/ui/notify";
 import { useAuth } from "@/lib/auth";
-import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
 type FieldType = "text" | "textarea" | "number" | "currency" | "date" | "select" | "boolean";
@@ -53,9 +52,6 @@ interface CustomerType {
   createdBy: number | null;
   deletedAt: string | null;
   customerCount: number;
-  minLoanAmount: number;
-  maxLoanAmount: number;
-  loanCategories?: { id: number; name: string }[];
 }
 
 interface TypeForm {
@@ -76,9 +72,6 @@ interface TypeForm {
   optionalDocuments: string;
   omittedStandardFields: string[];
   dynamicFormSchema: Array<SchemaField & { optionsText: string }>;
-  minLoanAmount: string;
-  maxLoanAmount: string;
-  loanCategoryIds: number[];
 }
 
 const RISK_TONE: Record<string, BadgeTone> = { low: "success", medium: "warning", high: "danger" };
@@ -129,9 +122,6 @@ function toForm(type: CustomerType | null): TypeForm {
     optionalDocuments: (type?.optionalDocuments ?? []).join(", "),
     omittedStandardFields: type?.omittedStandardFields ?? [],
     dynamicFormSchema: (type?.dynamicFormSchema ?? []).map((field) => ({ ...field, optionsText: (field.options ?? []).join("\n") })),
-    minLoanAmount: String(type?.minLoanAmount ?? 0),
-    maxLoanAmount: String(type?.maxLoanAmount ?? 0),
-    loanCategoryIds: (type?.loanCategories ?? []).map((product) => product.id),
   };
 }
 
@@ -143,8 +133,6 @@ function toPayload(form: TypeForm) {
     riskTier: form.riskTier || null,
     requiredDocuments: splitList(form.requiredDocuments),
     optionalDocuments: splitList(form.optionalDocuments),
-    minLoanAmount: Number(form.minLoanAmount || 0),
-    maxLoanAmount: Number(form.maxLoanAmount || 0),
     dynamicFormSchema: form.dynamicFormSchema.map((row) => {
       const { optionsText, ...field } = row;
       const options = splitList(optionsText.replace(/,/g, "\n"));
@@ -232,7 +220,6 @@ function SchemaEditor({ rows, onChange, errorFor }: { rows: TypeForm["dynamicFor
 }
 
 function TypeEditor({ type, onDone }: { type: CustomerType | null; onDone: () => void }) {
-  const { data: products = [] } = useApi<Option[]>("settings/options/loan-categories");
   const [form, setForm] = useState<TypeForm>(() => toForm(type));
   const save = useAction<ReturnType<typeof toPayload>>(type ? "put" : "post", type ? `customer-categories/${type.id}` : "customer-categories");
   const set = (patch: Partial<TypeForm>) => setForm({ ...form, ...patch });
@@ -308,27 +295,6 @@ function TypeEditor({ type, onDone }: { type: CustomerType | null; onDone: () =>
           <span>Step 2 questions (dynamic form schema):</span>
           <SchemaEditor rows={form.dynamicFormSchema} onChange={(rows) => set({ dynamicFormSchema: rows })} errorFor={save.fieldError} />
         </div>
-        <Field label="Minimum loan amount:" className="col-md-3" error={save.fieldError("minLoanAmount")}>
-          <input type="number" min={0} className="form-control" value={form.minLoanAmount} onChange={(e) => set({ minLoanAmount: e.target.value })} />
-        </Field>
-        <Field label="Maximum loan amount:" className="col-md-3" error={save.fieldError("maxLoanAmount")}>
-          <input type="number" min={0} className="form-control" value={form.maxLoanAmount} onChange={(e) => set({ maxLoanAmount: e.target.value })} />
-        </Field>
-        <div className="col-md-6 mb-2">
-          <span>Allowed loan products:</span>
-          <div>
-            {products.map((product) => (
-              <label key={product.value} className="fancy-checkbox mr-3 mb-0">
-                <input
-                  type="checkbox"
-                  checked={form.loanCategoryIds.includes(Number(product.value))}
-                  onChange={() => set({ loanCategoryIds: form.loanCategoryIds.includes(Number(product.value)) ? form.loanCategoryIds.filter((id) => id !== Number(product.value)) : [...form.loanCategoryIds, Number(product.value)] })}
-                />{" "}
-                <span>{product.label}</span>
-              </label>
-            ))}
-          </div>
-        </div>
       </div>
     </Modal>
   );
@@ -366,7 +332,7 @@ function TypeViewer({ type, onClose }: { type: CustomerType; onClose: () => void
       </div>
       <p className="mb-1"><strong>Omitted standard fields:</strong> {type.omittedStandardFields.length ? type.omittedStandardFields.join(", ") : "none"}</p>
       <p className="mb-1"><strong>Required documents:</strong> {type.requiredDocuments.length ? type.requiredDocuments.join(", ") : "none"}</p>
-      <p className="mb-0"><strong>Allowed loan products:</strong> {type.loanCategories?.length ? type.loanCategories.map((product) => product.name).join(", ") : "none"}</p>
+      <p className="mb-0 text-muted">Loan categories and loan limits are configured per loan category under Settings → Loan Categories.</p>
     </Modal>
   );
 }
@@ -393,16 +359,15 @@ export default function CustomerTypesPage() {
           loading={isLoading}
           rowKey={(row) => row.id}
           columns={[
-            { key: "sortOrder", header: "Order" },
-            { key: "name", header: "Customer Type", className: "text-nowrap", render: (row) => <>{row.name}<br /><small className="text-muted">{row.code}</small></>, value: (row) => `${row.name} ${row.code ?? ""} ${row.formTitle ?? ""}` },
-            { key: "sector", header: "Sector", render: (row) => row.sector.toUpperCase() },
-            { key: "riskTier", header: "Risk Tier", value: (row) => row.riskTier ?? "", render: (row) => (row.riskTier ? <Badge tone={RISK_TONE[row.riskTier]}>{row.riskTier.toUpperCase()}</Badge> : "-") },
-            { key: "questions", header: "Step 2 Questions", value: (row) => row.dynamicFormSchema.length },
-            { key: "limits", header: "Loan Limit", className: "text-nowrap", value: (row) => row.maxLoanAmount, render: (row) => `${money(row.minLoanAmount)} - ${money(row.maxLoanAmount)}` },
-            { key: "customerCount", header: "Customers" },
+            { key: "sortOrder", header: CUSTOMER_TYPE_COLUMNS[0] },
+            { key: "name", header: CUSTOMER_TYPE_COLUMNS[1], className: "text-nowrap", render: (row) => <>{row.name}<br /><small className="text-muted">{row.code}</small></>, value: (row) => `${row.name} ${row.code ?? ""} ${row.formTitle ?? ""}` },
+            { key: "sector", header: CUSTOMER_TYPE_COLUMNS[2], render: (row) => row.sector.toUpperCase() },
+            { key: "riskTier", header: CUSTOMER_TYPE_COLUMNS[3], value: (row) => row.riskTier ?? "", render: (row) => (row.riskTier ? <Badge tone={RISK_TONE[row.riskTier]}>{row.riskTier.toUpperCase()}</Badge> : "-") },
+            { key: "questions", header: CUSTOMER_TYPE_COLUMNS[4], value: (row) => row.dynamicFormSchema.length },
+            { key: "customerCount", header: CUSTOMER_TYPE_COLUMNS[5] },
             {
               key: "isActive",
-              header: "Status",
+              header: CUSTOMER_TYPE_COLUMNS[6],
               value: (row) => (row.isActive ? "ACTIVE" : "INACTIVE"),
               render: (row) => (
                 <>
@@ -413,7 +378,7 @@ export default function CustomerTypesPage() {
             },
             {
               key: "action",
-              header: "Action",
+              header: CUSTOMER_TYPE_COLUMNS[7],
               sortable: false,
               className: "text-nowrap",
               render: (row) => (

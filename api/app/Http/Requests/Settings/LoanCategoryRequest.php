@@ -27,6 +27,10 @@ class LoanCategoryRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        if (! $this->has('main_category_id') && $this->has('main_id')) {
+            $this->merge(['main_category_id' => $this->input('main_id')]);
+        }
+
         $this->merge(collect(['loan_price', 'loan_perday', 'interest_formular', 'topup_percent', 'take_home_percent'])
             ->filter(fn (string $field): bool => is_string($this->input($field)))
             ->mapWithKeys(fn (string $field): array => [$field => str_replace([',', ' ', '%'], '', $this->input($field))])
@@ -52,7 +56,7 @@ class LoanCategoryRequest extends FormRequest
             'aprove_status' => ['required', Rule::in(array_keys(self::APPROVE_LEVELS))],
             'topup_percent' => ['required', 'numeric', 'min:0', 'max:100'],
             'take_home_percent' => ['required', 'numeric', 'min:0', 'max:100'],
-            'main_id' => ['required', Rule::exists('main_categories', 'id')->where('company_id', $this->user()->company_id)],
+            'main_category_id' => ['required', 'integer', Rule::exists('main_categories', 'id')->where('company_id', $this->user()->company_id)],
         ];
     }
 
@@ -75,7 +79,7 @@ class LoanCategoryRequest extends FormRequest
             'approve_level' => $this->string('aprove_status')->toString(),
             'topup_percent' => $this->float('topup_percent'),
             'take_home_percent' => $this->float('take_home_percent'),
-            'main_category_id' => $this->integer('main_id'),
+            'main_category_id' => $this->integer('main_category_id'),
         ];
     }
 }

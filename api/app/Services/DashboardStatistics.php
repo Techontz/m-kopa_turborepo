@@ -105,7 +105,11 @@ class DashboardStatistics
      * Every account is listed, empty ones included, so the modal reads as the full account list rather than as whichever
      * accounts happen to hold money today. Each kind of money appears on exactly ONE row: where HQ has its own account
      * beside a branch pool (interest, reserve, loan fee, penalty), the two are added together instead of being listed
-     * twice, and every money account is counted exactly once, so the rows still add up to the HQ Funds card.
+     * twice, so the rows still add up to the HQ Funds card.
+     *
+     * Two money accounts are deliberately NOT here, because they are not HQ's to spend: the SAVING A/C is held for the
+     * customers who deposited it and the SALARY ADVANCE A/C is money staff owe back. Both are printed under the total as
+     * memo lines instead ({@see accountMemos()}).
      *
      * @return array<string, float>
      */
@@ -127,9 +131,7 @@ class DashboardStatistics
             'AGENT A/C' => $pool(Account::Agent),
             'TELLER CASH A/C' => $pool(Account::TellerCash),
             'PETTY CASH A/C (branches)' => $pool(Account::PettyCash),
-            'SALARY ADVANCE A/C' => $pool(Account::HqSalaryAdvance),
             'DISBURSEMENT A/C' => $pool(Account::HqDisbursement),
-            'SAVING A/C (held for customers)' => $pool(Account::HqSaving),
         ];
     }
 

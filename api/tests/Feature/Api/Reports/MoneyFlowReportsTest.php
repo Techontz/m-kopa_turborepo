@@ -236,12 +236,14 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertEquals(2000000 + 150000 + 50000, $data['cards']['account_balance'], 'the float received plus the interest HQ holds');
         $this->assertSame(
             ['PRINCIPAL A/C', 'INTEREST A/C', 'LOAN FEE A/C', 'PENALTY A/C', 'RESERVE A/C', 'INSURANCE A/C', 'AGENT A/C',
-                'TELLER CASH A/C', 'PETTY CASH A/C (branches)', 'SALARY ADVANCE A/C', 'DISBURSEMENT A/C', 'SAVING A/C (held for customers)'],
+                'TELLER CASH A/C', 'PETTY CASH A/C (branches)', 'DISBURSEMENT A/C'],
             array_keys($data['account_balances']),
-            'every account is listed, the empty ones included, and each kind of money exactly once',
+            'every account HQ can spend, the empty ones included, each kind of money exactly once',
         );
         $this->assertEquals(0, $data['account_balances']['LOAN FEE A/C']);
         $this->assertEquals(150000 + 50000, $data['account_balances']['INTEREST A/C'], 'the branch pool and the HQ account are one row, never two');
+        $this->assertArrayNotHasKey('SAVING A/C (held for customers)', $data['account_balances'], 'savings are held for customers, not HQ funds — a memo line, not a row');
+        $this->assertSame(['Saving Deposit', 'Salary advance Remain', 'Saving Remain'], array_column($data['account_memos'], 'label'));
         $this->assertEquals($data['cards']['account_balance'], $data['account_balances_total']);
         $this->assertArrayNotHasKey('Company A/C', $data['account_balances']);
         $this->assertArrayNotHasKey('Assets', $data['account_balances']);

@@ -1,24 +1,23 @@
 "use client";
 
 /**
- * The one loader of the app: a small card in the middle of the screen over a dimmed page, the same card and backdrop as the
- * modals ({@see Modal}). Use it whenever a page or a section has nothing to show yet; rows inside a table keep their inline
- * message so the table's own header and layout stay put.
+ * The one loader of the app: the same white card the live system's dialogs use (SweetAlert 2 — 478px, 5px radius, 27px
+ * title) over the same dimmed overlay, with a spinner in place of the icon. `app/(app)/loading.tsx` shows it between pages.
+ *
+ * `inline` keeps a one-line message for rows inside a table, where covering the screen would hide the very columns being
+ * loaded.
  */
-export function Loading({ message = "Loading...", inline = false }: { message?: string; inline?: boolean }) {
+export function Loading({ message = "Please wait...", inline = false }: { message?: string; inline?: boolean }) {
   if (inline) {
     return <div className="mf-loading">{message}</div>;
   }
 
   return (
-    <>
-      <div className="mf-modal-backdrop mf-loading-backdrop" />
-      <div className="mf-loading-popup" role="status" aria-live="polite">
-        <div className="mf-loading-card">
-          <span className="mf-loading-spinner" aria-hidden="true" />
-          <span className="mf-loading-text">{message}</span>
-        </div>
+    <div className="mf-loading-overlay" role="status" aria-live="polite">
+      <div className="mf-loading-card">
+        <span className="mf-loading-spinner" aria-hidden="true" />
+        <span className="mf-loading-title">{message}</span>
       </div>
-    </>
+    </div>
   );
 }

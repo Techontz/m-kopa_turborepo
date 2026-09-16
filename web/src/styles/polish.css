@@ -82,43 +82,62 @@ select.form-control { appearance: none; padding-right: 2rem; background-image: l
     .dashboard-stat h4 { font-size: 1.4rem; }
 }
 
-/* ---------------------------------------------------------------- The loader ({@see components/ui/Loading}) */
-.mf-loading-backdrop { background: color-mix(in srgb, var(--mf-overlay) 70%, transparent); }
-.mf-loading-popup {
-    position: fixed;
-    inset: 0;
-    z-index: 1051;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
+/* ---------------------------------------------------------------- Dialogs and the loader
+ * The live system uses SweetAlert 2 (assets/js/sweet.min.js): a 478px white card, 5px radius, 27px title in
+ * rgba(0,0,0,.65), 16px text in rgba(0,0,0,.64), a #7cd1f9 button (5px radius, 10px/24px, 14px/600) on the right, over a
+ * rgba(0,0,0,.4) overlay. These rules give our SweetAlert2 dialogs and the app's loader exactly that look.
+ */
+.swal2-container { background: rgba(0, 0, 0, .4) !important; }
+.swal2-popup {
+    width: 478px;
+    max-width: calc(100% - 32px);
+    padding: 0 0 4px;
+    border-radius: 5px;
+    background: #fff;
+    font-size: 16px;
 }
+.swal2-popup .swal2-title { padding: 13px 16px; font-size: 27px; font-weight: 600; line-height: normal; color: rgba(0, 0, 0, .65); }
+.swal2-popup .swal2-html-container { margin: 0; padding: 0 20px; font-size: 16px; font-weight: 400; line-height: normal; text-align: center; color: rgba(0, 0, 0, .64); }
+.swal2-popup .swal2-icon { width: 80px; height: 80px; margin: 20px auto; border-width: 4px; }
+.swal2-popup .swal2-icon.swal2-success { border-color: #a5dc86; }
+.swal2-popup .swal2-icon.swal2-warning { border-color: #f8bb86; color: #f8bb86; }
+.swal2-popup .swal2-icon.swal2-error { border-color: #f27474; color: #f27474; }
+.swal2-popup .swal2-icon.swal2-info, .swal2-popup .swal2-icon.swal2-question { border-color: #c9dae1; color: #c9dae1; }
+.swal2-popup .swal2-actions { justify-content: flex-end; gap: .5rem; margin: 13px 0 0; padding: 13px 16px; }
+.swal2-popup .swal2-styled { margin: 0; padding: 10px 24px; border: none; border-radius: 5px; box-shadow: none; font-size: 14px; font-weight: 600; }
+.swal2-popup .swal2-styled.swal2-confirm { background-color: #7cd1f9; color: #fff; }
+.swal2-popup .swal2-styled.swal2-cancel { background-color: #efefef; color: #555; }
+.swal2-popup .swal2-input, .swal2-popup .swal2-textarea { margin: .5rem 20px; width: calc(100% - 40px); border-radius: 5px; font-size: 14px; }
+.swal2-popup .swal2-validation-message { border-radius: 5px; font-size: 13px; }
+.swal2-popup .swal2-close { color: rgba(0, 0, 0, .35); }
+
+/* The loader is the same card: the live system never blanks the screen, it shows a dialog. */
+.mf-loading-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .4); }
 .mf-loading-card {
-    display: flex;
-    align-items: center;
-    gap: .8rem;
-    min-width: 210px;
-    padding: 1.1rem 1.4rem;
-    border-radius: var(--mf-radius);
-    background: var(--mf-surface);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
-    animation: mf-loading-in .16s ease-out;
+    width: 478px;
+    max-width: calc(100% - 32px);
+    padding: 26px 16px 22px;
+    border-radius: 5px;
+    background: #fff;
+    text-align: center;
+    animation: mf-loading-in .3s;
 }
 .mf-loading-spinner {
-    width: 26px;
-    height: 26px;
-    flex: none;
+    display: block;
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 6px;
+    border: 4px solid #e6eef2;
+    border-top-color: #7cd1f9;
     border-radius: 50%;
-    border: 3px solid color-mix(in srgb, var(--mf-blue) 25%, transparent);
-    border-top-color: var(--mf-blue);
-    animation: mf-loading-spin .7s linear infinite;
+    animation: mf-loading-spin .9s linear infinite;
 }
-.mf-loading-text { font-size: .95rem; font-weight: 600; color: var(--mf-heading); }
+.mf-loading-title { display: block; padding: 13px 16px 0; font-size: 27px; font-weight: 600; line-height: normal; color: rgba(0, 0, 0, .65); }
 
 @keyframes mf-loading-spin { to { transform: rotate(360deg); } }
-@keyframes mf-loading-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes mf-loading-in { 0% { transform: scale(.7); } 45% { transform: scale(1.05); } 80% { transform: scale(.95); } 100% { transform: scale(1); } }
 
 @media (prefers-reduced-motion: reduce) {
-    .mf-loading-spinner { animation-duration: 2s; }
+    .mf-loading-spinner { animation-duration: 2.4s; }
     .mf-loading-card { animation: none; }
 }

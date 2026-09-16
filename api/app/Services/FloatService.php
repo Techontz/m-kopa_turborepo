@@ -139,23 +139,6 @@ class FloatService
     }
 
     /**
-     * Post a company → branch float immediately, without an approval step. Internal use only (system fixtures and tests);
-     * the API always goes through {@see requestCompanyToBranch()} and {@see approve()}.
-     *
-     * @internal
-     */
-    public function companyToBranch(int $companyId, int $branchId, float $amount): FloatTransfer
-    {
-        return $this->approve($this->createPending($companyId, null, [
-            'type' => 'company_to_branch',
-            'to_branch_id' => $branchId,
-            'from_account' => Account::Company->value,
-            'to_account' => Account::Principal->value,
-            'amount' => round($this->ensurePositive($amount, 'blanch_amount'), 2),
-        ]));
-    }
-
-    /**
      * @param  array<string, mixed>  $attributes
      */
     private function createPending(int $companyId, ?Employee $requester, array $attributes): FloatTransfer
@@ -171,7 +154,6 @@ class FloatService
     private function description(string $type, Account $from, Account $to): string
     {
         return match ($type) {
-            'company_to_branch' => 'FLOAT FROM COMPANY ACCOUNT',
             'company_to_hq' => 'FLOAT '.$from->label().' TO HQ '.$to->label(),
             default => 'FLOAT '.$from->label().' TO '.$to->label(),
         };

@@ -57,7 +57,7 @@ interface CompanyPosition {
     company_cash: number;
     banks: { id: number; name: string; balance: number }[];
     bank_total: number;
-    branch_lending_cash: number;
+    lending_cash: number;
     total_cash_and_bank: number;
     total_cash_and_bank_label: string;
     money_groups: LedgerLine[];
@@ -337,7 +337,7 @@ export default function CapitalsPage() {
                 <tr key={bank.id}><td>Bank — {bank.name}</td><td className="text-right">{money(bank.balance)}</td></tr>
               ))}
               <tr><td>Total bank balances</td><td className="text-right"><b>{money(position?.balances.bank_total ?? data?.bank_balance_total)}</b></td></tr>
-              <tr><td>Branch lending cash — PRINCIPAL A/C (all branches)</td><td className="text-right">{money(position?.balances.branch_lending_cash)}</td></tr>
+              <tr><td>Lending cash — PRINCIPAL A/C (HQ funds every loan)</td><td className="text-right">{money(position?.balances.lending_cash)}</td></tr>
               <tr><td><b>Total cash &amp; bank</b> — {position?.balances.total_cash_and_bank_label}</td><td className="text-right"><b>{money(position?.balances.total_cash_and_bank)}</b></td></tr>
               <tr className="thead-info"><th colSpan={2}>All money accounts by group (current balances)</th></tr>
               {(position?.balances.money_groups ?? []).map((group) => (

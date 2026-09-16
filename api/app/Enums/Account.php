@@ -217,10 +217,14 @@ enum Account: string
     }
 
     /**
+     * The accounts HQ itself holds money in. HQ runs no loan book of its own — customers borrow at a branch and HQ funds the
+     * disbursement — so the penalty and loan fee a loan produces belong to the branch-tagged {@see self::Penalty} and
+     * {@see self::LoanFee} pools, and HQ has no account of its own for either.
+     *
      * @return array<int, self>
      */
     public static function hqAccounts(): array
     {
-        return [self::HqSalaryAdvance, self::HqDisbursement, self::HqPenalty, self::HqInterest, self::HqReserve, self::HqLoanFee, self::HqSaving];
+        return [self::HqSalaryAdvance, self::HqDisbursement, self::HqInterest, self::HqReserve, self::HqSaving];
     }
 }

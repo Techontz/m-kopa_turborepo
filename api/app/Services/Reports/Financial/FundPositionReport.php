@@ -24,7 +24,12 @@ use Illuminate\Support\Facades\DB;
  */
 class FundPositionReport
 {
-    /** @var list<Account> */
+    /**
+     * Fund accounts, reported per branch. PRINCIPAL is HQ's — HQ funds every loan — so it appears on the "HQ (no branch)"
+     * row; the others report the income each branch generated.
+     *
+     * @var list<Account>
+     */
     public const BRANCH_FUNDS = [Account::Principal, Account::Interest, Account::LoanFee, Account::Penalty, Account::Reserve, Account::Insurance];
 
     /** @var list<Account> */

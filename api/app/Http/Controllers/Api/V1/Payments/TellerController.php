@@ -25,6 +25,7 @@ use App\Services\LoanRecoveryService;
 use App\Services\LoanService;
 use App\Services\PaymentService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -221,10 +222,13 @@ class TellerController extends ApiController
     }
 
     /**
-     * Branch cashbook on the teller page: Opening / Deposit / Withdrawal / Closing of the branch PRINCIPAL A/C, all from
-     * ledger movements (closing = opening + deposit − withdrawal = today's ledger balance). A posting reversed on the
-     * same day is left out together with its reversal (they cancel). Teller cash that Finance has not confirmed yet is
-     * not in the ledger principal and is returned apart as `pending_cash`.
+     * Cashbook on the teller page: Opening / Deposit / Withdrawal / Closing of the PRINCIPAL A/C, all from ledger
+     * movements (closing = opening + deposit − withdrawal = today's ledger balance). A posting reversed on the same day
+     * is left out together with its reversal (they cancel). Teller cash that Finance has not confirmed yet is not in the
+     * ledger principal and is returned apart as `pending_cash`.
+     *
+     * The lending cash itself is HQ's — a branch holds no principal — so a branch teller's cashbook is scoped by the
+     * BRANCH OF THE ENTRY (the loans their branch disbursed and collected), not by the branch of the account.
      *
      * @return array{opening: float, deposit: float, withdrawal: float, closing: float, pending_cash: float}
      */
@@ -234,16 +238,19 @@ class TellerController extends ApiController
         $today = CarbonImmutable::today()->toDateString();
         $branchIds = app(AccessControl::class)->branchIds($employee);
 
-        $opening = $branchIds === null
-            ? $this->ledger->balance($employee->company_id, Account::Principal, until: CarbonImmutable::today()->subDay(), allBranches: true)
-            : array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($employee->company_id, Account::Principal, $branchId, until: CarbonImmutable::today()->subDay()), $branchIds));
-
-        $movements = JournalLine::query()
+        $principalLines = fn (): Builder => JournalLine::query()
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('accounts.company_id', $employee->company_id)
             ->where('accounts.key', Account::Principal->value)
-            ->when($branchIds !== null, fn ($query) => $query->whereIn('accounts.branch_id', $branchIds))
+            ->when($branchIds !== null, fn ($query) => $query->whereIn('journal_entries.branch_id', $branchIds));
+
+        $opening = (float) $principalLines()
+            ->whereDate('journal_entries.entry_date', '<', $today)
+            ->selectRaw('COALESCE(SUM(journal_lines.debit) - SUM(journal_lines.credit), 0) AS net')
+            ->value('net');
+
+        $movements = $principalLines()
             ->whereDate('journal_entries.entry_date', $today)
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('journal_entries as reversals')
                 ->whereColumn('reversals.reversal_of_id', 'journal_entries.id')

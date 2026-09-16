@@ -144,7 +144,7 @@ class ShareholderCapitalAccountingTest extends TestCase
         ]);
         $this->assertSame(4000000.0, $ledger->balance($loan->company_id, Account::Bank, bankAccount: $bank));
         $this->assertSame(1000000.0, $ledger->balance($loan->company_id, Account::LoanReceivable, $loan->branch_id));
-        $this->assertSame(0.0, $ledger->balance($loan->company_id, Account::Principal, $loan->branch_id), 'branch cash is untouched');
+        $this->assertSame(0.0, $ledger->balance($loan->company_id, Account::Principal), 'the HQ lending cash is untouched');
         $this->assertSame(0.0, $this->typeTotal('expense'));
         $this->assertSame(0.0, $this->typeTotal('income'));
 
@@ -284,7 +284,7 @@ class ShareholderCapitalAccountingTest extends TestCase
     {
         $bank = $this->bank('NMB');
         $this->contribute($this->holder('ALPHA'), 2000000, 'BANK', $bank);
-        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 300000, 'FLOAT', $this->admin->branch_id);
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 300000, 'FLOAT');
         $loan = $this->loanAtFinance(500000, feeDeducted: true);
 
         $this->getJson(route('api.v1.loans.disbursement-sources', $loan))->assertOk()
@@ -306,7 +306,7 @@ class ShareholderCapitalAccountingTest extends TestCase
             [Account::FeeIncome, null, 0, 5000],
         ]);
         $this->assertSame(1505000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
-        $this->assertSame(300000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
+        $this->assertSame(300000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Principal), 'the bank source left the HQ lending cash untouched');
     }
 
     public function test_shareholder_without_shares_owns_nothing(): void

@@ -86,16 +86,18 @@ class ProfitChainTest extends TestCase
         $beta = $this->holder('BETA');
         app(CapitalContributions::class)->contribute($alpha, 6000000, 'CASH', null, $this->admin);
         app(CapitalContributions::class)->contribute($beta, 4000000, 'CASH', null, $this->admin);
-        app(FloatService::class)->companyToBranch($companyId, $a, 3000000);
-        app(FloatService::class)->companyToBranch($companyId, $b, 2000000);
+        // HQ runs the loan book for every branch, so the company funds the HQ PRINCIPAL A/C (no branch), never a branch.
+        $float = app(FloatService::class);
+        $float->approve($float->requestCompanyToHq($companyId, Account::Company, null, 5000000, $this->admin));
         $this->assertBalance(10000000, Account::Capital);
         $this->assertBalance(5000000, Account::Company);
 
-        // 2. Loans disbursed (fee 5,000 deducted, insurance 1,000).
+        // 2. Loans disbursed (fee 5,000 deducted, insurance 1,000) — both out of the one HQ PRINCIPAL A/C.
         $loanA = $this->loan($this->branchA, 1000000);
         $loanB = $this->loan($this->branchB, 500000);
-        $this->assertBalance(2000000, Account::Principal, $a);
-        $this->assertBalance(1500000, Account::Principal, $b);
+        $this->assertBalance(3500000, Account::Principal, message: 'HQ paid both loans: 5,000,000 − 1,000,000 − 500,000');
+        $this->assertBalance(0, Account::Principal, $a, 'a branch holds no lending money');
+        $this->assertBalance(0, Account::Principal, $b);
         $this->assertBalance(5000, Account::LoanFee, $a);
 
         // 3. Overdue job charges penalties without any journal (rule 14, cash basis).
@@ -177,7 +179,7 @@ class ProfitChainTest extends TestCase
         $this->assertEquals(524.30, collect($report['branches'])->firstWhere('branch_id', $b)['returned_no_zone_manager_amount']);
 
         // 8. Dividend declaration (requested, then approved by a second user): base = distributable − commission; 30% pool, 70%
-        //    reinvested into branch principal.
+        //    reinvested into the HQ PRINCIPAL A/C out of each branch's income pools.
         $this->establish([[$alpha, 600], [$beta, 400]]);
         $preview = app(DividendService::class)->preview($companyId, CarbonImmutable::parse('2026-07-01'));
         $this->assertTrue($preview['can_declare'], (string) $preview['blocking_reason']);
@@ -194,9 +196,8 @@ class ProfitChainTest extends TestCase
         $this->assertBalance(93825.69, Account::DividendPayable);
         $this->assertBalance(218926.61, Account::ReinvestedProfit);
         $this->assertBalance(10000000, Account::Capital, message: 'D4: capital unchanged');
-        $this->assertBalance(3152497.80, Account::Principal, $a);
+        $this->assertBalance(5218926.61, Account::Principal, message: 'both branches reinvested into the one HQ PRINCIPAL A/C: 5,000,000 + 218,926.61');
         $this->assertBalance(87502.20, Account::Interest, $a);
-        $this->assertBalance(2066428.81, Account::Principal, $b);
         $this->assertBalance(33571.19, Account::Interest, $b);
         $this->assertSame(TransactionType::ProfitReinvestment, JournalEntry::findOrFail($declaration->reinvestment_journal_entry_id)->transaction_type);
         $this->assertSame(['56295.41', '37530.28'], DividendAllocation::orderBy('id')->pluck('amount')->all());
@@ -323,7 +324,7 @@ class ProfitChainTest extends TestCase
         $companyId = $this->admin->company_id;
         $a = $this->branchA->id;
         $ledger = app(Ledger::class);
-        $ledger->openingBalance($companyId, Account::Principal, 1000000, 'FLOAT', $a);
+        $ledger->openingBalance($companyId, Account::Principal, 1000000, 'FLOAT');
 
         // Legacy shape: full interest to income, reserve fund line, no INTEREST RESERVE line.
         $legacy = $ledger->journal($companyId, 'LOAN RETURN LEGACY', [
@@ -553,8 +554,9 @@ class ProfitChainTest extends TestCase
         $customer = Customer::factory()->create(['company_id' => $companyId, 'branch_id' => $branch->id]);
         $category = LoanCategory::factory()->create(['company_id' => $companyId, 'insurance' => 1000, 'fee_value' => 5000]);
         $loans = app(LoanService::class);
-        if (app(Ledger::class)->balance($companyId, Account::Principal, $branch->id) < $amount) {
-            app(Ledger::class)->openingBalance($companyId, Account::Principal, $amount, 'FLOAT', $branch->id);
+        // The lending cash is HQ's (company level, no branch): the customer applies at $branch, but HQ pays.
+        if (app(Ledger::class)->balance($companyId, Account::Principal) < $amount) {
+            app(Ledger::class)->openingBalance($companyId, Account::Principal, $amount, 'FLOAT');
         }
         $loan = $loans->apply($customer, ['loan_category_id' => $category->id, 'amount_applied' => $amount, 'sessions' => 1, 'formula' => 'SIMPLE', 'fee_deduct' => true, 'reason' => 'BIASHARA']);
         $loans->approve($loan, $amount);

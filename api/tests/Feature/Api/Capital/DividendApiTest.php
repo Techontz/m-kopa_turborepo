@@ -533,7 +533,8 @@ class DividendApiTest extends TestCase
         ]);
         $this->assertSame(100000000.0, $this->ledger()->balance($companyId, Account::Capital), 'D4: reinvestment is not capital (only the opening balances)');
         $this->assertSame(7000000.0, $this->ledger()->balance($companyId, Account::ReinvestedProfit));
-        $this->assertSame(7000000.0, $this->ledger()->balance($companyId, Account::Principal, $this->admin->branch_id));
+        $this->assertSame(7000000.0, $this->ledger()->balance($companyId, Account::Principal), 'reinvested profit becomes HQ lending cash');
+        $this->assertSame(0.0, $this->ledger()->balance($companyId, Account::Principal, $this->admin->branch_id), 'a branch holds no lending money');
         $this->assertSame(0.0, $this->ledger()->balance($companyId, Account::RetainedProfit, allBranches: true));
         $this->assertSame(3000000.0, $this->ledger()->balance($companyId, Account::DividendPayable));
 

@@ -83,7 +83,7 @@ class TellerStatementCashbookTest extends TestCase
         $this->assertSame(20000, (int) $cashbook['deposit'], 'the repayment reversed today and its reversal are left out');
         $this->assertSame(100000, (int) $cashbook['withdrawal']);
         $this->assertSame(-30000, (int) $cashbook['closing']);
-        $this->assertSame((float) $cashbook['closing'], $this->balance($admin, Account::Principal, $admin->branch_id));
+        $this->assertSame((float) $cashbook['closing'], $this->balance($admin, Account::Principal), 'the cashbook closes on the HQ PRINCIPAL A/C the branch lends from');
         $this->assertSame(7000, (int) $cashbook['pending_cash'], 'unconfirmed teller cash is not in the closing balance');
     }
 }

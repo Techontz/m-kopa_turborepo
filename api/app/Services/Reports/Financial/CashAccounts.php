@@ -38,10 +38,12 @@ class CashAccounts
         'company_cash' => ['Company Cash — COMPANY ACCOUNT', [Account::Company]],
         'bank' => ['Bank accounts', [Account::Bank]],
         'investment_reserve' => ['Investment RESERVE A/C — reserve sent by HQ', [Account::InvestmentReserve]],
-        'hq_accounts' => ['HQ accounts (salary advance, disbursement, penalty, interest, reserve, loan fee, saving)', [
+        // HqPenalty and HqLoanFee are legacy: HQ runs no loan book of its own, so nothing posts to them any more
+        // ({@see Account::hqAccounts()}). They stay in the group so any historical balance is still counted as money.
+        'hq_accounts' => ['HQ accounts (salary advance, disbursement, interest, reserve, saving)', [
             Account::HqSalaryAdvance, Account::HqDisbursement, Account::HqPenalty, Account::HqInterest, Account::HqReserve, Account::HqLoanFee, Account::HqSaving,
         ]],
-        'branch_principal' => ['Branch lending cash — PRINCIPAL A/C (all branches)', [Account::Principal]],
+        'lending_cash' => ['Lending cash — PRINCIPAL A/C (HQ funds every loan)', [Account::Principal]],
         'branch_income_funds' => ['Branch income funds — INTEREST, LOAN FEE, PENALTY, RESERVE, INSURANCE A/C', [
             Account::Interest, Account::LoanFee, Account::Penalty, Account::Reserve, Account::Insurance,
         ]],

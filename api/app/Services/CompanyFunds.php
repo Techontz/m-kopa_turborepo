@@ -39,8 +39,6 @@ class CompanyFunds
 
     public const BRANCH_TO_BANK = 'branch_to_bank';
 
-    public const BANK_TO_BRANCH = 'bank_to_branch';
-
     public const BANK_TO_HQ = 'bank_to_hq';
 
     public const RESERVE_TO_INVESTMENT = 'reserve_to_investment';
@@ -113,17 +111,18 @@ class CompanyFunds
     }
 
     /**
-     * Request a bank → branch PRINCIPAL A/C or bank → HQ account movement (pending approval).
+     * Request a bank → HQ account movement (pending approval). A bank never funds a branch: branches hold only the petty
+     * cash HQ sends them.
      */
-    public function requestFromBank(int $companyId, string $type, int $bankAccountId, float $amount, float $charge, Employee $employee, ?int $branchId = null, ?Account $hqAccount = null): BankTransfer
+    public function requestFromBank(int $companyId, string $type, int $bankAccountId, float $amount, float $charge, Employee $employee, ?Account $hqAccount = null): BankTransfer
     {
         $this->ensureAmounts($amount, $charge);
 
         return BankTransfer::create([
             'company_id' => $companyId,
             'type' => $type,
-            'branch_id' => $type === self::BANK_TO_BRANCH ? $branchId : null,
-            'branch_account' => $type === self::BANK_TO_BRANCH ? Account::Principal->value : null,
+            'branch_id' => null,
+            'branch_account' => null,
             'bank_account_id' => $bankAccountId,
             'employee_id' => $employee->id,
             'hq_account' => $type === self::BANK_TO_HQ ? $hqAccount?->value : null,
@@ -251,7 +250,6 @@ class CompanyFunds
             [$from, $to, $description] = match ($locked->type) {
                 self::CASH_TO_BANK => [['account' => Account::Company], $bankLine, 'COMPANY CASH TO BANK - '.$bank->name],
                 self::BANK_TO_CASH => [$bankLine, ['account' => Account::Company], 'BANK TO COMPANY CASH - '.$bank->name],
-                self::BANK_TO_BRANCH => [$bankLine, ['account' => Account::Principal, 'branch' => $locked->branch_id], 'Bank to branch transfer'],
                 self::BANK_TO_HQ => [$bankLine, ['account' => Account::from((string) $locked->hq_account)], 'Bank to headquarter transfer'],
                 self::BRANCH_TO_BANK => [['account' => Account::from((string) $locked->branch_account), 'branch' => $locked->branch_id], $bankLine, 'Branch to bank transfer'],
                 default => throw ValidationException::withMessages(['amount' => 'Unknown transfer type']),

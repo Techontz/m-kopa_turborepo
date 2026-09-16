@@ -195,7 +195,7 @@ class CapitalController extends ApiController
         $banks = $this->bankBalances($companyId);
         $breakdown = $cash->breakdown($companyId);
         $companyCash = $this->ledger->balance($companyId, Account::Company) + 0.0;
-        $branchCash = $this->ledger->balance($companyId, Account::Principal, allBranches: true) + 0.0;
+        $lendingCash = $this->ledger->balance($companyId, Account::Principal, allBranches: true) + 0.0;
         $withdrawals = LoanTransaction::where('company_id', $companyId)->where('type', 'withdrawal')->whereNull('reversed_at')
             ->when($from, fn ($query) => $query->whereDate('transaction_date', '>=', $from->toDateString()))
             ->when($to, fn ($query) => $query->whereDate('transaction_date', '<=', $to->toDateString()));
@@ -216,9 +216,9 @@ class CapitalController extends ApiController
                 'company_cash' => $companyCash,
                 'banks' => $banks,
                 'bank_total' => round($banks->sum('balance'), 2),
-                'branch_lending_cash' => $branchCash,
-                'total_cash_and_bank' => round($companyCash + $banks->sum('balance') + $branchCash, 2),
-                'total_cash_and_bank_label' => 'Company A/C + bank accounts + branch PRINCIPAL A/C',
+                'lending_cash' => $lendingCash,
+                'total_cash_and_bank' => round($companyCash + $banks->sum('balance') + $lendingCash, 2),
+                'total_cash_and_bank_label' => 'Company A/C + bank accounts + PRINCIPAL A/C',
                 'money_groups' => $breakdown,
                 'total_money_assets' => CashAccounts::total($breakdown),
             ],

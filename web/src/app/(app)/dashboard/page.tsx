@@ -15,6 +15,7 @@ interface DashboardData {
   cards: { account_balance: number; account_balance_title: string; account_balance_label: string; loan_withdrawal: number; receivable: number; default_loan: number };
   account_balances: Record<string, number> | null;
   account_balances_total: number | null;
+  account_memos: Array<{ label: string; amount: number; tone: string }> | null;
   branch_accounts: Array<Record<string, number | string>> | null;
   today: Record<string, number | null>;
   customer_types: Array<{ label: string; route: string; all: number; active: number; pending: number; close: number; default: number; male: number; female: number }>;
@@ -253,6 +254,13 @@ export default function DashboardPage() {
                 <tr key={name}><td>{name}</td><td className="text-right">{money(amount)}</td></tr>
               ))}
               <tr><th>TOTAL:</th><th className="text-right">{money(data.account_balances_total)}</th></tr>
+              {/* Memo lines, as on the live account modal: not part of the total — what the money owes or is still to collect. */}
+              {(data.account_memos ?? []).map((memo) => (
+                <tr key={memo.label} className={`text-${memo.tone}`}>
+                  <td className="font-weight-bold">{memo.label}</td>
+                  <td className="text-right font-weight-bold">{money(memo.amount)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -262,13 +270,13 @@ export default function DashboardPage() {
         <div className="table-responsive">
           <table className="table table-bordered">
             <thead className="thead-info">
-              <tr><th>Branch Name</th><th>Principal A/c</th><th>Interest A/c</th><th>Loan fee A/c</th><th>Penalty A/c</th><th>Reserve A/c</th><th>Agent</th><th>Insurance</th></tr>
+              <tr><th>Branch Name</th><th>Petty cash</th><th>Interest A/c</th><th>Loan fee A/c</th><th>Penalty A/c</th><th>Reserve A/c</th><th>Agent</th><th>Insurance</th></tr>
             </thead>
             <tbody>
               {(data.branch_accounts ?? []).map((branch) => (
                 <tr key={String(branch.name)}>
                   <td>{branch.name}</td>
-                  {["principal", "interest", "loan_fee", "penalty", "reserve", "agent", "insurance"].map((key) => <td key={key}>{money(branch[key] as number)}</td>)}
+                  {["petty_cash", "interest", "loan_fee", "penalty", "reserve", "agent", "insurance"].map((key) => <td key={key}>{money(branch[key] as number)}</td>)}
                 </tr>
               ))}
             </tbody>

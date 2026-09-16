@@ -152,13 +152,47 @@ class DashboardStatistics
     }
 
     /**
+     * The memo lines the live account modal prints under TOTAL: today's savings deposits, what staff still owe on salary
+     * advances and the customer savings still held. None of them are part of the total — they say what some of the money
+     * is owed to (savings) or still to come back (advances).
+     *
+     * @param  list<int>|null  $branchIds  null = the whole company
+     * @return list<array{label: string, amount: float, tone: string}>
+     */
+    public function accountMemos(Company $company, ?array $branchIds = null): array
+    {
+        $inBranches = fn (Builder $query): Builder => $branchIds === null ? $query : $query->whereIn('branch_id', $branchIds);
+
+        $savingDeposit = (float) $inBranches(Saving::where('company_id', $company->id))
+            ->where('type', 'deposit')->whereNull('reversed_at')
+            ->whereDate('transaction_date', CarbonImmutable::today())->sum('amount');
+
+        $advances = $inBranches(SalaryAdvance::where('company_id', $company->id))
+            ->where('status', 'active')->withSum('payments', 'amount')->get();
+        $advanceRemaining = round($advances->sum(fn (SalaryAdvance $advance): float => $advance->remaining_amount), 2);
+
+        $savingHeld = $branchIds === null
+            ? $this->ledger->balance($company, Account::HqSaving, allBranches: true)
+            : array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($company, Account::HqSaving, $branchId), $branchIds));
+
+        return [
+            ['label' => 'Saving Deposit', 'amount' => round($savingDeposit, 2), 'tone' => 'danger'],
+            ['label' => 'Salary advance Remain', 'amount' => $advanceRemaining, 'tone' => 'primary'],
+            ['label' => 'Saving Remain', 'amount' => round($savingHeld, 2), 'tone' => 'success'],
+        ];
+    }
+
+    /**
+     * "Branch List" modal. A branch holds no lending money — HQ funds every loan — so the first column is the PETTY CASH
+     * A/C HQ sent it; the rest report the income the branch generated, which belongs to HQ.
+     *
      * @return Collection<int, array<string, mixed>>
      */
     public function branchAccounts(Company $company): Collection
     {
         return $company->branches()->get()->map(fn (Branch $branch): array => [
             'name' => $branch->name,
-            'principal' => $this->ledger->balance($company, Account::Principal, $branch),
+            'petty_cash' => $this->ledger->balance($company, Account::PettyCash, $branch),
             'interest' => $this->ledger->balance($company, Account::Interest, $branch),
             'loan_fee' => $this->ledger->balance($company, Account::LoanFee, $branch),
             'penalty' => $this->ledger->balance($company, Account::Penalty, $branch),

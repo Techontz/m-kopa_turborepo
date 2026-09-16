@@ -39,7 +39,8 @@ use Tests\TestCase;
 
 /**
  * C3 Option B — recovery after write-off: confirmed money on a written-off loan is split Principal → Penalty → Interest →
- * Insurance within what was written off (Dr PRINCIPAL A/C / Cr WRITE-OFF EXPENSE, Dr PENALTY A/C / Cr PENALTY INCOME, Dr INTEREST
+ * Insurance within what was written off. The principal goes back to the HQ PRINCIPAL A/C it was lent from (no branch), while
+ * every other account stays tagged to the branch that generated it (Dr PRINCIPAL A/C / Cr WRITE-OFF EXPENSE, Dr PENALTY A/C / Cr PENALTY INCOME, Dr INTEREST
  * A/C + RESERVE A/C / Cr INTEREST INCOME + INTEREST RESERVE (80/20), Dr INSURANCE A/C / Cr INSURANCE RESERVE). It never reopens
  * the loan, never changes its outstanding balance and never changes the write-off. Branch money waits for Finance.
  */
@@ -233,7 +234,7 @@ class LoanRecoveryTest extends TestCase
         $recovery = LoanRecovery::findOrFail($this->recover($loan, 40000)->json('data.recovery_id'));
         app(Ledger::class)->journal($this->admin->company_id, 'DEVFLOW PRINCIPAL SPENT', [
             ['account' => Account::Company, 'debit' => 30000],
-            ['account' => Account::Principal, 'branch' => $this->admin->branch_id, 'credit' => 30000],
+            ['account' => Account::Principal, 'credit' => 30000],
         ]);
 
         $this->actingAs($this->secondApprover($this->admin));

@@ -89,7 +89,7 @@ class MoneyFlowReportsTest extends TestCase
 
         $groups = collect($position['balances']['money_groups'])->keyBy('key');
         $this->assertEquals(600000, $groups['company_cash']['amount']);
-        $this->assertEquals(400000, $groups['branch_principal']['amount']);
+        $this->assertEquals(400000, $groups['lending_cash']['amount']);
         $this->assertEquals(80000 - 30000 + 20000 + 5000, $groups['branch_income_funds']['amount']);
         $this->assertEquals(round(600000 + 400000 + 75000, 2), $position['balances']['total_money_assets']);
         $this->assertEquals(1000000, $position['balances']['total_cash_and_bank']);

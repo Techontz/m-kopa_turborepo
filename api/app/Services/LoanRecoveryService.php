@@ -254,7 +254,7 @@ class LoanRecoveryService
             ]);
 
             $entry = $this->ledger->journal($loan->company_id, 'LOAN RECOVERY '.$loan->loan_number, [
-                ['account' => Account::Principal, 'branch' => $branch, 'debit' => $split['principal']],
+                ['account' => Account::Principal, 'debit' => $split['principal']],
                 ['account' => Account::WriteOffExpense, 'branch' => $branch, 'credit' => $split['principal']],
                 ['account' => Account::Penalty, 'branch' => $branch, 'debit' => $split['penalty']],
                 ['account' => Account::PenaltyIncome, 'branch' => $branch, 'credit' => $split['penalty']],

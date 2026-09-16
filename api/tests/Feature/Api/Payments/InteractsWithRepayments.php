@@ -37,9 +37,10 @@ trait InteractsWithRepayments
         ]);
         $loan->schedules()->create(['due_date' => today()->addDays(20), 'amount' => 130000]);
 
+        // The branch originates the loan (LOAN RECEIVABLE is its report), but the cash leaves the HQ PRINCIPAL A/C (no branch).
         app(Ledger::class)->journal($admin->company_id, 'LOAN DISBURSEMENT '.$loan->loan_number, [
             ['account' => Account::LoanReceivable, 'branch' => $branchId, 'debit' => 100000],
-            ['account' => Account::Principal, 'branch' => $branchId, 'credit' => 100000],
+            ['account' => Account::Principal, 'credit' => 100000],
         ], $loan);
 
         if ($penalty > 0) {

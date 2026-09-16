@@ -42,6 +42,7 @@ class DashboardController extends ApiController
             'cards' => $statistics->cards($company, $today, $branchIds, $investment),
             'account_balances' => $accountBalances,
             'account_balances_total' => $accountBalances === null ? null : round(array_sum($accountBalances), 2),
+            'account_memos' => $accountBalances === null ? null : $statistics->accountMemos($company, $branchIds),
             'branch_accounts' => $showFinance ? $statistics->branchAccounts($company)->values() : null,
             'today' => $statistics->today($company, $today, $branchIds),
             'finance_kpis' => $statistics->financeKpis($employee, [

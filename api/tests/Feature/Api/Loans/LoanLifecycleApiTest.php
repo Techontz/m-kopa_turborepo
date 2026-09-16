@@ -43,7 +43,8 @@ class LoanLifecycleApiTest extends TestCase
         $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $customerType->id]);
         $this->category = LoanCategory::factory()->forCustomerType($customerType)->create(['insurance' => 0]);
         $this->category->branches()->attach($this->admin->branch_id);
-        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 1000000, 'FLOAT', $this->admin->branch_id);
+        // Lending cash lives in the HQ PRINCIPAL A/C (no branch): the customer applies at the branch, HQ pays.
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 1000000, 'FLOAT');
     }
 
     public function test_full_lifecycle_from_application_to_active_with_ledger_schedules_and_sms(): void
@@ -75,7 +76,7 @@ class LoanLifecycleApiTest extends TestCase
         $this->assertSame(LoanStatus::Active, $loan->status);
         $this->assertCount(1, $loan->schedules);
         $this->assertEquals(100000, $ledger->balance($loan->company_id, Account::LoanReceivable, $loan->branch_id));
-        $this->assertEquals(900000, $ledger->balance($loan->company_id, Account::Principal, $loan->branch_id));
+        $this->assertEquals(900000, $ledger->balance($loan->company_id, Account::Principal), 'the cash left the HQ PRINCIPAL A/C, not a branch one');
         $this->assertDatabaseHas('loan_disbursements', ['loan_id' => $loan->id, 'status' => LoanDisbursement::SUCCESS, 'amount' => 95000]);
         $this->assertDatabaseHas('sms_logs', ['customer_id' => $this->customer->id]);
 

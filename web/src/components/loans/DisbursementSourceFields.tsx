@@ -16,7 +16,8 @@ interface DisbursementSourceFieldsProps {
 }
 
 /**
- * Finance chooses where the loan is paid from: branch cash (the branch PRINCIPAL A/C) or a company bank account.
+ * Finance chooses where the loan is paid from: HQ cash (the HQ PRINCIPAL A/C) or a company bank account. The branch takes
+ * the application, but the money always comes from HQ.
  * Shows each account's ledger balance and what this loan takes from it.
  */
 export function DisbursementSourceFields({ loanId, value, onChange, fieldError, required = true }: DisbursementSourceFieldsProps) {

@@ -169,7 +169,8 @@ class ReversalSegregationTest extends TestCase
      */
     private function disbursement(): array
     {
-        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 500000, branch: $this->admin->branch_id);
+        // The lending cash lives in the HQ PRINCIPAL A/C (no branch): the customer borrows at a branch, HQ pays.
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 500000);
         $customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'status' => 'pending']);
         $loan = Loan::factory()->create(['customer_id' => $customer->id, 'amount_approved' => 100000, 'insurance' => 0, 'fee_deduct' => false, 'loan_fee' => 0, 'status' => LoanStatus::AwaitingDisbursement]);
         $entry = app(LoanService::class)->withdraw($loan, CarbonImmutable::today(), $this->admin, 'LOAN DISBURSEMENT', 'cash');

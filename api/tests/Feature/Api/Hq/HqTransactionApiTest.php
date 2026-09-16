@@ -24,8 +24,8 @@ class HqTransactionApiTest extends TestCase
         $ledger->openingBalance($admin->company_id, Account::HqDisbursement, 7184000, date: today()->subDays(10));
 
         $this->getJson('/api/v1/hq/balances')->assertOk()
-            ->assertJsonCount(7, 'data')
-            ->assertJsonPath('data.6.name', 'SAVING ACCOUNT')
+            ->assertJsonCount(5, 'data')
+            ->assertJsonPath('data.4.name', 'SAVING ACCOUNT')
             ->assertJsonPath('total', 7382190);
 
         $this->getJson('/api/v1/hq/balances?to='.today()->subDays(5)->toDateString())->assertJsonPath('total', 7184000);

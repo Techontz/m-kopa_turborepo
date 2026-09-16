@@ -487,7 +487,9 @@ class DividendService
             if ($branch['reinvestment_amount'] <= 0) {
                 continue;
             }
-            $moves[] = ['account' => Account::Principal, 'branch' => $branch['branch_id'], 'debit' => $branch['reinvestment_amount']];
+            // Reinvested profit becomes lending money, and lending money is HQ's: the branch income accounts are emptied
+            // into the HQ PRINCIPAL A/C, never into a branch one.
+            $moves[] = ['account' => Account::Principal, 'debit' => $branch['reinvestment_amount']];
             foreach ($branch['sources'] as $source) {
                 $moves[] = ['account' => Account::from($source['account']), 'branch' => $branch['branch_id'], 'credit' => $source['amount']];
             }

@@ -616,7 +616,7 @@ class LoanWorkflow
     }
 
     /**
-     * Amount the source account decreases by when the loan is posted: the full principal from the branch PRINCIPAL
+     * Amount the source account decreases by when the loan is posted: the full principal from the HQ PRINCIPAL
      * A/C (a deducted fee is kept in the branch LOAN FEE A/C), or principal less the deducted fee from a bank account.
      */
     public function sourceOutflow(Loan $loan, string $sourceAccount): float
@@ -639,8 +639,8 @@ class LoanWorkflow
         return [
             'cash' => [
                 'value' => LoanDisbursement::SOURCE_CASH,
-                'label' => Account::Principal->label().' (CASH) - '.$loan->branch?->name,
-                'balance' => $ledger->balance($loan->company_id, Account::Principal, $loan->branch_id) + 0.0,
+                'label' => Account::Principal->label().' (HQ CASH)',
+                'balance' => $ledger->balance($loan->company_id, Account::Principal) + 0.0,
                 'required' => $this->sourceOutflow($loan, LoanDisbursement::SOURCE_CASH),
             ],
             'banks' => BankAccount::where('company_id', $loan->company_id)->orderBy('id')->get()

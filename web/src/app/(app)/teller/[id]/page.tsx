@@ -183,7 +183,7 @@ export default function TellerCustomerPage() {
                 </tbody>
               </table>
             </div>
-            <small className="text-muted">PRINCIPAL A/C ledger movements today. Pending cash (teller receipts awaiting Finance confirmation) is not part of the closing balance.</small>
+            <small className="text-muted">PRINCIPAL A/C ledger movements today — the HQ lending cash moved by this branch&apos;s loans. Pending cash (teller receipts awaiting Finance confirmation) is not part of the closing balance.</small>
           </Card>
         </div>
       </div>

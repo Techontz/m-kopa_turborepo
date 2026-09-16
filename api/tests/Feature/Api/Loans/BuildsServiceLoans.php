@@ -25,8 +25,9 @@ trait BuildsServiceLoans
         $customer = Customer::factory()->create(['company_id' => $admin->company_id, 'branch_id' => $branchId]);
         $category = LoanCategory::factory()->create(['company_id' => $admin->company_id, 'insurance' => 1000, 'fee_value' => $fee]);
         $ledger = app(Ledger::class);
-        if ($ledger->balance($admin->company_id, Account::Principal, $branchId) < $amount) {
-            $ledger->openingBalance($admin->company_id, Account::Principal, $amount, 'FLOAT', $branchId);
+        // The lending cash lives in the HQ PRINCIPAL A/C (no branch): a customer applies at a branch, but HQ always pays.
+        if ($ledger->balance($admin->company_id, Account::Principal) < $amount) {
+            $ledger->openingBalance($admin->company_id, Account::Principal, $amount, 'FLOAT');
         }
 
         $loans = app(LoanService::class);
@@ -38,13 +39,16 @@ trait BuildsServiceLoans
     }
 
     /**
+     * Balances of the given accounts for one branch. PRINCIPAL A/C is the exception: the lending cash is company level
+     * (HQ, no branch), so it is always read without a branch — a branch holds no lending money, only its PETTY CASH A/C.
+     *
      * @param  list<Account>  $accounts
      * @return array<string, float>
      */
     protected function balances(Employee $admin, array $accounts, ?int $branchId = null): array
     {
         return collect($accounts)->mapWithKeys(fn (Account $account): array => [
-            $account->value => app(Ledger::class)->balance($admin->company_id, $account, $branchId ?? $admin->branch_id),
+            $account->value => app(Ledger::class)->balance($admin->company_id, $account, $account === Account::Principal ? null : ($branchId ?? $admin->branch_id)),
         ])->all();
     }
 

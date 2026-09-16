@@ -9,8 +9,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * One disbursement attempt (batch) for a loan. Retries create a new row with a new batch id.
  *
- * The source account is where the money is paid from: SOURCE_CASH is the loan branch's PRINCIPAL A/C (the branch
- * lending cash fund that the COMPANY ACCOUNT floats money into), SOURCE_BANK is a company bank account.
+ * The source account is where the money is paid from: SOURCE_CASH is the HQ PRINCIPAL A/C (the lending cash the COMPANY
+ * ACCOUNT floats to HQ), SOURCE_BANK is a company bank account. A branch originates the loan but never funds it: the
+ * customer applies at the branch and the money comes from HQ.
  */
 class LoanDisbursement extends Model
 {
@@ -83,16 +84,16 @@ class LoanDisbursement extends Model
     {
         return $this->source_account === self::SOURCE_BANK
             ? ['account' => Account::Bank, 'bank' => (int) $this->source_bank_account_id]
-            : ['account' => Account::Principal, 'branch' => (int) $this->branch_id];
+            : ['account' => Account::Principal];
     }
 
     /**
-     * "PRINCIPAL A/C (CASH) - Kariakoo" or "BANK - NMB".
+     * "PRINCIPAL A/C (HQ CASH)" or "BANK - NMB".
      */
     public function sourceLabel(): string
     {
         return $this->source_account === self::SOURCE_BANK
             ? trim(Account::Bank->label().' - '.$this->sourceBankAccount?->name, ' -')
-            : Account::Principal->label().' (CASH)'.($this->branch ? ' - '.$this->branch->name : '');
+            : Account::Principal->label().' (HQ CASH)';
     }
 }

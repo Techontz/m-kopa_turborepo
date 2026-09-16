@@ -43,11 +43,12 @@ class FinanceAndBranchReceiptTest extends TestCase
     }
 
     /**
-     * The 100,000 / 30,000 active loan of {@see InteractsWithRepayments}, disbursed from a funded branch PRINCIPAL A/C.
+     * The 100,000 / 30,000 active loan of {@see InteractsWithRepayments}, disbursed from the funded HQ PRINCIPAL A/C
+     * (company level, no branch): a branch holds no lending money.
      */
     private function fundedLoan(): Loan
     {
-        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 100000, 'FLOAT', $this->admin->branch_id);
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 100000, 'FLOAT');
 
         return $this->activeLoan($this->admin);
     }
@@ -75,7 +76,7 @@ class FinanceAndBranchReceiptTest extends TestCase
             $this->balance($this->admin, Account::Bank, bankAccountId: $bank->id),
             $this->balance($this->admin, Account::InterestIncome, $this->admin->branch_id),
             $this->balance($this->admin, Account::InterestReserve, $this->admin->branch_id),
-            $this->balance($this->admin, Account::Principal, $this->admin->branch_id),
+            $this->balance($this->admin, Account::Principal),
         ]);
 
         $entries = JournalEntry::count();
@@ -128,7 +129,7 @@ class FinanceAndBranchReceiptTest extends TestCase
 
         $this->assertEquals(['principal' => 50000, 'penalty' => 0, 'interest' => 30000, 'insurance' => 0, 'total' => 80000], app(LoanService::class)->outstanding($loan), 'changed after approval');
         $this->assertSame(1, LoanTransaction::where('type', 'deposit')->count());
-        $this->assertEquals([0, 50000], [$this->balance($this->admin, Account::Bank, bankAccountId: $bank->id), $this->balance($this->admin, Account::Principal, $this->admin->branch_id)]);
+        $this->assertEquals([0, 50000], [$this->balance($this->admin, Account::Bank, bankAccountId: $bank->id), $this->balance($this->admin, Account::Principal)]);
         $this->assertSame([$finance->id, $bank->id], [Payment::find($receiptId)->verified_by, Payment::find($receiptId)->bank_account_id]);
         $this->actingAs($this->admin);
         $this->assertIntegrityPasses($this->admin);

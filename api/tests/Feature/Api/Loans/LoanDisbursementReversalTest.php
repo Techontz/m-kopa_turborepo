@@ -32,11 +32,11 @@ class LoanDisbursementReversalTest extends TestCase
     public function test_cash_disbursement_reversal_restores_principal_and_fee_accounts_and_cancels_the_loan(): void
     {
         $admin = $this->signInAdmin();
-        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 500000, branch: $admin->branch_id);
+        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 500000);
         $before = $this->balances($admin);
         $loan = $this->disbursedLoan($admin);
 
-        $this->assertSame(400000.0, $this->balance($admin, Account::Principal, $admin->branch_id));
+        $this->assertSame(400000.0, $this->balance($admin, Account::Principal));
         $this->assertSame(5000.0, $this->balance($admin, Account::FeeIncome, $admin->branch_id));
         $this->actingAs($approver = $this->secondApprover($admin));
         $this->getJson("/api/v1/loans/{$loan->id}")->assertOk()->assertJsonPath('data.can_reverse_disbursement', true);
@@ -79,7 +79,7 @@ class LoanDisbursementReversalTest extends TestCase
     public function test_dependent_records_block_the_reversal(): void
     {
         $admin = $this->signInAdmin();
-        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 1000000, branch: $admin->branch_id);
+        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 1000000);
         $approver = $this->secondApprover($admin);
         $reverse = fn (Loan $loan) => $this->actingAs($approver)->postJson("/api/v1/loans/{$loan->id}/reverse-disbursement", ['reason' => 'Undo']);
 
@@ -113,7 +113,7 @@ class LoanDisbursementReversalTest extends TestCase
     public function test_permission_and_company_scope(): void
     {
         $admin = $this->signInAdmin();
-        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 500000, branch: $admin->branch_id);
+        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 500000);
         $loan = $this->disbursedLoan($admin);
         $url = "/api/v1/loans/{$loan->id}/reverse-disbursement";
 
@@ -155,12 +155,17 @@ class LoanDisbursementReversalTest extends TestCase
     }
 
     /**
+     * PRINCIPAL A/C is read at company level (HQ, no branch) — the lending cash never sits in a branch account; the fee
+     * and receivable accounts stay tagged to the branch that originated the loan.
+     *
      * @return array<string, float>
      */
     private function balances(Employee $admin): array
     {
         return collect([Account::Principal, Account::LoanReceivable, Account::LoanFee, Account::FeeIncome])
-            ->mapWithKeys(fn (Account $account): array => [$account->value => $this->balance($admin, $account, $admin->branch_id)])
+            ->mapWithKeys(fn (Account $account): array => [
+                $account->value => $this->balance($admin, $account, $account === Account::Principal ? null : $admin->branch_id),
+            ])
             ->all();
     }
 }

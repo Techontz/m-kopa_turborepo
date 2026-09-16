@@ -46,7 +46,7 @@ class ReserveToInvestmentApiTest extends TestCase
     {
         $companyId = $this->admin->company_id;
 
-        $this->getJson('/api/v1/hq/balances')->assertOk()->assertJsonPath('data.4.account', Account::HqReserve->value)->assertJsonPath('data.4.balance', 400000);
+        $this->getJson('/api/v1/hq/balances')->assertOk()->assertJsonPath('data.3.account', Account::HqReserve->value)->assertJsonPath('data.3.balance', 400000);
         $this->getJson('/api/v1/dashboard')->assertOk()->assertJsonPath('data.account_balances.Reserve A/C', 0);
 
         $requester = $this->secondApprover($this->admin, 'admin');
@@ -68,7 +68,7 @@ class ReserveToInvestmentApiTest extends TestCase
             ->assertJsonPath('hq_reserve_balance', 200000)
             ->assertJsonPath('investment_reserve_balance', 200000)
             ->assertJsonPath('total', 200000);
-        $this->getJson('/api/v1/hq/balances')->assertOk()->assertJsonPath('data.4.balance', 200000);
+        $this->getJson('/api/v1/hq/balances')->assertOk()->assertJsonPath('data.3.balance', 200000);
         $this->getJson('/api/v1/dashboard')->assertOk()->assertJsonPath('data.account_balances.Reserve A/C', 200000);
 
         $this->postJson("/api/v1/bank/transfers/{$id}/reverse", ['reason' => 'Sent too early'])->assertOk()->assertJsonPath('data.status', 'reversed');

@@ -75,7 +75,7 @@ class LedgerIntegrityTest extends TestCase
     public function test_negative_funds_and_sub_ledger_differences_are_reported(): void
     {
         $ledger = app(Ledger::class);
-        $ledger->transfer($this->admin->company_id, ['account' => Account::Principal, 'branch' => $this->admin->branch_id], ['account' => Account::LoanReceivable, 'branch' => $this->admin->branch_id], 5000, 'UNTRACKED LOAN');
+        $ledger->transfer($this->admin->company_id, ['account' => Account::Principal], ['account' => Account::LoanReceivable, 'branch' => $this->admin->branch_id], 5000, 'UNTRACKED LOAN');
 
         $checks = collect(app(LedgerIntegrity::class)->run($this->admin->company_id)['checks'])->keyBy('key');
 
@@ -121,7 +121,9 @@ class LedgerIntegrityTest extends TestCase
         $holder = ShareHolder::create(['company_id' => $companyId, 'first_name' => 'ASHA', 'last_name' => 'HOLDER', 'mobile' => '0777', 'email' => 'asha@example.com', 'date_of_birth' => '1990-01-01']);
         app(CapitalContributions::class)->contribute($holder, 1000000, 'CASH', null, $this->admin);
 
-        app(FloatService::class)->companyToBranch($companyId, $branchId, 400000);
+        // The company funds HQ, never a branch: the lending cash lives in the company-level PRINCIPAL A/C (no branch).
+        $float = app(FloatService::class);
+        $float->approve($float->requestCompanyToHq($companyId, Account::Company, null, 400000, $this->admin));
 
         $loans = app(LoanService::class);
         $customer = Customer::factory()->create(['company_id' => $companyId, 'branch_id' => $branchId]);
@@ -145,7 +147,7 @@ class LedgerIntegrityTest extends TestCase
         ]);
         app(ExpenseApproval::class)->accept($expense, $this->admin, 1000, null);
 
-        $manual = app(Ledger::class)->transfer($companyId, ['account' => Account::Company], ['account' => Account::Principal, 'branch' => $branchId], 5000, 'MANUAL FLOAT');
+        $manual = app(Ledger::class)->transfer($companyId, ['account' => Account::Company], ['account' => Account::Principal], 5000, 'MANUAL FLOAT');
         // Rule 6: the employee who posted the manual entry does not reverse it.
         $this->approveAsSecondUser($this->admin, "/api/v1/accounting/journal/{$manual->id}/reverse", ['reason' => 'Posted by mistake']);
         $this->assertTrue(JournalEntry::where('reversal_of_id', $manual->id)->exists());

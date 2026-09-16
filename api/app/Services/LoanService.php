@@ -174,10 +174,11 @@ class LoanService
      * Money reaches the customer (teller cash-out, or a successful Vodacom / other-channel disbursement):
      * posts the disbursement to the ledger and starts the repayment schedule.
      *
-     * Posting: Dr LOAN RECEIVABLE (the customer's loan) / Cr the source account — the branch PRINCIPAL A/C (branch
-     * lending cash, the default) or a company bank account. A deducted loan fee is income: with the branch source it
-     * lands in the branch LOAN FEE A/C (unchanged behaviour); with a bank source it never leaves the bank, so the
-     * bank is debited back the fee. Never an expense or revenue for the principal itself.
+     * Posting: Dr LOAN RECEIVABLE (the customer's loan) / Cr the source account — the HQ PRINCIPAL A/C (the lending cash
+     * the company floats to HQ, the default) or a company bank account. HQ runs no loan book of its own: the branch takes
+     * the application and the receivable is tagged to it, but the money always leaves HQ. A deducted loan fee is income:
+     * with the HQ cash source it lands in the branch LOAN FEE A/C (the branch earned it); with a bank source it never
+     * leaves the bank, so the bank is debited back the fee. Never an expense or revenue for the principal itself.
      *
      * A fee that is NOT deducted (fee_deduct = false) is a memo only (rule 7): nothing is posted, and it never becomes part of
      * the principal, interest, penalty, repayment amount, schedules, outstanding balance or repayment allocation. An unpaid
@@ -191,9 +192,9 @@ class LoanService
             throw ValidationException::withMessages(['withdrow' => 'Only disbursed loans can be withdrawn.']);
         }
 
-        $source ??= ['account' => Account::Principal, 'branch' => $loan->branch_id];
+        $source ??= ['account' => Account::Principal];
         if (! in_array($source['account'], [Account::Principal, Account::Bank], true) || ($source['account'] === Account::Bank && empty($source['bank']))) {
-            throw new InvalidArgumentException('A loan can only be disbursed from the branch PRINCIPAL A/C or a company bank account.');
+            throw new InvalidArgumentException('A loan can only be disbursed from the HQ PRINCIPAL A/C or a company bank account.');
         }
 
         return DB::transaction(function () use ($loan, $date, $employee, $description, $channel, $source): JournalEntry {
@@ -255,6 +256,8 @@ class LoanService
      * charged (accrual_journal_entry_id set, stream P's short-lived D9) credit PENALTY RECEIVABLE instead, because their income
      * was already recognised — split per penalty, oldest first, exactly as settlePenalties() pays them.
      * Insurance cash (rule 15): Dr INSURANCE A/C / Cr INSURANCE RESERVE — never income, never distributable.
+     * The principal returns to the HQ PRINCIPAL A/C it was lent from (no branch): a branch holds no lending money, only the
+     * petty cash HQ sends it. The income accounts stay tagged to the branch, as a report of what that branch earned.
      *
      * Concurrency: the loan row is locked and the status, outstanding balance and allocation are recomputed from
      * committed data inside the transaction, so two repayments can never allocate the same balance twice. Callers
@@ -297,7 +300,7 @@ class LoanService
 
             $branch = $loan->branch_id;
             $entry = $this->ledger->journal($loan->company_id, 'LOAN RETURN '.$loan->loan_number, [
-                ['account' => Account::Principal, 'branch' => $branch, 'debit' => $allocation['principal']],
+                ['account' => Account::Principal, 'debit' => $allocation['principal']],
                 ['account' => Account::LoanReceivable, 'branch' => $branch, 'credit' => $allocation['principal']],
                 ['account' => Account::Penalty, 'branch' => $branch, 'debit' => $allocation['penalty']],
                 ['account' => Account::PenaltyReceivable, 'branch' => $branch, 'credit' => $penaltySplit['accrued']],

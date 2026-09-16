@@ -52,7 +52,8 @@ class LoanFreezeTimeApiTest extends TestCase
         $this->customerType = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id]);
         $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $this->customerType->id]);
         $this->category = $this->category(['freeze_time_days' => 30, 'topup_percent' => 0]);
-        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 5000000, 'FLOAT', $this->admin->branch_id);
+        // Lending cash lives in the HQ PRINCIPAL A/C (no branch): the customer applies at the branch, HQ pays.
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 5000000, 'FLOAT');
     }
 
     public function test_early_settlement_freezes_from_disbursement_not_from_settlement(): void

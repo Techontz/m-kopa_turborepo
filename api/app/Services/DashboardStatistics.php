@@ -103,34 +103,34 @@ class DashboardStatistics
      * branch figure is only a report of what that branch generated.
      *
      * Every account is listed, empty ones included, so the modal reads as the full account list rather than as whichever
-     * accounts happen to hold money today. The HQ accounts are prefixed "HQ " because several of them share a name with a
-     * fund pool above (PENALTY, INTEREST, RESERVE, LOAN FEE).
+     * accounts happen to hold money today. Each kind of money appears on exactly ONE row: where HQ has its own account
+     * beside a branch pool (interest, reserve, loan fee, penalty), the two are added together instead of being listed
+     * twice, and every money account is counted exactly once, so the rows still add up to the HQ Funds card.
      *
      * @return array<string, float>
      */
     public function hqFunds(Company $company): array
     {
-        $pool = fn (Account $account): float => $this->ledger->balance($company, $account, allBranches: true) + 0.0;
+        $pool = fn (Account ...$accounts): float => round(array_sum(array_map(
+            fn (Account $account): float => $this->ledger->balance($company, $account, allBranches: true), $accounts
+        )), 2) + 0.0;
 
-        $balances = [
+        return [
             'PRINCIPAL A/C' => $pool(Account::Principal),
-            'INTEREST A/C' => $pool(Account::Interest),
-            'LOAN FEE A/C' => $pool(Account::LoanFee),
-            'PENALTY A/C' => $pool(Account::Penalty),
-            'RESERVE A/C' => $pool(Account::Reserve),
+            // One row per kind of money: the interest and reserve HQ holds are the branch pools plus HQ's own account,
+            // exactly as {@see CashAccounts::hqInterest()} and {@see CashAccounts::hqReserve()} count them.
+            'INTEREST A/C' => $pool(Account::Interest, Account::HqInterest),
+            'LOAN FEE A/C' => $pool(Account::LoanFee, Account::HqLoanFee),
+            'PENALTY A/C' => $pool(Account::Penalty, Account::HqPenalty),
+            'RESERVE A/C' => $pool(Account::Reserve, Account::HqReserve),
             'INSURANCE A/C' => $pool(Account::Insurance),
             'AGENT A/C' => $pool(Account::Agent),
             'TELLER CASH A/C' => $pool(Account::TellerCash),
             'PETTY CASH A/C (branches)' => $pool(Account::PettyCash),
+            'SALARY ADVANCE A/C' => $pool(Account::HqSalaryAdvance),
+            'DISBURSEMENT A/C' => $pool(Account::HqDisbursement),
+            'SAVING A/C (held for customers)' => $pool(Account::HqSaving),
         ];
-
-        foreach ($this->hqAccounts($company)['rows'] as $row) {
-            $balances['HQ '.$row['name']] = $row['name'] === Account::HqReserve->label()
-                ? $this->ledger->balance($company, Account::HqReserve) + 0.0
-                : $row['balance'];
-        }
-
-        return $balances;
     }
 
     /**

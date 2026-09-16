@@ -222,6 +222,7 @@ class MoneyFlowReportsTest extends TestCase
         $ledger->openingBalance($companyId, Account::MotorVehicles, 7000000, 'ASSET CAPITAL');
         $ledger->openingBalance($companyId, Account::Principal, 2000000, 'FLOAT TO HQ');
         $ledger->openingBalance($companyId, Account::Interest, 150000, branch: $this->admin->branch_id);
+        $ledger->openingBalance($companyId, Account::HqInterest, 50000, 'STAFF ADVANCE INTEREST');
 
         $owner = $this->getJson('/api/v1/dashboard')->assertOk()->json('data');
         $this->assertSame('Account Balance', $owner['cards']['account_balance_title']);
@@ -232,14 +233,15 @@ class MoneyFlowReportsTest extends TestCase
         $data = $this->actingAs($finance)->getJson('/api/v1/dashboard')->assertOk()->json('data');
 
         $this->assertSame('HQ Funds', $data['cards']['account_balance_title']);
-        $this->assertEquals(2000000 + 150000, $data['cards']['account_balance'], 'the float received plus the interest HQ holds');
+        $this->assertEquals(2000000 + 150000 + 50000, $data['cards']['account_balance'], 'the float received plus the interest HQ holds');
         $this->assertSame(
-            ['PRINCIPAL A/C', 'INTEREST A/C', 'LOAN FEE A/C', 'PENALTY A/C', 'RESERVE A/C', 'INSURANCE A/C', 'AGENT A/C', 'TELLER CASH A/C', 'PETTY CASH A/C (branches)'],
-            array_slice(array_keys($data['account_balances']), 0, 9),
-            'the modal lists every account, the empty ones included, then the HQ accounts',
+            ['PRINCIPAL A/C', 'INTEREST A/C', 'LOAN FEE A/C', 'PENALTY A/C', 'RESERVE A/C', 'INSURANCE A/C', 'AGENT A/C',
+                'TELLER CASH A/C', 'PETTY CASH A/C (branches)', 'SALARY ADVANCE A/C', 'DISBURSEMENT A/C', 'SAVING A/C (held for customers)'],
+            array_keys($data['account_balances']),
+            'every account is listed, the empty ones included, and each kind of money exactly once',
         );
         $this->assertEquals(0, $data['account_balances']['LOAN FEE A/C']);
-        $this->assertArrayHasKey('HQ '.Account::HqReserve->label(), $data['account_balances']);
+        $this->assertEquals(150000 + 50000, $data['account_balances']['INTEREST A/C'], 'the branch pool and the HQ account are one row, never two');
         $this->assertEquals($data['cards']['account_balance'], $data['account_balances_total']);
         $this->assertArrayNotHasKey('Company A/C', $data['account_balances']);
         $this->assertArrayNotHasKey('Assets', $data['account_balances']);

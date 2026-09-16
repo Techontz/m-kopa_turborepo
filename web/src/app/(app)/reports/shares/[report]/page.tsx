@@ -12,6 +12,7 @@ import { SharesNav } from "@/components/shares/SharesNav";
 import { sharesLabel } from "@/components/shares/shares";
 import type { RegisterRow, ShareTransaction, ShareValuation } from "@/components/shares/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
@@ -102,7 +103,7 @@ export default function ShareReportPage() {
           </div>
         }
       >
-        {isLoading && <div className="mf-loading">Loading...</div>}
+        {isLoading && <Loading />}
 
         {slug === "ownership" && data !== undefined && (() => {
           const ownership = data as OwnershipReport;

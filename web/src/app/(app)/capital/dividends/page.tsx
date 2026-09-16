@@ -29,6 +29,7 @@ import { ApprovalActions, ApprovalStatus } from "@/components/finance/Approval";
 import { SummaryTiles, styles } from "@/components/financial-reports/ReportShell";
 import { sharesLabel } from "@/components/shares/shares";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -42,7 +43,7 @@ import { useAction, useApi } from "@/lib/hooks";
 function ErrorOrLoading({ isLoading, error }: { isLoading: boolean; error: unknown }) {
   const status = loadState({ isLoading, error });
   if (status.state === "loading") {
-    return <div className="mf-loading">{status.message}</div>;
+    return <Loading message={status.message} />;
   }
   return status.state === "error" ? <div className="alert alert-danger mb-0">{status.message}</div> : null;
 }

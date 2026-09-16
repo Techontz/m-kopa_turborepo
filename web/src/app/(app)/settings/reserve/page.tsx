@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAction, useApi } from "@/lib/hooks";
 
@@ -35,7 +36,7 @@ export default function ReserveSettingPage() {
   return (
     <>
       <PageHeader crumbs={["Reserve Setting"]} />
-      <Card title="Reserve Setting">{data ? <ReserveForm key={data.reserve} reserve={data.reserve} /> : <div className="mf-loading">Loading...</div>}</Card>
+      <Card title="Reserve Setting">{data ? <ReserveForm key={data.reserve} reserve={data.reserve} /> : <Loading />}</Card>
     </>
   );
 }

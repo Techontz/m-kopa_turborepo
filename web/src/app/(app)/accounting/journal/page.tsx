@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BranchScopeSelect } from "@/components/accounting/BranchScopeSelect";
 import type { JournalEntry } from "@/components/accounting/types";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -160,7 +161,7 @@ export default function JournalEntriesPage() {
 
       <Modal open={viewing !== null} onClose={() => setViewing(null)} title={detail ? `Journal Entry ${detail.reference}` : "Journal Entry"} size="lg">
         {!detail || detail.id !== viewing ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <>
             <table className="table table-sm table-borderless mb-3">

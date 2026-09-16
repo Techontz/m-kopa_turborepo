@@ -81,3 +81,44 @@ select.form-control { appearance: none; padding-right: 2rem; background-image: l
     .card > .header { padding: .85rem 1rem .7rem; }
     .dashboard-stat h4 { font-size: 1.4rem; }
 }
+
+/* ---------------------------------------------------------------- The loader ({@see components/ui/Loading}) */
+.mf-loading-backdrop { background: color-mix(in srgb, var(--mf-overlay) 70%, transparent); }
+.mf-loading-popup {
+    position: fixed;
+    inset: 0;
+    z-index: 1051;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+.mf-loading-card {
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+    min-width: 210px;
+    padding: 1.1rem 1.4rem;
+    border-radius: var(--mf-radius);
+    background: var(--mf-surface);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
+    animation: mf-loading-in .16s ease-out;
+}
+.mf-loading-spinner {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 50%;
+    border: 3px solid color-mix(in srgb, var(--mf-blue) 25%, transparent);
+    border-top-color: var(--mf-blue);
+    animation: mf-loading-spin .7s linear infinite;
+}
+.mf-loading-text { font-size: .95rem; font-weight: 600; color: var(--mf-heading); }
+
+@keyframes mf-loading-spin { to { transform: rotate(360deg); } }
+@keyframes mf-loading-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .mf-loading-spinner { animation-duration: 2s; }
+    .mf-loading-card { animation: none; }
+}

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { AccountingPeriod, PeriodResult } from "@/components/accounting/types";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -124,7 +125,7 @@ export default function PeriodClosePage() {
           actions={period?.status === "closed" ? <Badge tone="danger"><i className="icon-lock" /> LOCKED</Badge> : undefined}
         >
           {loadingPeriod || !period ? (
-            <div className="mf-loading">Loading...</div>
+            <Loading />
           ) : (
             <div className="table-responsive">
               <table className="table table-hover table-custom mf-table text-nowrap">

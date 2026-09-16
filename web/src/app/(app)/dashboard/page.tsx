@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
@@ -55,7 +56,7 @@ export default function DashboardPage() {
   const [branchesOpen, setBranchesOpen] = useState(false);
 
   if (isLoading || !data) {
-    return <div className="mf-loading">Loading...</div>;
+    return <Loading />;
   }
 
   const t = data.today;

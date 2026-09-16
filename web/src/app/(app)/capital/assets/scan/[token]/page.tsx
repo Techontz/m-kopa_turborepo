@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 
 import { identifierSummary, statusTone, type AssetRow } from "@/components/capital/assets/assets";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ApiError } from "@/lib/api";
@@ -29,7 +30,7 @@ export default function AssetScanPage() {
       <div className="row clearfix justify-content-center">
         <div className="col-lg-6 col-md-8">
           {!canView && <Card title="Asset Scan"><p className="mb-0">You do not have permission to view assets.</p></Card>}
-          {isLoading && <Card><div className="mf-loading">Loading...</div></Card>}
+          {isLoading && <Card><Loading /></Card>}
           {status !== null && <Card title="Asset Scan"><p className="mb-0">{status === 404 ? "No asset matches this QR code." : status === 403 ? "You do not have permission to view assets." : "The asset could not be loaded."}</p></Card>}
           {asset && (
             <Card title={<>{asset.asset_code} <Badge tone={statusTone(asset.status)}>{asset.status_label.toUpperCase()}</Badge></>}>

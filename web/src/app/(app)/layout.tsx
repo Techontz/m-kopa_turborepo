@@ -8,6 +8,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { redirectFor, shellFor } from "@/lib/shareholderMenu";
+import { Loading } from "@/components/ui/Loading";
 
 /** Pages that use the live system's orange frame and Ubuntu font (dashboard and teller screens). */
 const ORANGE_THEME = ["/dashboard", "/teller/"];
@@ -45,7 +46,7 @@ function Shell({ children }: { children: ReactNode }) {
   }, [pathname, sidebarOpen, shareholder]);
 
   if (isLoading || !user || redirect) {
-    return <div className="mf-loading" style={{ marginTop: 120 }}>Loading...</div>;
+    return <Loading />;
   }
 
   if (shareholder) {

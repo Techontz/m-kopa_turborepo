@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { SelectBox } from "@/components/ui/SelectBox";
@@ -159,7 +160,7 @@ export function GoalDetailModal({ goalId, onClose }: { goalId: number | null; on
   return (
     <Modal open={goalId !== null} onClose={onClose} title={goal?.title ?? "Goal"} size="xl">
       {!data || !goal ? (
-        <div className="mf-loading">Loading...</div>
+        <Loading />
       ) : (
         <>
           <div className="row mb-3">

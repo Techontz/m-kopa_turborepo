@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { LoanCategoryFields, toLoanCategoryForm, type LoanCategory, type LoanCategoryForm } from "@/components/settings/LoanCategoryFields";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAction, useApi } from "@/lib/hooks";
 
@@ -33,7 +34,7 @@ export default function EditLoanCategoryPage() {
     <>
       <PageHeader crumbs={["Edit Loan Category"]} />
       <Card title="Loan Category" actions={<Link href="/settings/loan-categories" className="btn btn-primary"><i className="icon-arrow-left-circle" /></Link>}>
-        {isLoading || !category ? <div className="mf-loading">Loading...</div> : <EditForm key={category.id} category={category} />}
+        {isLoading || !category ? <Loading /> : <EditForm key={category.id} category={category} />}
       </Card>
     </>
   );

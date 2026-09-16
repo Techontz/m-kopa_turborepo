@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import type { PortalProfile } from "@/components/shareholders/portal";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PassportPhotoField } from "@/components/ui/PassportPhotoField";
@@ -22,7 +23,7 @@ export default function ShareholderProfilePage() {
   const update = useAction<FormData>("post", "portal/shareholder/profile");
 
   if (!data) {
-    return <div className="mf-loading">Loading...</div>;
+    return <Loading />;
   }
 
   const form = edit ?? { email: data.email, mobile: data.mobile, photo: null };

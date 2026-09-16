@@ -6,6 +6,7 @@ import { SegmentTable, type SegmentRow } from "@/components/reports/SegmentTable
 import { ReportBarChart } from "@/components/reports/ReportChart";
 import { cleanQuery, FilterModal, PrintButton, SearchButton, type ReportFilters } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useApi } from "@/lib/hooks";
 
@@ -21,7 +22,7 @@ export default function AgeAnalysisPage() {
 
       <Card title="Age Analysis" actions={<><SearchButton onClick={() => setFiltering(true)} /><PrintButton /></>}>
         {isLoading || !data ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <>
             <div className="row">

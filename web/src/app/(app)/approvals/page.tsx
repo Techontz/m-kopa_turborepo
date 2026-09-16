@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { approvableCount, approvalState, visibleGroups, type PendingApprovalRow, type PendingApprovals } from "@/components/finance/pendingApprovals";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -39,7 +40,7 @@ export default function PendingApprovalsPage() {
             }
           >
             {error && <div className="alert alert-danger">{error instanceof Error ? error.message : "Pending approvals could not be loaded."}</div>}
-            {isLoading && <div className="mf-loading">Loading...</div>}
+            {isLoading && <Loading />}
             {data && (
               <div className="d-flex flex-wrap">
                 {data.groups.map((group) => (

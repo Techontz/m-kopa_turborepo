@@ -5,6 +5,7 @@ import Link from "next/link";
 import { STATUS_LABEL, STATUS_TONE, ownership, type PortalCapital, type PortalDashboard } from "@/components/shareholders/portal";
 import { Tile } from "@/components/shareholders/Tile";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/lib/auth";
 import { date, money } from "@/lib/format";
@@ -20,7 +21,7 @@ export default function ShareholderDashboardPage() {
     return <Card title="Shareholder Portal"><p className="mb-0">Your account has no access to the shareholder dashboard.</p></Card>;
   }
   if (isLoading || !data) {
-    return <div className="mf-loading">{error ? "Unable to load your dashboard." : "Loading..."}</div>;
+    return <Loading message={error ? "Unable to load your dashboard." : "Loading..."} />;
   }
 
   return (

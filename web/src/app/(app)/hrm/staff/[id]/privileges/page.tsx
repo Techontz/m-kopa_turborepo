@@ -18,6 +18,7 @@ import {
   type PrivilegeRow,
 } from "@/components/hrm/staffActions";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -243,7 +244,7 @@ export default function StaffPrivilegesPage() {
           <Link href="/hrm/staff" className="btn btn-primary btn-sm"><i className="icon-logout" /> Back</Link>
         </Card>
       )}
-      {isLoading && <Card><p className="mb-0 mf-loading">Loading...</p></Card>}
+      {isLoading && <Card><Loading /></Card>}
 
       {data && (
         <>

@@ -24,6 +24,7 @@ import {
 import { toastError, toastSuccess } from "@/components/customers/toast";
 import type { Customer, CustomerType, MasterData } from "@/components/customers/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { confirmAction, promptReason } from "@/components/ui/notify";
@@ -63,7 +64,7 @@ export default function CustomerProfilePage() {
     return (
       <>
         <PageHeader crumbs={["Customer", "Customer Profile"]} />
-        <Card><p className="mf-loading">{isLoading ? "Loading..." : error instanceof ApiError && error.status === 404 ? "Customer not found" : "The customer could not be loaded."}</p></Card>
+        <Card><Loading message={isLoading ? "Loading..." : error instanceof ApiError && error.status === 404 ? "Customer not found" : "The customer could not be loaded."} /></Card>
       </>
     );
   }

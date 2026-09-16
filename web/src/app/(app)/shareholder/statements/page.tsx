@@ -5,6 +5,7 @@ import { useState } from "react";
 import { defaultStatementRange, ownership, type PortalStatement } from "@/components/shareholders/portal";
 import { CsvButton } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { notifyError } from "@/components/ui/notify";
 import { api } from "@/lib/api";
@@ -58,7 +59,7 @@ export default function ShareholderStatementsPage() {
 
       <Card title="Shareholder Statement">
         {isLoading || !data ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <>
             <div className="row mb-3">

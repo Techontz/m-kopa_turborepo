@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { BroadcastModal, GroupModal, NewMessageModal } from "@/components/messages/ComposeModals";
 import type { ContactsResponse, ConversationSummary, ConversationThread } from "@/components/messages/types";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { notifyError } from "@/components/ui/notify";
@@ -94,7 +95,7 @@ export default function MessagesPage() {
           >
             <input type="search" className="form-control mb-2" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
             <div className={styles.list}>
-              {conversations.isLoading && <div className="mf-loading">Loading...</div>}
+              {conversations.isLoading && <Loading />}
               {!conversations.isLoading && list.length === 0 && <p className="text-center text-muted py-3 mb-0">No conversations yet</p>}
               {list.map((conversation) => (
                 <button type="button" key={conversation.id} className={`${styles.item} ${selected === conversation.id ? styles.itemActive : ""}`} onClick={() => void openConversation(conversation.id)}>
@@ -119,7 +120,7 @@ export default function MessagesPage() {
             {selected === null ? (
               <p className="text-center text-muted py-5 mb-0">Select a conversation or start a new message</p>
             ) : thread.isLoading || !thread.data ? (
-              <div className="mf-loading">Loading...</div>
+              <Loading />
             ) : (
               <>
                 <div className="mb-2">

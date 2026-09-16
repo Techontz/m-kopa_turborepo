@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ReportBarChart } from "@/components/reports/ReportChart";
 import { cleanQuery, CsvButton, FilterModal, PrintButton, SearchButton, Stat, StatusBadge, type ReportFilters } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
@@ -71,7 +72,7 @@ export default function ArrearsPage() {
 
       <Card title="Portfolio at Risk (PAR)" actions={<><SearchButton onClick={() => setFiltering(true)} /><PrintButton /></>}>
         {isLoading || !s ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <>
             <div className="row">

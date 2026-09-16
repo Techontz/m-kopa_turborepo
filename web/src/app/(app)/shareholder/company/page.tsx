@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PortalStructure } from "@/components/shareholders/portal";
 import { Tile } from "@/components/shareholders/Tile";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
@@ -20,7 +21,7 @@ export default function ShareholderCompanyPage() {
     <>
       <PageHeader crumbs={["Shareholder", "Company Shares"]} right={<Link href="/shareholder/directory" className="btn btn-info btn-sm">Share distribution</Link>} />
       {isLoading || !data ? (
-        <div className="mf-loading">Loading...</div>
+        <Loading />
       ) : (
         <>
           <div className="row sh-tiles">

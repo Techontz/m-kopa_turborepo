@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 
 import { PrintButton, TotalsRow } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox, type Option } from "@/components/ui/SelectBox";
@@ -181,7 +182,7 @@ function StatementReport() {
  */
 export default function CustomerStatementPage() {
   return (
-    <Suspense fallback={<div className="mf-loading">Loading...</div>}>
+    <Suspense fallback={<Loading />}>
       <StatementReport />
     </Suspense>
   );

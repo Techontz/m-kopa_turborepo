@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ReportBarChart } from "@/components/reports/ReportChart";
 import { cleanQuery, CsvButton, FilterModal, PrintButton, ReportTabs, SearchButton, Stat, type ReportFilters } from "@/components/reports/ReportKit";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -68,7 +69,7 @@ export default function BehaviourPage() {
 
       <Card title="Days Past Due (DPD)" actions={<><SearchButton onClick={() => setFiltering(true)} /><PrintButton /></>}>
         {isLoading || !data ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <>
             <div className="row">

@@ -8,6 +8,7 @@ import { AssetActionModal, AssetHistoryTable, type AssetAction } from "@/compone
 import { findType, isAwaitingApproval, isTerminal, statusTone, type AssetConfig, type AssetDetail } from "@/components/capital/assets/assets";
 import { ApprovalActions } from "@/components/finance/Approval";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -53,7 +54,7 @@ export default function AssetDetailPage() {
   return (
     <>
       <PageHeader crumbs={["Capital", "Assets", asset?.asset_code ?? "Asset"]} right={<Link href="/capital/assets" className="btn btn-secondary"><i className="icon-arrow-left" /> Asset Registry</Link>} />
-      {isLoading && <Card><div className="mf-loading">Loading...</div></Card>}
+      {isLoading && <Card><Loading /></Card>}
       {asset && (
         <>
           <div className="row clearfix">

@@ -10,6 +10,7 @@ import { SharesNav } from "@/components/shares/SharesNav";
 import { sharesLabel } from "@/components/shares/shares";
 import type { SharesOverview } from "@/components/shares/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
@@ -39,7 +40,7 @@ export default function SharesOverviewPage() {
       />
       <SharesNav />
 
-      {isLoading && <Card><div className="mf-loading">Loading...</div></Card>}
+      {isLoading && <Card><Loading /></Card>}
 
       {data && !data.has_structure && (
         <Card title="Share Structure">

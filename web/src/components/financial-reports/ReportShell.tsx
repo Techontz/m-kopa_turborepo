@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -140,7 +141,7 @@ export function ReportFrame({ title, filter, onFilter, dates = "range", error, l
         {error ? (
           <div className="alert alert-danger">{error instanceof ApiError ? error.firstError : "Unable to load the report."}</div>
         ) : loading ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           children
         )}

@@ -7,6 +7,7 @@ import { useState } from "react";
 import { FreezeStatus } from "@/components/loans/FreezeStatus";
 import type { CustomerFreeze } from "@/components/loans/freeze";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { confirmAction } from "@/components/ui/notify";
 import { api, ApiError, backendUrl } from "@/lib/api";
 import { money } from "@/lib/format";
@@ -68,7 +69,7 @@ export function OverviewTab({ customer, overview }: { customer: Customer; overvi
 
       <div className="mf-section-title">Loan Eligibility</div>
       {!eligibility ? (
-        <p className="mf-loading">Loading...</p>
+        <Loading />
       ) : (
         <>
           <FreezeStatus freeze={eligibility.freeze} eligible={eligibility.eligible} />
@@ -78,7 +79,7 @@ export function OverviewTab({ customer, overview }: { customer: Customer; overvi
 
       <div className="mf-section-title">Loans</div>
       {!overview ? (
-        <p className="mf-loading">Loading...</p>
+        <Loading />
       ) : (
         <>
           <dl className="mf-dl">
@@ -144,7 +145,7 @@ export function KycTab({ customer }: { customer: Customer }) {
     <>
       <div className="mf-section-title">KYC status</div>
       {isLoading || !data ? (
-        <p className="mf-loading">Loading...</p>
+        <Loading />
       ) : (
         <>
           <p className="mb-2">{data.kycStatus === "completed" ? <Badge tone="success">KYC complete</Badge> : <Badge tone="warning">KYC incomplete</Badge>}</p>
@@ -185,7 +186,7 @@ export { FaceKycTab } from "./FaceKycTab";
 export function TimelineTab({ customerId }: { customerId: number }) {
   const { data, isLoading } = useApi<Array<{ at: string | null; type: string; title: string; description: string | null; byName: string | null }>>(`customers/${customerId}/timeline`);
   if (isLoading) {
-    return <p className="mf-loading">Loading...</p>;
+    return <Loading />;
   }
   if (!data || data.length === 0) {
     return <p className="text-muted">Nothing has happened on this record yet.</p>;
@@ -300,7 +301,7 @@ export function DocumentsTab({ customerId, canManage, masterData }: { customerId
         </div>
       )}
       {isLoading ? (
-        <p className="mf-loading">Loading...</p>
+        <Loading />
       ) : (
         <div className="table-responsive">
           <table className="table table-hover table-custom mf-table">
@@ -377,7 +378,7 @@ export function NotesTab({ customerId, canManage }: { customerId: number; canMan
         </div>
       )}
       {isLoading ? (
-        <p className="mf-loading">Loading...</p>
+        <Loading />
       ) : (data ?? []).length === 0 ? (
         <p className="text-muted">No notes yet.</p>
       ) : (

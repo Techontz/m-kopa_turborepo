@@ -7,6 +7,7 @@ import { useState } from "react";
 import { AssetLabel, labelSheetClass } from "@/components/capital/assets/AssetLabel";
 import type { AssetRow } from "@/components/capital/assets/assets";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/hooks";
@@ -40,7 +41,7 @@ export default function AssetLabelPage() {
         }
       >
         {!canView && <p className="mb-0">You do not have permission to view the asset registry.</p>}
-        {isLoading && <div className="mf-loading">Loading...</div>}
+        {isLoading && <Loading />}
         {asset && (
           <div className={labelSheetClass}>
             {Array.from({ length: copies }, (_, index) => <AssetLabel key={index} asset={asset} />)}

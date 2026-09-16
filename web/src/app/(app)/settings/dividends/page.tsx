@@ -7,6 +7,7 @@ import { settingsTotal } from "@/components/dividends/dividends";
 import type { DividendSettings } from "@/components/dividends/types";
 import { styles } from "@/components/financial-reports/ReportShell";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
@@ -65,7 +66,7 @@ export default function DividendSettingsPage() {
         ) : data ? (
           <DividendSettingsForm key={`${data.dividend_percent}-${data.reinvest_percent}`} settings={data} />
         ) : (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         )}
       </Card>
     </>

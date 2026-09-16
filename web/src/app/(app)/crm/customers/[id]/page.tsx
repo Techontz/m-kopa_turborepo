@@ -8,6 +8,7 @@ import { RecordCallModal, SendSmsModal, TicketModal, UpdateTicketModal } from "@
 import { StatTile } from "@/components/crm/Tabs";
 import { FOLLOW_UP_TONE, PRIORITY_TONE, TICKET_STATUS_TONE, type Interaction, type Ticket } from "@/components/crm/types";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -33,7 +34,7 @@ export default function CrmCustomerPage() {
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
 
   if (isLoading || !data) {
-    return <div className="mf-loading">Loading...</div>;
+    return <Loading />;
   }
 
   const { customer } = data;

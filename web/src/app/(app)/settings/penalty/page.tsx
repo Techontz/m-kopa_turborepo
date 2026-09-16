@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { confirmAction } from "@/components/ui/notify";
 import { money } from "@/lib/format";
@@ -75,7 +76,7 @@ export default function PenaltySettingPage() {
   return (
     <>
       <PageHeader crumbs={["Penalty Setting"]} />
-      <Card title="Penalty Setting">{data ? <PenaltyForm key={`${data.action_penart}-${data.penart}`} setting={data} /> : <div className="mf-loading">Loading...</div>}</Card>
+      <Card title="Penalty Setting">{data ? <PenaltyForm key={`${data.action_penart}-${data.penart}`} setting={data} /> : <Loading />}</Card>
       <Card title="Penalty Setting">
         <div className="table-responsive">
           <table className="table table-hover dataTable table-custom">
@@ -98,7 +99,7 @@ export default function PenaltySettingPage() {
           </table>
         </div>
       </Card>
-      <Card title="Default Freeze Time for New Loan Categories">{freeze ? <LoanFreezeForm key={freeze.loan_freeze_days} days={freeze.loan_freeze_days} /> : <div className="mf-loading">Loading...</div>}</Card>
+      <Card title="Default Freeze Time for New Loan Categories">{freeze ? <LoanFreezeForm key={freeze.loan_freeze_days} days={freeze.loan_freeze_days} /> : <Loading />}</Card>
     </>
   );
 }

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ReportBarChart } from "@/components/reports/ReportChart";
 import { cleanQuery, CsvButton, FilterModal, PrintButton, SearchButton, Stat, TotalsRow, type ReportFilters } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
@@ -79,7 +80,7 @@ export default function LoanPortfolioPage() {
         actions={<><SearchButton onClick={() => setFiltering(true)} /><PrintButton /></>}
       >
         {isLoading || !s ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <div className="row">
             <Stat tone="primary" label="Total Loans Issued" value={`${s.issued_count} / ${money(s.issued_amount)}`} />

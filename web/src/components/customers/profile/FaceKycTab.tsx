@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Modal } from "@/components/ui/Modal";
 import { confirmAction } from "@/components/ui/notify";
 import { backendUrl } from "@/lib/api";
@@ -91,7 +92,7 @@ export function FaceKycTab({ customer, canManage, onVerified }: { customer: Cust
   );
 
   if (isLoading) {
-    return <p className="mf-loading">Loading...</p>;
+    return <Loading />;
   }
 
   if (!scan) {

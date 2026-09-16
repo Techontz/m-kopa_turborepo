@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { changedPolicies, type ApprovalPolicyRow } from "@/components/finance/pendingApprovals";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/lib/auth";
 import { useAction, useApi } from "@/lib/hooks";
@@ -69,7 +70,7 @@ export default function ApprovalPolicyPage() {
         ) : data ? (
           <PolicyForm key={data.map((row) => `${row.workflow}:${row.allow_self_approval}`).join("|")} policies={data} />
         ) : (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         )}
       </Card>
     </>

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ReportBarChart } from "@/components/reports/ReportChart";
 import { cleanQuery, CsvButton, FilterModal, PrintButton, SearchButton, Stat, TotalsRow, type ReportFilters } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -60,7 +61,7 @@ export default function CollectionsPage() {
 
       <Card title={`Expected vs Actual Collection${data ? ` / ${data.filter.from} - ${data.filter.to}` : ""}`} actions={<><SearchButton onClick={() => setFiltering(true)} /><PrintButton /></>}>
         {isLoading || !data ? (
-          <div className="mf-loading">Loading...</div>
+          <Loading />
         ) : (
           <>
             <div className="row">

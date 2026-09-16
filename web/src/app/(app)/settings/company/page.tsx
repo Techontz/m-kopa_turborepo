@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox } from "@/components/ui/SelectBox";
@@ -127,7 +128,7 @@ export default function CompanySettingPage() {
   const { data: company } = useApi<Company>("settings/company");
 
   if (!company) {
-    return <div className="mf-loading">Loading...</div>;
+    return <Loading />;
   }
 
   return (

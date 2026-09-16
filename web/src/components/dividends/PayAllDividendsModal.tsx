@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Field } from "@/components/ui/Field";
+import { Loading } from "@/components/ui/Loading";
 import { Modal } from "@/components/ui/Modal";
 import { useAction, useApi } from "@/lib/hooks";
 import { newIdempotencyKey } from "@/lib/idempotency";
@@ -94,7 +95,7 @@ export function PayAllDividendsModal({ declarationId, periodLabel, onClose }: { 
         }
       }}
     >
-      {status.state === "loading" && <div className="mf-loading">{status.message}</div>}
+      {status.state === "loading" && <Loading message={status.message} />}
       {status.state === "error" && <div className="alert alert-danger">{status.message}</div>}
       {payAll.fieldError("expected_total") && <div className="alert alert-warning">{payAll.fieldError("expected_total")}</div>}
       {totals && (

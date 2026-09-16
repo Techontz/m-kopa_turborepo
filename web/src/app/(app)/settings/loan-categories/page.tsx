@@ -8,6 +8,7 @@ import type { CustomerType } from "@/components/customers/types";
 import { CUSTOMER_TYPE_OPTIONS_ENDPOINT, customerTypeFilterOptions, LOAN_CATEGORY_COLUMNS } from "@/components/settings/loanHierarchy";
 import { EMPTY_LOAN_CATEGORY, freezeTimeLabel, LoanCategoryFields, type LoanCategory, type LoanCategoryForm } from "@/components/settings/LoanCategoryFields";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
@@ -137,7 +138,7 @@ function LoanCategoriesList() {
 
 export default function LoanCategoriesPage() {
   return (
-    <Suspense fallback={<div className="mf-loading">Loading...</div>}>
+    <Suspense fallback={<Loading />}>
       <LoanCategoriesList />
     </Suspense>
   );

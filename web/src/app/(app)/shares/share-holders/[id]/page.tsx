@@ -11,6 +11,7 @@ import { SharesNav } from "@/components/shares/SharesNav";
 import { sharesLabel } from "@/components/shares/shares";
 import type { ShareProfile } from "@/components/shares/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { backendUrl } from "@/lib/api";
@@ -32,7 +33,7 @@ export default function ShareProfilePage() {
     <SharesAccess crumbs={["Shares", "Share Profile"]}>
       <PageHeader crumbs={["Shares", "Shareholders", holder?.name ?? "Share Profile"]} right={<Link href="/shares/share-holders" className="btn btn-secondary"><i className="icon-arrow-left" /> Shareholders</Link>} />
       <SharesNav />
-      {isLoading && <Card><div className="mf-loading">Loading...</div></Card>}
+      {isLoading && <Card><Loading /></Card>}
       {data && holder && (
         <>
           <div className="row clearfix">

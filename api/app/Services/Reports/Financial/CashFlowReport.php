@@ -40,6 +40,7 @@ class CashFlowReport
     public const CATEGORIES = [
         'loan_principal' => ['Loan repayments (principal)', 'Loan disbursement'],
         'interest' => ['Loan repayments (interest)', 'Interest refunded'],
+        'salary_advance' => ['Salary advance income', 'Salary advance income refunded'],
         'penalty' => ['Penalties', 'Penalties refunded'],
         'fees' => ['Fees', 'Fees refunded'],
         'insurance' => ['Insurance', 'Insurance refunded'],
@@ -290,6 +291,7 @@ class CashFlowReport
         return match (Account::tryFrom($key)) {
             Account::LoanReceivable => 'loan_principal',
             Account::InterestIncome, Account::OutstandingInterest => 'interest',
+            Account::SalaryAdvanceIncome => 'salary_advance',
             Account::PenaltyIncome => 'penalty',
             Account::FeeIncome => 'fees',
             Account::InsuranceIncome => 'insurance',

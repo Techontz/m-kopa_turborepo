@@ -183,7 +183,7 @@ class PeriodClose
     /**
      * Company-wide monthly figures (same columns as a branch result, without loss carry forward).
      *
-     * @return array{interest_income: float, reserve_amount: float, fee_income: float, penalty_income: float, recovery_income: float, total_income: float, expenses: float, gross_profit: float}
+     * @return array{interest_income: float, reserve_amount: float, salary_advance_income: float, fee_income: float, penalty_income: float, recovery_income: float, total_income: float, expenses: float, gross_profit: float}
      */
     public function companyResult(Company|int $company, CarbonInterface $month): array
     {
@@ -191,7 +191,7 @@ class PeriodClose
         [$start, $end] = $this->monthBounds($month);
         $figures = $this->figures($companyId, $start, $end);
 
-        $sum = ['interest_income' => 0.0, 'reserve_amount' => 0.0, 'fee_income' => 0.0, 'penalty_income' => 0.0, 'recovery_income' => 0.0, 'total_income' => 0.0, 'expenses' => 0.0, 'gross_profit' => 0.0];
+        $sum = ['interest_income' => 0.0, 'reserve_amount' => 0.0, 'salary_advance_income' => 0.0, 'fee_income' => 0.0, 'penalty_income' => 0.0, 'recovery_income' => 0.0, 'total_income' => 0.0, 'expenses' => 0.0, 'gross_profit' => 0.0];
         foreach ($figures['branches'] as $branchId) {
             $row = $this->incomeFigures($figures, $branchId);
             foreach ($sum as $key => $value) {
@@ -244,7 +244,7 @@ class PeriodClose
 
     /**
      * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, offsets: Collection<int|string, float>, branches: list<int>}  $figures
-     * @return array{interest_income: float, reserve_amount: float, fee_income: float, penalty_income: float, recovery_income: float, total_income: float, expenses: float, gross_profit: float}
+     * @return array{interest_income: float, reserve_amount: float, salary_advance_income: float, fee_income: float, penalty_income: float, recovery_income: float, total_income: float, expenses: float, gross_profit: float}
      */
     private function incomeFigures(array $figures, int $branchId): array
     {
@@ -260,15 +260,17 @@ class PeriodClose
 
         $reserve = (float) ($figures['reserve'][$branchId] ?? 0);
         $interest = round($net(Account::InterestIncome) - (float) ($figures['legacy_reserve'][$branchId] ?? 0), 2);
+        $salaryAdvance = $net(Account::SalaryAdvanceIncome);
         $fee = $net(Account::FeeIncome);
         $penalty = $net(Account::PenaltyIncome);
         $recovery = $net(Account::RecoveryIncome);
-        $total = round($interest + $fee + $penalty + $recovery, 2);
+        $total = round($interest + $salaryAdvance + $fee + $penalty + $recovery, 2);
         $expenses = round(array_sum(array_map($net, self::EXPENSE_ACCOUNTS)), 2);
 
         return [
             'interest_income' => $interest,
             'reserve_amount' => $reserve,
+            'salary_advance_income' => $salaryAdvance,
             'fee_income' => $fee,
             'penalty_income' => $penalty,
             'recovery_income' => $recovery,

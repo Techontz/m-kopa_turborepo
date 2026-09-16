@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\DB;
 class ProfitLossReport
 {
     /** Income that belongs to profit. Insurance income is shown apart: it is not distributable (user decision D7). */
-    public const INCOME_ACCOUNTS = [Account::InterestIncome, Account::FeeIncome, Account::PenaltyIncome, Account::RecoveryIncome];
+    public const INCOME_ACCOUNTS = [Account::InterestIncome, Account::SalaryAdvanceIncome, Account::FeeIncome, Account::PenaltyIncome, Account::RecoveryIncome];
 
     /** Raw figure key: insurance collected straight into INSURANCE RESERVE (rule 15, new collections — never income). */
     public const INSURANCE_RESERVE_COLLECTED = 'insurance_reserve_collected';
@@ -107,10 +107,11 @@ class ProfitLossReport
         $value = fn (Account $account): float => (float) ($raw[$account->value] ?? 0);
         $reserve = (float) ($raw['reserve'] ?? 0);
         $interest = round($value(Account::InterestIncome) - (float) ($raw['reserve_legacy'] ?? 0), 2);
+        $salaryAdvance = $value(Account::SalaryAdvanceIncome);
         $fees = $value(Account::FeeIncome);
         $penalty = $value(Account::PenaltyIncome);
         $recovery = $value(Account::RecoveryIncome);
-        $total = round($interest + $fees + $penalty + $recovery, 2);
+        $total = round($interest + $salaryAdvance + $fees + $penalty + $recovery, 2);
         $expenses = round(array_sum(array_map($value, PeriodClose::EXPENSE_ACCOUNTS)), 2);
         $gross = round($total - $expenses, 2);
         $net = round($gross - $lossBroughtForward, 2);
@@ -119,6 +120,7 @@ class ProfitLossReport
         return [
             'interest_income' => $interest,
             'reserve_amount' => $reserve,
+            'salary_advance_income' => $salaryAdvance,
             'fee_income' => $fees,
             'penalty_income' => $penalty,
             'recovery_income' => $recovery,

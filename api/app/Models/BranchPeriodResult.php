@@ -24,6 +24,7 @@ class BranchPeriodResult extends Model
             'fee_income' => 'decimal:2',
             'penalty_income' => 'decimal:2',
             'recovery_income' => 'decimal:2',
+            'salary_advance_income' => 'decimal:2',
             'total_income' => 'decimal:2',
             'expenses' => 'decimal:2',
             'gross_profit' => 'decimal:2',

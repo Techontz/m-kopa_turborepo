@@ -70,6 +70,7 @@ export interface PeriodResult {
   fee_income: number;
   penalty_income: number;
   recovery_income: number;
+  salary_advance_income: number;
   total_income: number;
   expenses: number;
   gross_profit: number;

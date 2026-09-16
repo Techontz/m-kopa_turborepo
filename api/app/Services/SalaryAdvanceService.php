@@ -149,7 +149,9 @@ class SalaryAdvanceService
                 ['account' => Account::HqSalaryAdvance, 'debit' => $principal],
                 ['account' => Account::HqInterest, 'debit' => $interest],
                 ['account' => Account::SalaryAdvanceReceivable, 'branch' => $locked->branch_id, 'credit' => $principal],
-                ['account' => Account::InterestIncome, 'branch' => $locked->branch_id, 'credit' => $interest],
+                // §9: salary advance profit is its own income category and carries no 20% reserve. Repayments posted
+                // before this rule credited INTEREST INCOME and stay as they were.
+                ['account' => Account::SalaryAdvanceIncome, 'branch' => $locked->branch_id, 'credit' => $interest],
             ], $payment, $date, $locked->branch_id);
 
             if ($amount >= $remaining - 0.001) {

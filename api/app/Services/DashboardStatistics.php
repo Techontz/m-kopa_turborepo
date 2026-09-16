@@ -273,6 +273,7 @@ class DashboardStatistics
             'penalty_income' => $pnl['penalty_income'],
             'loan_fee_income' => $pnl['fee_income'],
             'recovery_income' => $pnl['recovery_income'],
+            'salary_advance_income' => $pnl['salary_advance_income'],
             'insurance_income' => round((float) ($raw[Account::InsuranceIncome->value] ?? 0) + (float) ($raw[ProfitLossReport::INSURANCE_RESERVE_COLLECTED] ?? 0), 2),
             'total_income' => $pnl['total_income'],
 

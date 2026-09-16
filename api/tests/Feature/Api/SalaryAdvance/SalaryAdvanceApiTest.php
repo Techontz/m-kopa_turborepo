@@ -11,6 +11,7 @@ use App\Models\JournalEntry;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
 use App\Services\Ledger;
+use App\Services\PeriodClose;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
@@ -129,7 +130,12 @@ class SalaryAdvanceApiTest extends TestCase
         $this->assertEquals(0, $ledger->balance($company, Account::HqSalaryAdvance), 'The HQ Salary Advance pool regains only the principal');
         $this->assertEquals(4000, $ledger->balance($company, Account::HqInterest), 'Salary advance interest lands in the interest pool (spec §8)');
         $this->assertEquals(0, $ledger->balance($company, Account::SalaryAdvanceReceivable, $branch));
-        $this->assertEquals(4000, $ledger->balance($company, Account::InterestIncome, $branch));
+        // §9: salary advance profit is its own income category — not interest income, and no 20% reserve on it.
+        $this->assertEquals(4000, $ledger->balance($company, Account::SalaryAdvanceIncome, $branch));
+        $this->assertEquals(0, $ledger->balance($company, Account::InterestIncome, $branch));
+        $this->assertEquals(0, $ledger->balance($company, Account::InterestReserve, $branch));
+        $pnl = app(PeriodClose::class)->companyResult($company, today());
+        $this->assertEquals([4000, 0, 4000], [$pnl['salary_advance_income'], $pnl['interest_income'], $pnl['total_income']]);
 
         $this->getJson('/api/v1/salary-advance/paid')->assertOk()->assertJsonCount(2, 'data')->assertJsonPath('data.0.amount', 14000);
         $this->getJson('/api/v1/salary-advance/paid?branch_id=all&from=2000-01-01&to=2000-01-02')->assertOk()->assertJsonCount(0, 'data');

@@ -12,6 +12,7 @@ interface PnlFigures {
   fee_income: number;
   penalty_income: number;
   recovery_income: number;
+  salary_advance_income: number;
   total_income: number;
   expenses: number;
   gross_profit: number;
@@ -33,6 +34,7 @@ const COLUMNS: Array<[keyof PnlFigures, string, boolean?]> = [
   ["interest_income", "+ Interest"],
   ["fee_income", "+ Fees"],
   ["penalty_income", "+ Penalties"],
+  ["salary_advance_income", "+ Salary advance income"],
   ["recovery_income", "+ Recoveries"],
   ["total_income", "= Total Income", true],
   ["expenses", "- Expenses"],

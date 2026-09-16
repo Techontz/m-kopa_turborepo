@@ -21,6 +21,7 @@ const AMOUNT_COLUMNS: Array<[Amount, string]> = [
   ["reserve_amount", "Interest Reserve (not income)"],
   ["fee_income", "Loan Fee"],
   ["penalty_income", "Penalty"],
+  ["salary_advance_income", "Salary advance"],
   ["recovery_income", "Recoveries"],
   ["total_income", "Total Income"],
   ["expenses", "Expenses"],

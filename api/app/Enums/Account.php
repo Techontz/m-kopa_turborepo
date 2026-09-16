@@ -77,6 +77,9 @@ enum Account: string
 
     // Income
     case InterestIncome = 'interest_income';
+
+    /** Profit on salary advances (specification §9): its own income category, never subject to the 20% interest reserve. */
+    case SalaryAdvanceIncome = 'salary_advance_income';
     case FeeIncome = 'fee_income';
     case PenaltyIncome = 'penalty_income';
     case InsuranceIncome = 'insurance_income';
@@ -95,7 +98,7 @@ enum Account: string
         return match ($this) {
             self::Suspense, self::SavingsDeposits, self::StaffPayable, self::StaffFund, self::DividendPayable, self::CommissionPayable => 'liability',
             self::Capital, self::RetainedProfit, self::ReinvestedProfit, self::InterestReserve, self::InsuranceReserve => 'equity',
-            self::InterestIncome, self::FeeIncome, self::PenaltyIncome, self::InsuranceIncome, self::RecoveryIncome => 'income',
+            self::InterestIncome, self::SalaryAdvanceIncome, self::FeeIncome, self::PenaltyIncome, self::InsuranceIncome, self::RecoveryIncome => 'income',
             self::OperatingExpense, self::SalaryExpense, self::CommissionExpense, self::AllowanceExpense, self::WriteOffExpense, self::BankCharges => 'expense',
             default => 'asset',
         };
@@ -127,7 +130,7 @@ enum Account: string
             self::Capital => '3000', self::ReinvestedProfit => '3010', self::InterestReserve => '3020', self::InsuranceReserve => '3030',
             self::RetainedProfit => '3100',
             self::InterestIncome => '4000', self::FeeIncome => '4010', self::PenaltyIncome => '4020',
-            self::InsuranceIncome => '4030', self::RecoveryIncome => '4040',
+            self::InsuranceIncome => '4030', self::RecoveryIncome => '4040', self::SalaryAdvanceIncome => '4050',
             self::OperatingExpense => '5000', self::SalaryExpense => '5100', self::CommissionExpense => '5110',
             self::AllowanceExpense => '5120', self::WriteOffExpense => '5200', self::BankCharges => '5300',
         };
@@ -183,6 +186,7 @@ enum Account: string
             self::InsuranceReserve => 'INSURANCE RESERVE',
             self::RetainedProfit => 'PROFIT ACCOUNT',
             self::InterestIncome => 'INTEREST INCOME',
+            self::SalaryAdvanceIncome => 'SALARY ADVANCE INCOME',
             self::FeeIncome => 'FEE INCOME',
             self::PenaltyIncome => 'PENALTY INCOME',
             self::InsuranceIncome => 'INSURANCE INCOME',

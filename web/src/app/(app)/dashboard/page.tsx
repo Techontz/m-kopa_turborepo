@@ -166,7 +166,7 @@ export default function DashboardPage() {
                 <td>-</td>
                 <td>Agent <span className="badge badge-success">{money(t.agent_deposit)}</span></td>
                 <td>-</td>
-                <td>-</td>
+                <td>Salary advance income <span className="badge badge-success">{money(t.salary_advance_income)}</span></td>
                 <td>-</td>
               </tr>
               <tr className="mf-row-strong">

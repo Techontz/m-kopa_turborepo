@@ -16,7 +16,7 @@ class AccountingPeriodResource extends JsonResource
      * @var list<string>
      */
     private const AMOUNTS = [
-        'interest_income', 'reserve_amount', 'fee_income', 'penalty_income', 'recovery_income', 'total_income', 'expenses',
+        'interest_income', 'reserve_amount', 'salary_advance_income', 'fee_income', 'penalty_income', 'recovery_income', 'total_income', 'expenses',
         'gross_profit', 'loss_brought_forward', 'net_profit', 'loss_carried_forward', 'hq_hold_amount', 'distributable_profit',
     ];
 

@@ -12,7 +12,10 @@ use App\Http\Resources\Api\V1\Hrm\StaffSalaryAdvanceResource;
 use App\Models\AuditLog;
 use App\Models\Branch;
 use App\Models\Employee;
+use App\Models\NegligenceDeduction;
+use App\Models\StaffAllowance;
 use App\Services\Hrm\EmployeeNumberGenerator;
+use App\Services\Hrm\StaffFund;
 use App\Services\Hrm\StaffPasswordReset;
 use App\Services\Ledger;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -117,12 +120,26 @@ class StaffController extends HrmController
         ];
 
         return response()->json(['data' => (new StaffResource($employee))->resolve() + [
-            'allowances' => $employee->allowances->map($amountRow),
+            'allowances' => $employee->allowances->map(fn (StaffAllowance $allowance): array => $amountRow($allowance) + [
+                'reason' => $allowance->reason,
+                'payroll_period' => $allowance->payroll_period?->format('Y-m'),
+                'status_label' => $allowance->statusLabel(),
+            ]),
             'deductions' => $employee->deductions->map($amountRow),
             'salary_advances' => StaffSalaryAdvanceResource::collection($employee->salaryAdvances)->resolve(),
             'staff_loans' => StaffLoanResource::collection($employee->staffLoans)->resolve(),
             'salary_payments' => SalaryPaymentResource::collection($employee->salaryPayments)->resolve(),
             'staff_fund_balance' => app(Ledger::class)->balance($employee->company_id, Account::StaffFund, employee: $employee->id),
+            'staff_fund_benefit' => app(StaffFund::class)->benefitRecord((int) $employee->company_id, $employee->id),
+            'negligence_deductions' => NegligenceDeduction::where('employee_id', $employee->id)->latest('id')->get()->map(fn (NegligenceDeduction $deduction): array => [
+                'id' => $deduction->id,
+                'amount' => (float) $deduction->amount,
+                'recovered_amount' => (float) $deduction->recovered_amount,
+                'outstanding_amount' => $deduction->outstandingAmount(),
+                'reason' => $deduction->reason,
+                'status' => $deduction->status,
+                'created_at' => $deduction->created_at?->toDateTimeString(),
+            ]),
         ]]);
     }
 

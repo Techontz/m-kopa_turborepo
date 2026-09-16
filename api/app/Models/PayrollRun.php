@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Monthly payroll (STAFF COMMISSION §4): generated and approved by HR, paid by Finance.
+ * Monthly payroll (STAFF COMMISSION §4): generated and approved by HR, paid by Finance. `expense_date` is the date its salary,
+ * allowance and company contribution expense was recognised on (spec §20: inside the payroll period); `expense_period_note`
+ * explains when the period was already closed and that date could not be used.
  */
 class PayrollRun extends Model
 {
@@ -31,6 +33,7 @@ class PayrollRun extends Model
             'period' => 'date',
             'approved_at' => 'datetime',
             'paid_at' => 'datetime',
+            'expense_date' => 'date',
             'total_gross' => 'decimal:2',
             'total_deductions' => 'decimal:2',
             'total_net' => 'decimal:2',

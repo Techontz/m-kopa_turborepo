@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Hrm\CategoryController;
 use App\Http\Controllers\Api\V1\Hrm\CommissionController;
 use App\Http\Controllers\Api\V1\Hrm\DeductionController;
 use App\Http\Controllers\Api\V1\Hrm\LeaveController;
+use App\Http\Controllers\Api\V1\Hrm\NegligenceDeductionController;
 use App\Http\Controllers\Api\V1\Hrm\PayrollController;
 use App\Http\Controllers\Api\V1\Hrm\PerformanceController;
 use App\Http\Controllers\Api\V1\Hrm\SalaryAdvanceController;
@@ -49,7 +50,16 @@ Route::prefix('hrm')->name('hrm.')->group(function (): void {
 
     Route::get('allowances', [AllowanceController::class, 'index'])->name('allowances.index');
     Route::post('allowances', [AllowanceController::class, 'store'])->name('allowances.store');
+    Route::post('allowances/{allowance}/approve', [AllowanceController::class, 'approve'])->name('allowances.approve');
+    Route::post('allowances/{allowance}/reject', [AllowanceController::class, 'reject'])->name('allowances.reject');
     Route::post('allowances/{allowance}/stop', [AllowanceController::class, 'stop'])->name('allowances.stop');
+
+    Route::controller(NegligenceDeductionController::class)->group(function (): void {
+        Route::get('negligence-deductions', 'index')->name('negligence-deductions.index');
+        Route::post('negligence-deductions', 'store')->name('negligence-deductions.store');
+        Route::post('negligence-deductions/{negligenceDeduction}/approve', 'approve')->name('negligence-deductions.approve');
+        Route::post('negligence-deductions/{negligenceDeduction}/reject', 'reject')->name('negligence-deductions.reject');
+    });
 
     Route::get('deductions', [DeductionController::class, 'index'])->name('deductions.index');
     Route::post('deductions', [DeductionController::class, 'store'])->name('deductions.store');

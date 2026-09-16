@@ -26,7 +26,11 @@ use Illuminate\Validation\ValidationException;
  *
  *  1. Distributable profit per branch is read from branch_period_results, written by the
  *     accounting month-end close (profit − loss carry forward − 2% HQ hold).
- *  2. Branch commission pool = configured % (10) × distributable profit (0 when the branch is blocked).
+ *  2. Branch commission pool = configured % (10) × COMMISSION BASE (0 when the branch is blocked). Spec §15/§59: the commission
+ *     base is distributable profit − the offset settled in the period (`branch_period_results.offset_amount`, stored by the
+ *     month-end close), because an offset is not cash collected and never generates commission. The offset is not lost: it
+ *     stays in profit and is added back before dividend/reinvestment (the distribution base is distributable − commission).
+ *     Periods calculated before this rule keep their stored pools; their commission base is derived from the stored pool.
  *  3. Zone manager share (C4): the configured override % (5) OF THAT BRANCH POOL is ALWAYS carved out of it. The eligible
  *     zone manager(s) of the branch's zone receive it (several zone managers of one zone share it by salary); when the zone
  *     has no eligible zone manager (or the branch has no zone) that 5 % is returned to profit.
@@ -470,7 +474,9 @@ class CommissionEngine
             $distributable = (float) $result->distributable_profit;
             $eligible = (bool) $result->commission_eligible && $this->moneySign($result->distributable_profit) > 0;
             $status = $this->profitStatus($result, $eligible);
-            $pool = $eligible ? round($distributable * $poolPercent / 100, 2) : 0.0;
+            $offset = $eligible ? round(min($distributable, max(0.0, (float) $result->offset_amount)), 2) : 0.0;
+            $commissionBase = $eligible ? round($distributable - $offset, 2) : 0.0;
+            $pool = $commissionBase > 0 ? round($commissionBase * $poolPercent / 100, 2) : 0.0;
 
             $staff = $employees->filter(fn (Employee $employee): bool => $employee->branch_id === $result->branch_id && $employee->salaryInfo->salary_type === SalaryType::Branch->value)->values();
             $totalSalary = round((float) $staff->sum(fn (Employee $employee): float => (float) $employee->salaryInfo->salary), 2);
@@ -514,6 +520,8 @@ class CommissionEngine
                 'loss_carried_forward' => (float) $result->loss_carried_forward,
                 'hq_hold_amount' => (float) $result->hq_hold_amount,
                 'distributable_profit' => $distributable,
+                'offset_amount' => $offset,
+                'commission_base' => $commissionBase,
                 'eligible' => $eligible,
                 'profit_status' => $status,
                 'blocked_reason' => match ($status) {
@@ -643,6 +651,28 @@ class CommissionEngine
     }
 
     /**
+     * A calculated branch keeps the pool it was calculated with (closed history is never recomputed). Its commission base and
+     * offset are derived from that stored pool, so a period calculated before the offset rule shows no offset.
+     *
+     * @param  array<string, mixed>  $branch
+     * @return array<string, mixed>
+     */
+    private function withStoredPool(array $branch, CommissionAllocation $row): array
+    {
+        $computedPool = (float) $branch['pool_amount'];
+        $branch['pool_amount'] = (float) $row->pool_amount;
+        if (abs($computedPool - $branch['pool_amount']) < 0.005) {
+            return $branch;
+        }
+        $percent = (float) $row->pool_percent;
+        $base = $percent > 0 ? round($branch['pool_amount'] * 100 / $percent, 2) : (float) $branch['commission_base'];
+        $branch['commission_base'] = $base;
+        $branch['offset_amount'] = round(max(0.0, (float) $branch['distributable_profit'] - $base), 2);
+
+        return $branch;
+    }
+
+    /**
      * LEGACY calculation (allocations without a journal): overlay stored allocations on the computed branch figures (stored
      * amounts win) exactly as they were reported when calculated — the zone manager override on top of the pools.
      *
@@ -657,7 +687,7 @@ class CommissionEngine
         $branches = array_map(function (array $branch) use ($branchStaff): array {
             $rows = $branchStaff->where('branch_id', $branch['branch_id']);
             if ($rows->isNotEmpty()) {
-                $branch['pool_amount'] = (float) $rows->first()->pool_amount;
+                $branch = $this->withStoredPool($branch, $rows->first());
             }
             $branch['staff'] = $rows->map(fn (CommissionAllocation $row): array => [
                 'employee_id' => $row->employee_id,
@@ -733,7 +763,7 @@ class CommissionEngine
         $branches = array_map(function (array $branch) use ($staffRows, $credits, $references, $managerIds, $managerRows): array {
             $rows = $staffRows->where('branch_id', $branch['branch_id']);
             if ($rows->isNotEmpty()) {
-                $branch['pool_amount'] = (float) $rows->first()->pool_amount;
+                $branch = $this->withStoredPool($branch, $rows->first());
             }
             $branch['staff'] = $rows->map(fn (CommissionAllocation $row): array => [
                 'employee_id' => $row->employee_id,

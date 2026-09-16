@@ -11,6 +11,7 @@ use App\Services\AccessControl;
 use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Hrm\CommissionEngine;
 use App\Services\Hrm\PayrollEngine;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -23,7 +24,7 @@ use Illuminate\Validation\Rule;
  */
 class PayrollController extends HrmController
 {
-    private const MONEY = ['base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'salary_advance', 'deduction', 'loan_restoration', 'total_deductions', 'take_home'];
+    private const MONEY = ['base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'company_fund', 'salary_advance', 'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home'];
 
     public function __construct(
         private readonly PayrollEngine $payroll,
@@ -40,17 +41,22 @@ class PayrollController extends HrmController
         $month = $this->month($request);
         $run = $this->payroll->run($this->companyId(), $month);
         $branchIds = app(AccessControl::class)->branchIds($this->currentEmployee());
+        $expense = $run?->expense_date !== null
+            ? ['date' => $run->expense_date->toDateString(), 'note' => $run->expense_period_note]
+            : collect($this->payroll->expenseDate($run ?? new PayrollRun(['company_id' => $this->companyId(), 'period' => $month->toDateString()])))
+                ->map(fn ($value) => $value instanceof CarbonImmutable ? $value->toDateString() : $value)->all();
 
         $rows = $run === null
             ? $this->payroll->preview($this->companyId(), $month)
             : $run->items()->with('employee', 'branch')->orderBy('id')->get()->map(fn ($item): array => $item->only([
-                'employee_id', 'branch_id', 'salary_type', 'base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'salary_advance',
-                'deduction', 'loan_restoration', 'total_deductions', 'take_home', 'phone', 'account_name', 'account_number', 'payment_method', 'salary_payment_id',
+                'employee_id', 'branch_id', 'salary_type', 'base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'company_fund', 'salary_advance',
+                'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home', 'phone', 'account_name', 'account_number', 'payment_method', 'salary_payment_id',
             ]) + ['employee' => $item->employee?->full_name, 'branch' => $item->branch?->name]);
 
         $rows = collect($rows)
             ->filter(fn (array $row): bool => $branchIds === null || in_array((int) $row['branch_id'], $branchIds, true))
-            ->map(fn (array $row): array => array_merge($row, collect(self::MONEY)->mapWithKeys(fn (string $key): array => [$key => (float) $row[$key]])->all(), [
+            ->map(fn (array $row): array => array_merge(collect($row)->except('allowance_ids')->all(), collect(self::MONEY)->mapWithKeys(fn (string $key): array => [$key => (float) $row[$key]])->all(), [
+                'net_commission' => round((float) $row['commission'] - (float) $row['negligence'], 2),
                 'paying_account' => $this->payroll->payingAccount($row)['account']->label(),
                 'salary_type_label' => SalaryType::tryFrom((string) $row['salary_type'])?->label(),
             ]))
@@ -60,6 +66,8 @@ class PayrollController extends HrmController
             'period' => $month->format('Y-m'),
             'period_label' => $month->format('F, Y'),
             'period_closed' => $this->commission->closedPeriod($this->companyId(), $month) !== null,
+            'expense_date' => $expense['date'],
+            'expense_period_note' => $expense['note'],
             'run' => $run ? [
                 'id' => $run->id,
                 'status' => $run->status,
@@ -72,6 +80,8 @@ class PayrollController extends HrmController
                 'approved_at' => $run->approved_at?->toDateTimeString(),
                 'paid_by' => $run->payer?->full_name,
                 'paid_at' => $run->paid_at?->toDateTimeString(),
+                'expense_date' => $run->expense_date?->toDateString(),
+                'expense_period_note' => $run->expense_period_note,
                 ...app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_DRAFT, Gate::allows('payroll.approve'), workflow: ApprovalPolicy::PAYROLL),
                 ...collect(app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_APPROVED, Gate::allows('payroll.pay'), workflow: ApprovalPolicy::PAYROLL))
                     ->mapWithKeys(fn ($value, string $key): array => [str_replace('approve', 'pay', $key) => $value])->all(),

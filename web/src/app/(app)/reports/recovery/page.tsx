@@ -17,6 +17,7 @@ interface RecoveryRow {
   written_off: number;
   recovered_default: number;
   recovered_write_off: number;
+  unrecovered_write_off: number;
   total_recovered: number;
   efficiency: number;
 }
@@ -34,6 +35,8 @@ interface RecoveryTransaction {
   penalty: number;
   interest: number;
   status: string;
+  /** "repayment" after the end date of a defaulted loan, or "write_off_recovery" (rule 8: all interest income). */
+  source?: "repayment" | "write_off_recovery";
 }
 
 interface Recovery {
@@ -75,10 +78,11 @@ export default function RecoveryPage() {
                 { key: "written_off", header: "Write-off Amount", render: (row) => money(row.written_off) },
                 { key: "recovered_default", header: "Recovered (Default)", render: (row) => money(row.recovered_default) },
                 { key: "recovered_write_off", header: "Recovered (Write-off)", render: (row) => money(row.recovered_write_off) },
+                { key: "unrecovered_write_off", header: "Unrecovered (Write-off)", render: (row) => money(row.unrecovered_write_off) },
                 { key: "total_recovered", header: "Total Recovered", render: (row) => money(row.total_recovered) },
                 { key: "efficiency", header: "Recovery Efficiency", render: (row) => `${row.efficiency}%` },
               ]}
-              footer={<TotalsRow cells={[s.default_loans, money(s.default_balance), money(s.written_off), money(s.recovered_default), money(s.recovered_write_off), money(s.total_recovered), `${s.efficiency}%`]} />}
+              footer={<TotalsRow cells={[s.default_loans, money(s.default_balance), money(s.written_off), money(s.recovered_default), money(s.recovered_write_off), money(s.unrecovered_write_off), money(s.total_recovered), `${s.efficiency}%`]} />}
             />
           </>
         )}
@@ -91,9 +95,10 @@ export default function RecoveryPage() {
         >
           <DataTable
             rows={data.rows}
-            rowKey={(row) => row.id}
+            rowKey={(row) => `${row.source ?? "repayment"}-${row.id}`}
             columns={[
               { key: "date", header: "Date" },
+              { key: "source", header: "Source", render: (row) => (row.source === "write_off_recovery" ? "Write-off recovery (interest income)" : "Repayment") },
               { key: "customer", header: "Customer Name" },
               { key: "loan_number", header: "Loan Ac" },
               { key: "branch", header: "Branch" },

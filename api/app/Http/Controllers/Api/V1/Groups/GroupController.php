@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1\Groups;
 
+use App\Enums\LoanStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Models\Group;
 use App\Models\Loan;
+use App\Services\Reports\LoanBalances;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -65,18 +67,20 @@ class GroupController extends ApiController
 
     /**
      * Customer List / {group}: loans of group members or loans taken as the group, with the live Filter (branch incl. ALL).
+     * Paid / Remain come from {@see LoanBalances} (reversed repayments ignored): Remain = outstanding principal + penalty +
+     * interest + insurance for disbursed loans, the same number as LoanService::outstanding() on the loan and teller pages;
+     * loans not yet disbursed show their total payable.
      */
     public function show(Request $request, Group $group): JsonResponse
     {
         $this->authorizeAny('groups.view', 'groups.manage');
 
-        $loans = $this->applyFilters($this->scoped(Loan::query()), $request)
+        $loans = LoanBalances::join($this->applyFilters($this->scoped(Loan::query()), $request))
             ->where(fn (Builder $query) => $query
-                ->where('group_id', $group->id)
+                ->where('loans.group_id', $group->id)
                 ->orWhereHas('customer', fn (Builder $customers) => $customers->where('group_id', $group->id)))
             ->with(['branch:id,name', 'customer:id,first_name,middle_name,last_name,phone,gender', 'writeOff'])
-            ->withSum(['transactions as deposits_sum' => fn (Builder $transactions) => $transactions->where('type', 'deposit')], 'amount')
-            ->latest('id')
+            ->latest('loans.id')
             ->get();
 
         return response()->json([
@@ -89,8 +93,8 @@ class GroupController extends ApiController
                 'phone' => $loan->customer?->phone,
                 'gender' => $loan->customer?->gender,
                 'total_loan' => (float) $loan->total_payable,
-                'paid_amount' => (float) $loan->deposits_sum,
-                'remain' => max(0, (float) $loan->total_payable - (float) $loan->deposits_sum),
+                'paid_amount' => round((float) $loan->paid_total, 2),
+                'remain' => in_array($loan->status, LoanStatus::disbursed(), true) ? (float) $loan->out_total : (float) $loan->total_payable,
                 'restoration' => (float) $loan->restoration,
                 'write_off' => (float) ($loan->writeOff?->amount ?? 0),
                 'status' => $loan->status?->label(),

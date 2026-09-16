@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { receiptsTotal } from "@/components/payments/slip";
 import { DEPOSIT_BADGE, type Payment, type TellerDeposit } from "@/components/payments/types";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -45,8 +46,7 @@ export function TellerCashCard() {
       return;
     }
     const ids = form.payment_ids.includes(id) ? form.payment_ids.filter((item) => item !== id) : [...form.payment_ids, id];
-    const sum = pending.filter((payment) => ids.includes(payment.id)).reduce((total, payment) => total + payment.amount, 0);
-    setForm({ ...form, payment_ids: ids, amount: String(sum) });
+    setForm({ ...form, payment_ids: ids, amount: String(receiptsTotal(pending, ids)) });
   };
 
   return (
@@ -54,7 +54,7 @@ export function TellerCashCard() {
       <Card
         title={<>Teller Cash (Pending Verification): <b>{money(cash?.teller_cash)}</b></>}
         actions={pending.length > 0 && (
-          <button type="button" className="btn btn-primary" onClick={() => setForm({ ...EMPTY, payment_ids: pending.map((payment) => payment.id), amount: String(pending.reduce((sum, payment) => sum + payment.amount, 0)) })}>
+          <button type="button" className="btn btn-primary" onClick={() => { submit.setErrors({}); setForm({ ...EMPTY, payment_ids: pending.map((payment) => payment.id), amount: String(receiptsTotal(pending, pending.map((payment) => payment.id))) }); }}>
             <i className="icon-plus" /> Bank Deposit
           </button>
         )}
@@ -112,8 +112,12 @@ export function TellerCashCard() {
             <Field label="Slip Number:" required className="col-md-6" error={submit.fieldError("slip_number")}>
               <input className="form-control" placeholder="Enter slip number" value={form.slip_number} onChange={(e) => setForm({ ...form, slip_number: e.target.value })} required />
             </Field>
-            <Field label="Amount:" required className="col-md-6" error={submit.fieldError("amount")}>
-              <input type="number" className="form-control" placeholder="Enter Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
+            <Field label="Amount (as on the slip):" required className="col-md-6" error={submit.fieldError("amount")}>
+              <input type="number" step="0.01" className="form-control" placeholder="Enter Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
+              <small className={Math.abs(Number(form.amount) - receiptsTotal(pending, form.payment_ids)) > 0.005 ? "text-danger" : "text-muted"}>
+                Selected receipts total: <b>TZS {money(receiptsTotal(pending, form.payment_ids))}</b>
+                {Math.abs(Number(form.amount) - receiptsTotal(pending, form.payment_ids)) > 0.005 ? " — the slip amount must equal this total" : ""}
+              </small>
             </Field>
             <Field label="Deposit Date:" required className="col-md-6" error={submit.fieldError("deposit_date")}>
               <input type="date" className="form-control" value={form.deposit_date} onChange={(e) => setForm({ ...form, deposit_date: e.target.value })} required />

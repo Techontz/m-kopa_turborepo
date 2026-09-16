@@ -17,13 +17,15 @@ import {
   outstandingTile,
   payAllEnabled,
   periodLabel,
+  profitChain,
   profitSourceLabel,
   shortDate,
   toCents,
   tzs,
 } from "@/components/dividends/dividends";
 import dividendStyles from "@/components/dividends/dividends.module.css";
-import type { DividendAllocation, DividendDeclaration, DividendPayment, DividendPreview, DividendSummary, PayAllPreview } from "@/components/dividends/types";
+import type { DividendAllocation, DividendDeclaration, DividendDeclarationRequest, DividendPayment, DividendPreview, DividendSummary, PayAllPreview } from "@/components/dividends/types";
+import { ApprovalActions, ApprovalStatus } from "@/components/finance/Approval";
 import { SummaryTiles, styles } from "@/components/financial-reports/ReportShell";
 import { sharesLabel } from "@/components/shares/shares";
 import { Badge } from "@/components/ui/Badge";
@@ -88,11 +90,11 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
             return;
           }
           const confirmed = await confirmAction(
-            `Declare dividends for ${preview.period_label}?`,
-            `Profit ${tzs(preview.profit_available)}: Shareholder Dividend Pool ${tzs(preview.dividend_pool)} (${percent(preview.dividend_percent)}) to ${preview.rows.length} shareholder(s), Principal Reinvestment ${tzs(preview.reinvestment_amount)} (${percent(preview.reinvest_percent)}). This posts to the ledger and cannot be edited.`,
+            `Submit the ${preview.period_label} dividend declaration for approval?`,
+            `Remaining profit after commission ${tzs(preview.profit_available)}: Shareholder Dividend Pool ${tzs(preview.dividend_pool)} (${percent(preview.dividend_percent)}) to ${preview.rows.length} shareholder(s), Principal Reinvestment ${tzs(preview.reinvestment_amount)} (${percent(preview.reinvest_percent)}) moved from the branch income pools into branch principal. Nothing is posted until another authorised user approves it; approval posts to the ledger and locks the month's commission.`,
           );
           if (confirmed) {
-            declare.mutate({ period }, { onSuccess: (result) => onView(result.data.id) });
+            declare.mutate({ period });
           }
         }}
       >
@@ -100,7 +102,7 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
           <Field label="Period:" required className="col-lg-3 col-md-6" error={declare.fieldError("period")}>
             <input type="month" className="form-control" value={period} max={currentMonth()} onChange={(e) => e.target.value && onPeriod(e.target.value)} required />
           </Field>
-          <Field label="Profit Available:" className="col-lg-3 col-md-6">
+          <Field label="Remaining Profit (after commission):" className="col-lg-3 col-md-6">
             <input className="form-control" value={preview ? tzs(preview.profit_available) : ""} readOnly aria-label="Profit Available" />
           </Field>
           <Field label={`Shareholder Dividend (${percent(preview?.dividend_percent ?? 0)}):`} className="col-lg-3 col-md-6">
@@ -120,6 +122,39 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
               {canSettings ? "" : " (ask an administrator to change it)"}. Ownership is taken from the share register on {preview.as_of_date} ({sharesLabel(preview.total_shares)} shares).
             </p>
 
+            {!preview.already_declared && profitChain(preview).length > 0 && (
+              <div className="table-responsive mb-3">
+                <table className="table table-sm mf-table mb-0" aria-label="Profit chain">
+                  <tbody>
+                    {profitChain(preview).map((step) => (
+                      <tr key={step.label}>
+                        <th scope="row" className="font-weight-normal">{step.label}</th>
+                        <td className={`text-right text-nowrap ${step.tone === "out" ? "text-danger" : step.tone === "in" ? "text-success" : ""}`}>{step.tone === "out" ? `− ${step.value}` : step.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!preview.already_declared && (preview.branches ?? []).length > 0 && (
+              <DataTable
+                rows={preview.branches}
+                rowKey={(row) => row.branch_id}
+                searchable={false}
+                pageSize={100}
+                columns={[
+                  { key: "branch", header: "Branch", render: (row) => row.branch ?? "-" },
+                  { key: "distributable_profit", header: "Distributable", className: "text-right", render: (row) => tzs(row.distributable_profit) },
+                  { key: "commission_amount", header: "Commission", className: "text-right", render: (row) => tzs(row.commission_amount) },
+                  { key: "base_amount", header: "Remaining (share)", className: "text-right", render: (row) => tzs(row.base_amount) },
+                  { key: "reinvestment_amount", header: "Reinvestment → Principal", className: "text-right", render: (row) => tzs(row.reinvestment_amount) },
+                  { key: "pools_total", header: "Interest + Fee + Penalty A/C", className: "text-right", render: (row) => tzs(row.pools_total) },
+                  { key: "shortfall", header: "Funding", render: (row) => (row.shortfall > 0 ? <Badge tone="danger">SHORT {tzs(row.shortfall)}</Badge> : <Badge tone="success">FUNDED</Badge>) },
+                ]}
+              />
+            )}
+
             {preview.already_declared && (
               <div className="alert alert-info d-flex flex-wrap align-items-center justify-content-between">
                 <span>Dividends for {preview.period_label} have already been declared.</span>
@@ -130,7 +165,18 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
                 )}
               </div>
             )}
-            {!preview.already_declared && preview.blocking_reason && <div className="alert alert-warning">{preview.blocking_reason}</div>}
+            {!preview.already_declared && preview.blocking_reason && (
+              <div className="alert alert-warning" role="alert">
+                <i className="icon-info mr-1" /> {preview.blocking_reason}
+                {!preview.commission_calculated && preview.period_closed && (
+                  <>
+                    {" "}
+                    <Link href="/hrm/commission" className="alert-link">Calculate commission</Link>
+                  </>
+                )}
+                {preview.pending_request_id && preview.pending_requested_by && <> (requested by {preview.pending_requested_by})</>}
+              </div>
+            )}
 
             {!preview.already_declared && (
               <>
@@ -188,7 +234,7 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
                 {canManage && (
                   <div className="text-center m-t-20">
                     <button type="submit" className="btn btn-primary" disabled={!preview.can_declare || declare.isPending}>
-                      <i className="icon-drawer" /> {declare.isPending ? "Please wait..." : "Declare Dividend"}
+                      <i className="icon-drawer" /> {declare.isPending ? "Please wait..." : "Submit Declaration for Approval"}
                     </button>
                   </div>
                 )}
@@ -197,6 +243,53 @@ function DeclareDividendCard({ period, onPeriod, canManage, canSettings, onView 
           </>
         )}
       </form>
+    </Card>
+  );
+}
+
+/** C1 maker/checker: declaration requests awaiting approval (and recent decisions). Approve/Reject use the shared approval component. */
+function DeclarationRequestsCard({ canView }: { canView: boolean }) {
+  const { data, isLoading, error } = useApi<DividendDeclarationRequest[]>(canView ? "capital/dividends/requests" : null);
+
+  if (!isLoading && !error && (data ?? []).length === 0) {
+    return null;
+  }
+
+  return (
+    <Card title="Dividend Declarations Awaiting Approval">
+      {error ? (
+        <ErrorOrLoading isLoading={false} error={error} />
+      ) : (
+        <DataTable
+          rows={data}
+          loading={isLoading}
+          rowKey={(row) => row.id}
+          searchable={false}
+          pageSize={10}
+          columns={[
+            { key: "period", header: "Period", render: (row) => <b>{row.period_label}</b> },
+            { key: "profit_amount", header: "Profit", className: "text-right", render: (row) => tzs(row.profit_amount) },
+            { key: "commission_amount", header: "Commission", className: "text-right", render: (row) => (row.commission_amount === null ? "—" : tzs(row.commission_amount)) },
+            { key: "dividend_amount", header: "Dividend Pool", className: "text-right", render: (row) => `${tzs(row.dividend_amount)} (${percent(row.dividend_percent)})` },
+            { key: "reinvest_amount", header: "Reinvestment", className: "text-right", render: (row) => `${tzs(row.reinvest_amount)} (${percent(row.reinvest_percent)})` },
+            { key: "requested_at", header: "Requested", render: (row) => <span className="text-nowrap">{shortDate(row.requested_at)}</span> },
+            { key: "status", header: "Status", sortable: false, render: (row) => <ApprovalStatus row={row} /> },
+            {
+              key: "actions",
+              header: "Actions",
+              sortable: false,
+              render: (row) => (
+                <ApprovalActions
+                  row={row}
+                  approvePath={`capital/dividends/requests/${row.id}/approve`}
+                  rejectPath={`capital/dividends/requests/${row.id}/reject`}
+                  description={`${row.period_label} dividend declaration (profit)`}
+                />
+              ),
+            },
+          ]}
+        />
+      )}
     </Card>
   );
 }
@@ -415,11 +508,15 @@ export default function DividendsPage() {
         onView={viewAllocations}
       />
 
+      <DeclarationRequestsCard canView={canView} />
+
       {declarationId !== null && (
         <>
           {shown && (
             <p className={`${styles.note} mb-2`}>
               Showing <b>{shown.period_label}</b>: profit {tzs(shown.profit_amount)}, pool {tzs(shown.dividend_amount)} ({percent(shown.dividend_percent)}), ownership as of {shortDate(shown.as_of_date)}.
+              {shown.commission_amount !== null && shown.commission_amount !== undefined && <> Commission deducted first {tzs(shown.commission_amount)} (distributable {tzs(shown.distributable_profit)}).</>}
+              {" "}Reinvestment credited to {shown.reinvestment_credited_to ?? "-"}{shown.reinvestment_reference ? ` (fund movement ${shown.reinvestment_reference})` : ""}.
             </p>
           )}
           <AllocationsCard
@@ -456,6 +553,12 @@ export default function DividendsPage() {
                 render: (row) => tzs(row.profit_amount),
               },
               {
+                key: "commission_amount",
+                header: "Commission",
+                className: "text-right",
+                render: (row) => (row.commission_amount === null || row.commission_amount === undefined ? "—" : tzs(row.commission_amount)),
+              },
+              {
                 key: "dividend_percent",
                 header: "Dividend %",
                 className: "text-right",
@@ -477,7 +580,12 @@ export default function DividendsPage() {
                 key: "reinvest_amount",
                 header: "Reinvestment Amount",
                 className: "text-right",
-                render: (row) => tzs(row.reinvest_amount),
+                render: (row) => (
+                  <>
+                    {tzs(row.reinvest_amount)}
+                    <div className="text-muted small">{row.reinvestment_credited_to ?? ""}</div>
+                  </>
+                ),
               },
               {
                 key: "declared_at",

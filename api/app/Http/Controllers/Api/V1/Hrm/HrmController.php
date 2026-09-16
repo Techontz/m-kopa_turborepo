@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Hrm;
 
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Models\Employee;
 use App\Services\AccessControl;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
@@ -24,6 +25,7 @@ abstract class HrmController extends ApiController
     protected function ensureVisible(Model $model, string $branchColumn = 'branch_id'): void
     {
         abort_unless((int) $model->getAttribute('company_id') === $this->companyId(), 404);
+        abort_if($model instanceof Employee && $model->isShareholderAccount(), 404);
 
         $branchIds = app(AccessControl::class)->branchIds($this->currentEmployee());
         $branchId = $model->getAttribute($branchColumn);

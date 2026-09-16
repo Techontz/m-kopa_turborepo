@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TransactionType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -21,7 +22,7 @@ class JournalEntry extends Model
      */
     protected function casts(): array
     {
-        return ['entry_date' => 'date'];
+        return ['entry_date' => 'date', 'transaction_type' => TransactionType::class];
     }
 
     protected static function booted(): void

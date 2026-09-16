@@ -15,11 +15,13 @@ use App\Models\LoanDisbursement;
 use App\Services\Ledger;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class LoanLifecycleApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -33,6 +35,9 @@ class LoanLifecycleApiTest extends TestCase
 
         config(['integrations.vodacom.driver' => 'test', 'integrations.bank_mandate.driver' => 'test', 'integrations.vodacom.test_outcome' => 'success']);
         $this->admin = $this->signInAdmin();
+        // Rule 6 (initiator ≠ approver, stage separation) is covered by SegregationOfDutiesTest; these fixtures drive every
+        // loan stage as one admin, so the company grants self-approval explicitly.
+        $this->grantSelfApproval($this->admin);
         // Customer type → loan category: the customer may apply for the loan categories of its type.
         $customerType = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id]);
         $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $customerType->id]);

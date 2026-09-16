@@ -10,11 +10,13 @@ use App\Models\Employee;
 use App\Models\SalaryPayment;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class BankApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -62,6 +64,8 @@ class BankApiTest extends TestCase
     {
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
         $this->ledger->openingBalance($this->admin->company_id, Account::LoanFee, 150000, branch: $this->admin->branch_id);
+        $requester = $this->employeeWithRole('admin');
+        $this->actingAs($requester);
 
         $this->postJson('/api/v1/bank/transfers', [
             'from_blanch_id' => $this->admin->branch_id, 'ac_type' => Account::LoanFee->value, 'amount' => 110000, 'to_account_id' => $bank->id,
@@ -69,15 +73,18 @@ class BankApiTest extends TestCase
 
         $transfer = BankTransfer::firstOrFail();
         $this->assertSame(0.0, $bank->balance());
-        $this->getJson('/api/v1/bank/transfers')->assertOk()->assertJsonPath('data.0.branch_account_label', 'LOAN FEE A/C')->assertJsonPath('total', 110000);
+        $this->getJson('/api/v1/bank/transfers')->assertOk()->assertJsonPath('data.0.branch_account_label', 'LOAN FEE A/C')->assertJsonPath('total', 0)->assertJsonPath('total_pending', 110000);
 
-        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully');
+        // Rule 6: the requester cannot approve; a second authorised user does.
+        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertForbidden();
+        $approver = $this->secondApprover($this->admin);
+        $this->asApprover($requester, fn () => $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully'), $approver);
 
         $this->assertSame('approved', $transfer->fresh()->status);
         $this->assertSame(110000.0, $bank->balance());
         $this->assertSame(40000.0, $this->ledger->balance($this->admin->company_id, Account::LoanFee, $this->admin->branch_id));
 
-        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertUnprocessable();
+        $this->asApprover($requester, fn () => $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertUnprocessable(), $approver);
         $this->deleteJson("/api/v1/bank/transfers/{$transfer->id}")->assertUnprocessable();
         $this->getJson('/api/v1/bank/transfers?status=approved&branch_id=all&from='.today()->toDateString().'&to='.today()->toDateString())->assertJsonCount(1, 'data');
         $this->getJson('/api/v1/bank/transfers?status=approved&from=2020-01-01&to=2020-01-02')->assertJsonCount(0, 'data');
@@ -98,24 +105,27 @@ class BankApiTest extends TestCase
         $this->assertModelMissing($transfer);
     }
 
-    public function test_bank_to_branch_and_bank_to_hq_move_money_with_charges(): void
+    /**
+     * A bank account funds HQ accounts only — nothing funds a branch, which holds no lending money.
+     */
+    public function test_bank_to_hq_moves_money_with_charges(): void
     {
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
         $this->ledger->openingBalance($this->admin->company_id, Account::Bank, 100000, bankAccount: $bank);
 
-        $this->postJson('/api/v1/bank/to-branch', ['from_account' => $bank->id, 'to_blanch' => $this->admin->branch_id, 'amount' => 50000, 'charger_fee' => 1000])->assertCreated();
-        $this->assertSame(49000.0, $bank->balance());
-        $this->assertSame(50000.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
-        $this->getJson('/api/v1/bank/to-branch?branch_id=all')->assertOk()->assertJsonPath('total_charge', 1000);
+        $this->postJson('/api/v1/bank/to-branch', ['from_account' => $bank->id, 'to_blanch' => $this->admin->branch_id, 'amount' => 50000, 'charger_fee' => 1000])->assertNotFound();
 
-        $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 40000, 'to_acc' => 'salary', 'charger_fee' => 500])->assertCreated();
-        $this->assertSame(8500.0, $bank->balance());
+        $toHq = $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 40000, 'to_acc' => 'salary', 'charger_fee' => 500])->assertCreated()->assertJsonPath('data.status', 'pending')->json('data.id');
+        $this->assertSame(100000.0, $bank->balance(), 'a pending transfer moves nothing');
+        $this->approveAsSecondUser($this->admin, "/api/v1/bank/transfers/{$toHq}/approve");
+        $this->assertSame(59500.0, $bank->balance());
         $this->assertSame(40000.0, $this->ledger->balance($this->admin->company_id, Account::HqSalaryAdvance));
-        $this->assertSame(1500.0, $this->ledger->balance($this->admin->company_id, Account::BankCharges, allBranches: true));
-        $this->getJson('/api/v1/bank/to-hq')->assertOk()->assertJsonPath('data.0.hq_account_label', 'SALARY ADVANCE ACCOUNT');
+        $this->assertSame(500.0, $this->ledger->balance($this->admin->company_id, Account::BankCharges, allBranches: true));
+        $this->getJson('/api/v1/bank/to-hq')->assertOk()->assertJsonPath('data.0.hq_account_label', 'SALARY ADVANCE ACCOUNT')->assertJsonPath('total_charge', 500);
 
-        $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 9000, 'to_acc' => 'disbursement', 'charger_fee' => 0])->assertUnprocessable();
-        $this->assertSame(8500.0, $bank->balance());
+        $tooMuch = $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 60000, 'to_acc' => 'disbursement', 'charger_fee' => 0])->assertCreated()->json('data.id');
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/bank/transfers/{$tooMuch}/approve")->assertUnprocessable()->assertJsonValidationErrors('amount'));
+        $this->assertSame(59500.0, $bank->balance());
     }
 
     public function test_branch_scope_is_enforced_for_client_supplied_branch(): void

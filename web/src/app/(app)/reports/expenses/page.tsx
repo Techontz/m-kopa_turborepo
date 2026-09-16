@@ -22,6 +22,9 @@ interface ExpenseRow {
   journal_reference: string | null;
   mis_tagged: boolean;
   flags: string[];
+  reversed: boolean;
+  reversed_at: string | null;
+  reversal_reason: string | null;
 }
 
 interface ExpenseReport {
@@ -35,6 +38,8 @@ interface ExpenseReport {
   hq_paid_branch_tagged_total: number;
   mis_tagged_count: number;
   mis_tagged_total: number;
+  reversed_count: number;
+  reversed_total: number;
 }
 
 export default function ExpenseReportPage() {
@@ -52,6 +57,7 @@ export default function ExpenseReportPage() {
               { label: "HQ Expenses", value: data.hq_total },
               { label: "HQ-Paid, Branch-Tagged", value: data.hq_paid_branch_tagged_total },
               { label: `Mis-tagged (${data.mis_tagged_count})`, value: data.mis_tagged_total, tone: data.mis_tagged_count ? "out" : undefined },
+              { label: `Reversed — not counted (${data.reversed_count})`, value: data.reversed_total },
             ]}
           />
 
@@ -109,7 +115,7 @@ export default function ExpenseReportPage() {
               { key: "tag", header: "Tag", render: (row) => <Badge tone={row.tag === "BRANCH" ? "info" : row.tag === "HQ" ? "primary" : "warning"}>{row.tag}</Badge> },
               { key: "branch", header: "Branch", render: (row) => row.branch ?? "HQ" },
               { key: "paid_from", header: "Paid From", render: (row) => row.paid_from ?? "-" },
-              { key: "amount", header: "Amount", render: (row) => money(row.amount) },
+              { key: "amount", header: "Amount", render: (row) => (row.reversed ? <s>{money(row.amount)}</s> : money(row.amount)) },
               { key: "requested_by", header: "Requested By", render: (row) => row.requested_by ?? "-" },
               { key: "approved_by", header: "Approved By", render: (row) => row.approved_by ?? "-" },
               {
@@ -117,7 +123,12 @@ export default function ExpenseReportPage() {
                 header: "Tag Check",
                 value: (row) => row.flags.join(" "),
                 render: (row) =>
-                  row.mis_tagged ? (
+                  row.reversed ? (
+                    <>
+                      <Badge tone="default">REVERSED</Badge>
+                      {row.reversal_reason && <div className={styles.note}>{row.reversal_reason}</div>}
+                    </>
+                  ) : row.mis_tagged ? (
                     <>
                       <Badge tone="danger">MIS-TAGGED</Badge>
                       {row.flags.map((flag) => (
@@ -133,7 +144,7 @@ export default function ExpenseReportPage() {
             ]}
             footer={
               <tr className={styles.total}>
-                <td colSpan={6}>TOTAL</td>
+                <td colSpan={6}>TOTAL (excluding reversed)</td>
                 <td>{money(data.total)}</td>
                 <td colSpan={3} />
               </tr>

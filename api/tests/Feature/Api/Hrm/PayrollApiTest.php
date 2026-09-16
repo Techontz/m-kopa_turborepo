@@ -19,11 +19,13 @@ use App\Models\StaffSalaryAdvanceCategory;
 use App\Models\Zone;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class PayrollApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -78,8 +80,12 @@ class PayrollApiTest extends TestCase
         $this->assertTrue($report['calculated']);
         $branch = collect($report['branches'])->firstWhere('branch_id', $this->admin->branch_id);
         $this->assertEquals(100000, $branch['pool_amount']);
-        $this->assertEquals(75000, collect($branch['staff'])->firstWhere('employee_id', $a->id)['amount']);
-        $this->assertEquals(25000, collect($branch['staff'])->firstWhere('employee_id', $b->id)['amount']);
+        // D2: the zone manager's 5% (5,000) is carved out of the 100,000 pool; staff share the remaining 95,000 by salary.
+        $this->assertEquals(5000, $branch['zone_manager_amount']);
+        $this->assertEquals(95000, $branch['staff_pool_amount']);
+        $this->assertEquals(71250, collect($branch['staff'])->firstWhere('employee_id', $a->id)['amount']);
+        $this->assertEquals(23750, collect($branch['staff'])->firstWhere('employee_id', $b->id)['amount']);
+        $this->assertEquals(100000, $report['total_commission']);
         $this->assertNull(collect($branch['staff'])->firstWhere('employee_id', $hq->id));
         $blocked = collect($report['branches'])->firstWhere('branch_id', $lossBranch->id);
         $this->assertFalse($blocked['eligible']);
@@ -103,8 +109,9 @@ class PayrollApiTest extends TestCase
         $loan = StaffLoan::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'staff_loan_category_id' => $loanCategory->id, 'amount_applied' => 10000, 'amount_approved' => 10000, 'duration' => 'monthly', 'sessions' => 3, 'total_payable' => 12000, 'restoration' => 4000, 'reason' => 'x', 'status' => 'active']);
         $period = now()->subMonthNoOverflow()->format('Y-m');
 
-        // Commission 10% × 400,000 = 40,000 (only branch staff). Gross 400,000 + 40,000 + 100,000 = 540,000.
-        // Deductions: fund 40,000 + advance 20,000 + deduction 50,000 + loan 4,000 = 114,000 → take home 426,000.
+        // Pool 10% × 400,000 = 40,000; the branch has no zone manager, so staff get 95% = 38,000 and 2,000 stays in profit (C4).
+        // Gross 400,000 + 38,000 + 100,000 = 538,000. Deductions: fund 40,000 + advance 20,000 + deduction 50,000 + loan 4,000
+        // = 114,000 → take home 424,000.
         $this->getJson("/api/v1/hrm/payroll?period={$period}")->assertOk()->assertJsonPath('data.run', null);
 
         $finance = Employee::factory()->create(['company_id' => $companyId, 'branch_id' => $branchId, 'role_id' => $this->admin->company->roles()->where('key', 'finance')->value('id')]);
@@ -116,18 +123,23 @@ class PayrollApiTest extends TestCase
         $run = PayrollRun::firstOrFail();
         $rows = collect($this->getJson("/api/v1/hrm/payroll?period={$period}")->json('data.rows'));
         $row = $rows->firstWhere('employee_id', $staff->id);
-        $this->assertEquals(40000, $row['commission']);
-        $this->assertEquals(540000, $row['gross']);
-        $this->assertEquals(426000, $row['take_home']);
+        $this->assertEquals(38000, $row['commission']);
+        $this->assertEquals(538000, $row['gross']);
+        $this->assertEquals(424000, $row['take_home']);
         $this->assertEquals(0, $rows->firstWhere('employee_id', $hq->id)['commission']);
         $this->assertEquals(180000, $rows->firstWhere('employee_id', $hq->id)['take_home']);
 
         $this->actingAs($hr)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertForbidden();
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertUnprocessable();
 
-        $this->actingAs($hr)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
-        $this->assertEquals(540000, $this->balance(Account::StaffPayable, employee: $staff->id));
-        $this->assertEquals(40000, $this->balance(Account::CommissionExpense, $branchId));
+        // Rule 6: the HR employee who generated (prepared) the payroll cannot approve it; a second HR employee does.
+        $this->actingAs($hr)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertForbidden();
+        $this->actingAs($this->secondApprover($hr, 'hr'))->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
+        $this->assertEquals(538000, $this->balance(Account::StaffPayable, employee: $staff->id));
+        // D1: commission is a profit allocation — approval clears COMMISSION PAYABLE, no commission expense.
+        $this->assertEquals(0, $this->balance(Account::CommissionExpense, $branchId));
+        $this->assertEquals(0, $this->balance(Account::CommissionPayable, $branchId, $staff->id));
+        $this->assertEquals(-38000, $this->balance(Account::RetainedProfit, $branchId));
         $this->assertEquals(200000, $this->balance(Account::SalaryExpense));
         $this->actingAs($hr)->postJson('/api/v1/hrm/payroll/generate', ['period' => $period])->assertUnprocessable();
         $this->actingAs($hr)->putJson("/api/v1/hrm/staff/{$staff->id}/salary", ['salary' => 500000, 'account_name' => 'NMB', 'account_number' => '1', 'fee_salary' => 0, 'salary_type' => 'branch', 'commission_eligible' => true, 'payment_method' => 'bank'])->assertUnprocessable();
@@ -136,14 +148,14 @@ class PayrollApiTest extends TestCase
 
         $this->assertSame('paid', $run->fresh()->status);
         $payment = SalaryPayment::where('employee_id', $staff->id)->firstOrFail();
-        $this->assertEquals(426000, $payment->take_home);
+        $this->assertEquals(424000, $payment->take_home);
         $this->assertEquals(0, $this->balance(Account::StaffPayable, employee: $staff->id));
         $this->assertEquals(40000, $this->balance(Account::StaffFund, employee: $staff->id));
         $this->assertEquals(20000, $this->balance(Account::StaffFund, employee: $hq->id));
         // Fund cash: 40,000 + 20,000 contributions + 4,000 loan restoration.
         $this->assertEquals(64000, $this->balance(Account::StaffFundCash));
-        // Interest pays branch staff: take home 426,000 + fund 40,000 + loan 4,000 + advance back to HQ 20,000.
-        $this->assertEquals(-490000, $this->balance(Account::Interest, $branchId));
+        // Interest pays branch staff: take home 424,000 + fund 40,000 + loan 4,000 + advance back to HQ 20,000.
+        $this->assertEquals(-488000, $this->balance(Account::Interest, $branchId));
         // Company account pays HQ staff 180,000 + 20,000 fund, receives the 20,000 advance recovery.
         $this->assertEquals(-180000, $this->balance(Account::Company));
         $this->assertEquals(-20000, $this->balance(Account::StaffAdvanceReceivable, employee: $staff->id));
@@ -151,7 +163,7 @@ class PayrollApiTest extends TestCase
         $this->assertEquals(50000, $deduction->fresh()->paid_amount);
         $this->assertEquals(4000, $loan->payments()->sum('amount'));
 
-        $this->getJson("/api/v1/hrm/salary-payments/{$payment->id}")->assertOk()->assertJsonPath('data.commission', 40000)->assertJsonPath('data.staff_fund', 40000);
+        $this->getJson("/api/v1/hrm/salary-payments/{$payment->id}")->assertOk()->assertJsonPath('data.commission', 38000)->assertJsonPath('data.staff_fund', 40000);
         $this->getJson('/api/v1/hrm/salary-payments?from='.now()->toDateString().'&to='.now()->toDateString())->assertOk()->assertJsonCount(2, 'data');
 
         $fund = $this->actingAs($finance)->getJson('/api/v1/hrm/staff-fund')->assertOk()->json('data');

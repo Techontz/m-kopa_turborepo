@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { AssetActionModal, AssetHistoryTable, type AssetAction } from "@/components/capital/assets/AssetActionModal";
-import { findType, isTerminal, statusTone, type AssetConfig, type AssetDetail } from "@/components/capital/assets/assets";
+import { findType, isAwaitingApproval, isTerminal, statusTone, type AssetConfig, type AssetDetail } from "@/components/capital/assets/assets";
+import { ApprovalActions } from "@/components/finance/Approval";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -60,7 +61,7 @@ export default function AssetDetailPage() {
               <Card
                 title={<>{asset.asset_code} — {asset.name} <Badge tone={statusTone(asset.status)}>{asset.status_label.toUpperCase()}</Badge></>}
                 actions={
-                  canManage && !isTerminal(asset.status) && (
+                  canManage && !isTerminal(asset.status) && !isAwaitingApproval(asset.status) && (
                     <div className="text-nowrap">
                       <button type="button" className="btn btn-sm btn-primary mr-1" onClick={() => setAction("edit")}><i className="icon-pencil" /> Edit</button>
                       <button type="button" className="btn btn-sm btn-primary mr-1" onClick={() => setAction("transfer")}><i className="icon-shuffle" /> Transfer</button>
@@ -71,6 +72,23 @@ export default function AssetDetailPage() {
                   )
                 }
               >
+                {isAwaitingApproval(asset.status) && (
+                  <div className="alert alert-warning">
+                    <b>Pending approval</b> — recorded by {asset.requested_by ?? "—"}. Nothing is posted and the asset is not counted until another authorised user
+                    approves it (Dr {asset.ledger_account_label} / Cr CAPITAL ACCOUNT, dated the approval date).
+                    <div className="mt-2">
+                      <ApprovalActions
+                        row={{ id: asset.id, amount: asset.contribution_value, status: "pending", can_approve: asset.can_approve, approve_blocked_reason: asset.approve_blocked_reason, can_reject: asset.can_reject }}
+                        approvePath={`capital/assets/${asset.id}/approve`}
+                        rejectPath={`capital/assets/${asset.id}/reject`}
+                        description={`asset contribution ${asset.asset_code ?? ""} ${asset.name} by ${asset.share_holder ?? ""}`}
+                      />
+                    </div>
+                  </div>
+                )}
+                {asset.status === "rejected" && (
+                  <div className="alert alert-danger">Contribution rejected by {asset.rejected_by ?? "—"}{asset.rejection_reason ? `: ${asset.rejection_reason}` : ""}. Nothing was posted.</div>
+                )}
                 <div className="table-responsive">
                   <table className="table table-sm mb-0">
                     <tbody>

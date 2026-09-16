@@ -46,6 +46,9 @@ return [
         'loans.prepare_disbursement' => 'Prepare disbursement batches',
         'loans.disburse' => 'Disburse and retry disbursements',
         'loans.write_off' => 'Write off defaulted loans',
+        'loans.reverse_repayment' => 'Reverse a posted loan repayment (dependency-checked, returns the money to suspense)',
+        'loans.reverse_disbursement' => 'Reverse a loan disbursement that has no repayments or penalties',
+        'loans.recover' => 'Record money recovered on a written-off loan (split principal, penalty, interest and insurance; Finance entries post at once, branch entries wait for Finance)',
         'payments.cash' => 'Record cash repayments (teller)',
         'payments.verify' => 'Verify cash deposits and reconcile bank statements',
         'payments.suspense' => 'Allocate unmatched payments from suspense',
@@ -70,6 +73,33 @@ return [
         'goals.manage' => 'Set goals and targets',
         'goals.view' => 'View goals and progress',
         'audit.view' => 'View audit trail',
+        'approvals.view' => 'View the Pending Approvals list',
+        'approvals.self_approve' => 'Approve own financial transactions',
+        'shareholder.portal' => 'Shareholder Portal: view my shareholder dashboard',
+        'shareholder.profile' => 'Shareholder Portal: view and update my profile (safe fields only)',
+        'shareholder.capital.view' => 'Shareholder Portal: view my capital, shares and contribution history',
+        'shareholder.capital.submit' => 'Shareholder Portal: submit and cancel my pending capital contributions',
+        'shareholder.dividends.view' => 'Shareholder Portal: view my dividends and dividend payments',
+        'shareholder.statements' => 'Shareholder Portal: view and download my statements',
+        'shareholder.directory' => 'Shareholder Portal: view all shareholders\' public holdings and the company share structure',
+    ],
+
+    /*
+    | Permissions that are never implied: the Super Admin does not receive them automatically and no role holds them by
+    | default. They are effective only when a company grants them explicitly (role permission or employee override).
+    | Rule 6 (segregation of duties): the initiator of a financial transaction must not approve it unless the company
+    | explicitly allows self-approval.
+    */
+    'explicit_only' => ['approvals.self_approve'],
+
+    /*
+    | Shareholder Portal permissions. They are effective ONLY for an employee account linked to a shareholder record
+    | (share_holders.employee_id): never implied by the Super Admin role, never granted by a staff role or an employee
+    | override. A pure shareholder account (employees.account_type = shareholder) holds nothing else (AccessControl).
+    */
+    'shareholder_portal' => [
+        'shareholder.portal', 'shareholder.profile', 'shareholder.capital.view', 'shareholder.capital.submit',
+        'shareholder.dividends.view', 'shareholder.statements', 'shareholder.directory',
     ],
 
     'roles' => [
@@ -77,15 +107,15 @@ return [
         'admin' => ['name' => 'Admin', 'scope' => 'company', 'permissions' => [
             'dashboard.view', 'settings.manage', 'users.manage', 'hrm.staff_privileges', 'hrm.staff_reset_password', 'float.manage', 'bank.manage', 'expenses.request',
             'expenses.approve_hq', 'hq.manage', 'customers.view', 'customers.manage', 'customers.approve',
-            'customers.assign_officer', 'groups.view', 'groups.manage', 'branches.view_all', 'loans.view', 'loans.write_off',
-            'accounting.view', 'salary_advance.manage', 'penalties.manage', 'agent.manage', 'savings.manage', 'visa.manage',
-            'reports.view', 'reports.financial', 'income.view', 'crm.use', 'messages.use', 'goals.manage', 'goals.view', 'audit.view',
+            'customers.assign_officer', 'groups.view', 'groups.manage', 'branches.view_all', 'loans.view', 'loans.write_off', 'loans.reverse_repayment', 'loans.reverse_disbursement',
+            'loans.recover', 'accounting.view', 'salary_advance.manage', 'penalties.manage', 'agent.manage', 'savings.manage', 'visa.manage',
+            'reports.view', 'reports.financial', 'income.view', 'crm.use', 'messages.use', 'goals.manage', 'goals.view', 'audit.view', 'approvals.view',
         ]],
         'finance' => ['name' => 'Finance', 'scope' => 'company', 'permissions' => [
             'dashboard.view', 'float.manage', 'bank.manage', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
-            'loans.view', 'loans.prepare_disbursement', 'loans.disburse', 'payments.verify', 'payments.suspense',
+            'loans.view', 'loans.prepare_disbursement', 'loans.disburse', 'loans.reverse_repayment', 'loans.reverse_disbursement', 'loans.recover', 'payments.verify', 'payments.suspense',
             'accounting.view', 'accounting.reverse', 'accounting.close_period', 'salary_advance.manage', 'penalties.manage',
-            'agent.manage', 'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view',
+            'agent.manage', 'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view', 'approvals.view',
         ]],
         'hr' => ['name' => 'HR', 'scope' => 'company', 'permissions' => [
             'dashboard.view', 'users.manage', 'hrm.manage', 'hrm.staff_privileges', 'payroll.approve', 'branches.view_all', 'reports.view', 'messages.use', 'goals.view',
@@ -106,8 +136,12 @@ return [
             'loans.view', 'loans.apply', 'crm.use', 'messages.use', 'goals.view',
         ]],
         'teller' => ['name' => 'Teller', 'scope' => 'branch', 'permissions' => [
-            'dashboard.view', 'loans.view', 'payments.cash', 'savings.manage',
+            'dashboard.view', 'loans.view', 'payments.cash', 'loans.recover', 'savings.manage',
             'messages.use', 'goals.view',
+        ]],
+        'shareholder' => ['name' => 'Shareholder', 'scope' => 'branch', 'permissions' => [
+            'shareholder.portal', 'shareholder.profile', 'shareholder.capital.view', 'shareholder.capital.submit',
+            'shareholder.dividends.view', 'shareholder.statements', 'shareholder.directory',
         ]],
     ],
 
@@ -166,6 +200,9 @@ return [
                 ['key' => 'prepare_disbursement', 'label' => 'PREPARE DISBURSEMENT', 'permissions' => ['loans.prepare_disbursement']],
                 ['key' => 'disburse', 'label' => 'DISBURSE', 'permissions' => ['loans.disburse']],
                 ['key' => 'write_off', 'label' => 'WRITE-OFF LOAN', 'permissions' => ['loans.write_off']],
+                ['key' => 'reverse_repayment', 'label' => 'REVERSE LOAN REPAYMENT', 'permissions' => ['loans.reverse_repayment']],
+                ['key' => 'reverse_disbursement', 'label' => 'REVERSE LOAN DISBURSEMENT', 'permissions' => ['loans.reverse_disbursement']],
+                ['key' => 'recover', 'label' => 'RECORD WRITE-OFF RECOVERY', 'permissions' => ['loans.recover']],
                 ['key' => 'verify_payments', 'label' => 'VERIFY PAYMENTS', 'permissions' => ['payments.verify']],
                 ['key' => 'suspense', 'label' => 'SUSPENSE', 'permissions' => ['payments.suspense']],
             ],
@@ -200,6 +237,8 @@ return [
                 ['key' => 'close_period', 'label' => 'MONTH-END CLOSE', 'permissions' => ['accounting.close_period']],
                 ['key' => 'financial_reports', 'label' => 'FINANCIAL REPORTS', 'permissions' => ['reports.financial']],
                 ['key' => 'audit', 'label' => 'AUDIT TRAIL', 'permissions' => ['audit.view']],
+                ['key' => 'approvals_view', 'label' => 'PENDING APPROVALS', 'permissions' => ['approvals.view']],
+                ['key' => 'self_approve', 'label' => 'APPROVE OWN FINANCIAL TRANSACTIONS', 'permissions' => ['approvals.self_approve']],
             ],
         ],
         [
@@ -213,6 +252,19 @@ return [
                 ['key' => 'staff_reset_password', 'label' => 'RESET STAFF PASSWORD', 'permissions' => ['hrm.staff_reset_password']],
                 ['key' => 'payroll_approve', 'label' => 'PAYROLL APPROVAL', 'permissions' => ['payroll.approve']],
                 ['key' => 'payroll_pay', 'label' => 'PAY PAYROLL', 'permissions' => ['payroll.pay']],
+            ],
+        ],
+        [
+            'key' => 'shareholder_portal',
+            'label' => 'Shareholder Portal (effective only for accounts linked to a shareholder)',
+            'items' => [
+                ['key' => 'shareholder_portal', 'label' => 'SHAREHOLDER DASHBOARD', 'permissions' => ['shareholder.portal']],
+                ['key' => 'shareholder_profile', 'label' => 'MY PROFILE', 'permissions' => ['shareholder.profile']],
+                ['key' => 'shareholder_capital_view', 'label' => 'MY CAPITAL & SHARES', 'permissions' => ['shareholder.capital.view']],
+                ['key' => 'shareholder_capital_submit', 'label' => 'SUBMIT CAPITAL', 'permissions' => ['shareholder.capital.submit']],
+                ['key' => 'shareholder_dividends', 'label' => 'MY DIVIDENDS', 'permissions' => ['shareholder.dividends.view']],
+                ['key' => 'shareholder_statements', 'label' => 'MY STATEMENTS', 'permissions' => ['shareholder.statements']],
+                ['key' => 'shareholder_directory', 'label' => 'SHAREHOLDER DIRECTORY', 'permissions' => ['shareholder.directory']],
             ],
         ],
     ],

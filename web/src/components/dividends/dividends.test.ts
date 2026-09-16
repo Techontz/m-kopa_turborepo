@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  allocateEntitlements,
   allocationBadge,
   currentMonth,
   declarationBadge,
@@ -9,9 +8,9 @@ import {
   mapPreview,
   paymentBadge,
   periodLabel,
+  profitChain,
   profitSourceLabel,
   settingsTotal,
-  splitProfit,
   tzs,
   validatePayAmount,
 } from "./dividends";
@@ -53,19 +52,6 @@ describe("dividend display", () => {
     expect(profitSourceLabel("period_close")).toBe("Month-end close (distributable profit)");
     expect(periodLabel("2026-08")).toBe("August 2026");
     expect(currentMonth(new Date(2026, 8, 13))).toBe("2026-09");
-  });
-
-  it("mirrors the server split and allocation exactly", () => {
-    expect(splitProfit(10000000.01, 30)).toEqual({ pool: 3000000, reinvest: 7000000.01 });
-    expect(splitProfit(1000000.03, 30)).toEqual({ pool: 300000.01, reinvest: 700000.02 });
-    expect(splitProfit(1000000, 40)).toEqual({ pool: 400000, reinvest: 600000 });
-
-    const shares = allocateEntitlements(3000000, [{ id: 1, shares: 500 }, { id: 2, shares: 300 }, { id: 3, shares: 200 }]);
-    expect([...shares.values()]).toEqual([1500000, 900000, 600000]);
-
-    const cents = allocateEntitlements(300000.01, [{ id: 1, shares: 1 }, { id: 2, shares: 1 }, { id: 3, shares: 1 }]);
-    expect([...cents.values()]).toEqual([100000.01, 100000, 100000]);
-    expect(allocateEntitlements(100, [{ id: 1, shares: 0 }]).get(1)).toBe(0);
   });
 
   it("validates the settings total", () => {
@@ -116,5 +102,24 @@ describe("dividend display", () => {
     expect(loadState({ isLoading: false, error: "x" }).message).toBe("The data could not be loaded.");
     expect(loadState({ isLoading: false, error: null, count: 0 }, "No payments yet")).toEqual({ state: "empty", message: "No payments yet" });
     expect(loadState({ isLoading: false, error: null, count: 2 }).state).toBe("ready");
+  });
+});
+
+describe("profitChain", () => {
+  it("lists distributable → commission → remaining → reinvestment / dividend for a closed month", () => {
+    const chain = profitChain({ period_closed: true, distributable_profit: 346920, commission_amount: 34692, commission_calculated: true, base_amount: 312228, reinvestment_amount: 218559.6, dividend_pool: 93668.4, reinvest_percent: 70, dividend_percent: 30 });
+    expect(chain.map((step) => step.label)).toEqual(["Net distributable profit", "Commission (10%)", "Remaining profit", "Principal reinvestment (70%)", "Shareholder dividend (30%)"]);
+    expect(chain.map((step) => step.value)).toEqual(["TZS 346,920", "TZS 34,692", "TZS 312,228", "TZS 218,559.60", "TZS 93,668.40"]);
+  });
+
+  it("deducts nothing while commission is not calculated and says it must be calculated first (C1)", () => {
+    const chain = profitChain({ period_closed: true, distributable_profit: 10000000, commission_amount: 0, commission_calculated: false, base_amount: 10000000, reinvestment_amount: 7000000, dividend_pool: 3000000, reinvest_percent: 70, dividend_percent: 30 });
+    expect(chain[1]).toEqual({ label: "Commission — not calculated (calculate it before declaring)", value: "TZS 0", tone: "out" });
+    expect(chain[2].value).toBe("TZS 10,000,000");
+  });
+
+  it("is empty for a month that is not closed", () => {
+    expect(profitChain({ period_closed: false, distributable_profit: null, commission_amount: null, base_amount: null, reinvestment_amount: 0, dividend_pool: 0, reinvest_percent: 70, dividend_percent: 30 })).toEqual([]);
+    expect(profitChain(undefined)).toEqual([]);
   });
 });

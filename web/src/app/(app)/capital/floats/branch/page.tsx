@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import type { FloatTransfer } from "@/components/capital/DateFilterModal";
-import { Badge } from "@/components/ui/Badge";
+import { ApprovalActions, ApprovalStatus } from "@/components/finance/Approval";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -22,7 +22,6 @@ export default function BranchFloatPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const create = useAction<typeof EMPTY>("post", "capital/floats/branch");
-  const approve = useAction<{ id: number }>("post", (body) => `capital/floats/branch/${body.id}/approve`);
   const remove = useAction<{ id: number }>("delete", (body) => `capital/floats/branch/${body.id}`);
 
   return (
@@ -39,7 +38,7 @@ export default function BranchFloatPage() {
             { key: "from_branch", header: "From Branch" },
             { key: "to_branch", header: "To Branch" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-            { key: "status", header: "Status", render: () => <Badge tone="danger">Pending</Badge> },
+            { key: "status", header: "Status", render: (row) => <ApprovalStatus row={row} /> },
             { key: "date", header: "Date" },
             {
               key: "action",
@@ -48,8 +47,8 @@ export default function BranchFloatPage() {
               className: "text-nowrap",
               render: (row) => (
                 <>
-                  <button type="button" className="btn btn-success btn-sm mr-1" title="Approve" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-check" /></button>
-                  <button type="button" className="btn btn-danger btn-sm" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
+                  <ApprovalActions row={row} approvePath={`capital/floats/${row.id}/approve`} rejectPath={`capital/floats/${row.id}/reject`} description={`float ${row.from_branch ?? ""} → ${row.to_branch ?? ""}`} />
+                  <button type="button" className="btn btn-danger btn-sm ml-1" title="Delete request" disabled={remove.isPending} onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                 </>
               ),
             },

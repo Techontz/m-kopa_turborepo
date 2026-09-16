@@ -75,7 +75,8 @@ class RepaymentAllocationTest extends TestCase
         $branch = $this->loan->branch_id;
         $this->assertSame(0.0, $ledger->balance($this->loan->company_id, Account::LoanReceivable, $branch));
         $this->assertSame(10000.0, $ledger->balance($this->loan->company_id, Account::PenaltyIncome, $branch));
-        $this->assertSame(30000.0, $ledger->balance($this->loan->company_id, Account::InterestIncome, $branch));
+        $this->assertSame(24000.0, $ledger->balance($this->loan->company_id, Account::InterestIncome, $branch), 'D6: interest income is net of the reserve');
+        $this->assertSame(6000.0, $ledger->balance($this->loan->company_id, Account::InterestReserve, $branch));
         $this->assertSame(6000.0, $ledger->balance($this->loan->company_id, Account::Reserve, $branch));
         $this->assertSame(24000.0, $ledger->balance($this->loan->company_id, Account::Interest, $branch));
     }

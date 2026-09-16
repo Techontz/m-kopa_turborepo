@@ -3,18 +3,22 @@
 namespace App\Http\Controllers\Api\V1\Capital;
 
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Http\Requests\Api\Capital\DividendDeclarationRequest;
+use App\Http\Requests\Api\Capital\DividendDeclarationRequest as DividendDeclarationFormRequest;
 use App\Http\Requests\Api\Capital\DividendPayAllRequest;
 use App\Http\Requests\Api\Capital\DividendPaymentRequest;
+use App\Models\ApprovalPolicy;
 use App\Models\DividendAllocation;
 use App\Models\DividendDeclaration;
+use App\Models\DividendDeclarationRequest;
 use App\Models\DividendPayment;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Dividends\DividendMath;
 use App\Services\DividendService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -22,8 +26,9 @@ use Illuminate\Validation\ValidationException;
  * Reinvestment and the Shareholder Dividend Pool by the company's Dividend Settings; the pool is split by
  * share-register ownership; the Dividend account is paid out by CASH or BANK, in full or in parts).
  *
- * Reading needs capital.view or capital.manage; declaring and paying need capital.manage; reversing a payment needs
- * capital.manage and accounting.reverse. Every record is scoped to the signed-in employee's company.
+ * Reading needs capital.view or capital.manage; requesting, approving or rejecting a declaration and paying need capital.manage
+ * (rule 6: the initiator of a declaration request does not approve it); reversing a payment needs capital.manage and
+ * accounting.reverse. Every record is scoped to the signed-in employee's company.
  */
 class DividendController extends ApiController
 {
@@ -37,7 +42,7 @@ class DividendController extends ApiController
         $this->authorizeAny('capital.manage', 'capital.view');
 
         $declarations = DividendDeclaration::where('company_id', $this->companyId())
-            ->with(['declaredBy', 'journalEntry'])
+            ->with(['declaredBy', 'journalEntry', 'reinvestmentJournalEntry'])
             ->withCount('allocations')
             ->withSum(['payments as paid_total' => fn ($query) => $query->where('dividend_payments.status', DividendPayment::STATUS_POSTED)], 'dividend_payments.amount')
             ->orderByDesc('period')
@@ -65,12 +70,20 @@ class DividendController extends ApiController
             'period_closed' => $preview['period_closed'],
             'period_profit' => $preview['period_profit'],
             'profit_account_balance' => $preview['profit_account_balance'],
+            'distributable_profit' => $preview['distributable_profit'],
+            'commission_amount' => $preview['commission_amount'],
+            'commission_calculated' => $preview['commission_calculated'],
+            'base_amount' => $preview['base_amount'],
+            'can_declare' => $preview['can_declare'],
+            'blocking_reason' => $preview['blocking_reason'],
             'dividend_percent' => $preview['dividend_percent'],
             'reinvest_percent' => $preview['reinvest_percent'],
             'dividend_pool' => $preview['dividend_pool'],
             'reinvestment_amount' => $preview['reinvestment_amount'],
             'already_declared' => $preview['already_declared'],
             'declaration_id' => $preview['declaration_id'],
+            'pending_request_id' => $preview['pending_request_id'],
+            'pending_requested_by' => $preview['pending_requested_by'],
         ] + $this->dividends->totals($companyId)]);
     }
 
@@ -94,20 +107,66 @@ class DividendController extends ApiController
         return response()->json(['data' => $this->dividends->preview($this->companyId(), $this->period($request))]);
     }
 
-    public function store(DividendDeclarationRequest $request): JsonResponse
+    /**
+     * REQUEST a declaration (C1 maker/checker): nothing is posted until another authorised user approves it.
+     */
+    public function store(DividendDeclarationFormRequest $request): JsonResponse
     {
-        $declaration = $this->dividends->declare(
+        $pending = $this->dividends->declare(
             $this->companyId(),
             CarbonImmutable::createFromFormat('Y-m-d', $request->string('period')->toString().'-01'),
             $this->currentEmployee(),
         );
 
-        return $this->message('Dividend Declared successfully', 201, ['data' => [
+        return $this->message('Dividend Declaration submitted for approval', 201, ['data' => $this->requestData($pending->load('requester'))]);
+    }
+
+    /**
+     * Declaration requests of the company (pending first, then the most recent), with approval flags for the viewer.
+     */
+    public function requests(Request $request): JsonResponse
+    {
+        $this->authorizeAny('capital.manage', 'capital.view');
+        $request->validate(['status' => ['nullable', 'in:pending,approved,rejected']]);
+
+        $rows = DividendDeclarationRequest::where('company_id', $this->companyId())
+            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
+            ->with(['requester', 'approver', 'rejecter'])
+            ->orderByRaw('status = ? DESC', [DividendDeclarationRequest::STATUS_PENDING])
+            ->orderByDesc('id')
+            ->get();
+
+        return response()->json(['data' => $rows->map(fn (DividendDeclarationRequest $row): array => $this->requestData($row))->values()]);
+    }
+
+    /**
+     * APPROVE a pending declaration request: re-validates every rule and posts the declaration and its journals.
+     */
+    public function approve(DividendDeclarationRequest $declarationRequest): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $this->ensureCompany($declarationRequest->company_id);
+
+        $declaration = $this->dividends->approveDeclaration($declarationRequest, $this->currentEmployee());
+
+        return $this->message('Dividend Declared successfully', 200, ['data' => [
             'id' => $declaration->id,
+            'request_id' => $declarationRequest->id,
             'profit_amount' => (float) $declaration->profit_amount,
             'dividend_amount' => (float) $declaration->dividend_amount,
             'reinvest_amount' => (float) $declaration->reinvest_amount,
         ]]);
+    }
+
+    public function reject(Request $request, DividendDeclarationRequest $declarationRequest): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $this->ensureCompany($declarationRequest->company_id);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']]);
+
+        $this->dividends->rejectDeclaration($declarationRequest, $validated['reason'], $this->currentEmployee());
+
+        return $this->message('Dividend Declaration rejected');
     }
 
     /**
@@ -127,7 +186,7 @@ class DividendController extends ApiController
             ->get();
 
         return response()->json([
-            'declaration' => $this->declarationData($declaration->loadMissing(['declaredBy', 'journalEntry'])->loadCount('allocations')->loadSum(['payments as paid_total' => fn ($query) => $query->where('dividend_payments.status', DividendPayment::STATUS_POSTED)], 'dividend_payments.amount')),
+            'declaration' => $this->declarationData($declaration->loadMissing(['declaredBy', 'journalEntry', 'reinvestmentJournalEntry.lines.account.branch'])->loadCount('allocations')->loadSum(['payments as paid_total' => fn ($query) => $query->where('dividend_payments.status', DividendPayment::STATUS_POSTED)], 'dividend_payments.amount')),
             'data' => $allocations->map(fn (DividendAllocation $allocation): array => $this->allocationData($allocation))->values(),
             'totals' => collect($this->dividends->payAllPreview($declaration))->except('rows')->all(),
         ]);
@@ -282,6 +341,37 @@ class DividendController extends ApiController
     /**
      * @return array<string, mixed>
      */
+    private function requestData(DividendDeclarationRequest $row): array
+    {
+        return [
+            'id' => $row->id,
+            'period' => $row->period->format('Y-m'),
+            'period_label' => $row->periodLabel(),
+            'status' => $row->status,
+            'amount' => (float) $row->profit_amount,
+            'profit_amount' => (float) $row->profit_amount,
+            'distributable_profit' => $row->distributable_profit === null ? null : (float) $row->distributable_profit,
+            'commission_amount' => $row->commission_amount === null ? null : (float) $row->commission_amount,
+            'dividend_percent' => (float) $row->dividend_percent,
+            'dividend_amount' => (float) $row->dividend_amount,
+            'reinvest_percent' => (float) $row->reinvest_percent,
+            'reinvest_amount' => (float) $row->reinvest_amount,
+            'requested_by' => $row->requester?->full_name,
+            'requested_at' => $row->requested_at?->toDateTimeString(),
+            'approved_by' => $row->approver?->full_name,
+            'approved_at' => $row->approved_at?->toDateTimeString(),
+            'rejected_by' => $row->rejecter?->full_name,
+            'rejected_at' => $row->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $row->rejection_reason,
+            'declaration_id' => $row->dividend_declaration_id,
+            'can_reject' => $row->isPending() && Gate::allows('capital.manage'),
+            ...app(SegregationOfDuties::class)->flags($row->requested_by, $this->currentEmployee(), $row->isPending(), Gate::allows('capital.manage'), workflow: ApprovalPolicy::DIVIDEND_DECLARATIONS),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function declarationData(DividendDeclaration $declaration): array
     {
         $paid = DividendMath::toCents((string) ($declaration->paid_total ?? 0));
@@ -307,7 +397,39 @@ class DividendController extends ApiController
             'declared_by' => $declaration->declaredBy?->full_name,
             'declared_at' => ($declaration->declared_at ?? $declaration->created_at)?->toDateTimeString(),
             'journal_reference' => $declaration->journalEntry?->reference,
+            'allocation_rule' => $declaration->allocation_rule,
+            'distributable_profit' => $declaration->distributable_profit === null ? null : (float) $declaration->distributable_profit,
+            'commission_amount' => $declaration->commission_amount === null ? null : (float) $declaration->commission_amount,
+            'base_amount' => $declaration->base_amount === null ? null : (float) $declaration->base_amount,
+            'reinvestment_credited_to' => $declaration->isProfitAllocationRule() ? 'REINVESTED PROFIT' : 'CAPITAL ACCOUNT (legacy)',
+            'reinvestment_reference' => $declaration->reinvestmentJournalEntry?->reference,
+            'reinvestment_branches' => $declaration->relationLoaded('reinvestmentJournalEntry') && $declaration->reinvestmentJournalEntry?->relationLoaded('lines')
+                ? $this->reinvestmentBranches($declaration)
+                : null,
         ];
+    }
+
+    /**
+     * Per-branch reinvestment of a declaration read from its PROFIT REINVESTMENT journal: amount moved into PRINCIPAL A/C and
+     * the income pools it came from.
+     *
+     * @return list<array{branch_id: ?int, branch: ?string, amount: float, interest: float, loan_fee: float, penalty: float}>
+     */
+    private function reinvestmentBranches(DividendDeclaration $declaration): array
+    {
+        $rows = [];
+        foreach ($declaration->reinvestmentJournalEntry->lines as $line) {
+            $branchId = $line->account?->branch_id;
+            $rows[$branchId] ??= ['branch_id' => $branchId, 'branch' => $line->account?->branch?->name, 'amount' => 0.0, 'interest' => 0.0, 'loan_fee' => 0.0, 'penalty' => 0.0];
+            $key = $line->account?->key?->value;
+            if ($key === 'principal') {
+                $rows[$branchId]['amount'] = round($rows[$branchId]['amount'] + (float) $line->debit, 2);
+            } elseif (in_array($key, ['interest', 'loan_fee', 'penalty'], true)) {
+                $rows[$branchId][$key] = round($rows[$branchId][$key] + (float) $line->credit, 2);
+            }
+        }
+
+        return array_values($rows);
     }
 
     /**
@@ -344,6 +466,9 @@ class DividendController extends ApiController
      */
     private function paymentRows($query): array
     {
+        $viewer = $this->currentEmployee();
+        $permitted = Gate::allows('capital.manage') && Gate::allows('accounting.reverse');
+
         return $query->with(['shareHolder', 'bankAccount', 'paidBy', 'reversedBy', 'journalEntry', 'reversalJournalEntry', 'allocation.declaration', 'batch'])
             ->orderByDesc('paid_at')
             ->orderByDesc('id')
@@ -371,6 +496,7 @@ class DividendController extends ApiController
                 'reversed_by' => $payment->reversedBy?->full_name,
                 'reversal_reason' => $payment->reversal_reason,
                 'reversal_reference' => $payment->reversalJournalEntry?->reference,
+                ...$this->dividends->reverseFlags($payment, $viewer, $permitted),
             ])
             ->values()
             ->all();

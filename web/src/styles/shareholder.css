@@ -1,0 +1,69 @@
+/*
+ * Shareholder Portal shell — reuses the Head Office top bar (finance.css .fin-*) on the portal accent colour and adds the
+ * portal tiles. Scoped to [data-shell="shareholder"] (set on <body> and the wrapper only for shareholder accounts);
+ * colours come from design tokens so dark (default) and light themes both work.
+ */
+
+[data-shell="shareholder"] {
+    --fin-bar: var(--mf-btn-primary);
+    --fin-bar-hover: rgba(255, 255, 255, .18);
+}
+
+#sh-main { padding-top: 12px; padding-bottom: 24px; }
+#sh-main > .container-fluid { padding-left: 15px; padding-right: 15px; }
+[data-shell="shareholder"] .block-header { margin: 0 0 8px; }
+
+.sh-header { min-height: 64px; }
+.sh-header .fin-brand { height: 44px; font-size: 19px; }
+.sh-brand-sub { margin-left: 6px; font-size: 12px; font-weight: 600; letter-spacing: .02em; opacity: .85; }
+.sh-link-icon { margin-right: 3px; font-size: 12px; }
+.sh-user { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; color: var(--fin-bar-text); }
+
+/* Tiles */
+.sh-tiles { margin-bottom: 6px; }
+.sh-tile {
+    height: calc(100% - 16px);
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    background: var(--mf-surface);
+    border-left: 4px solid var(--mf-btn-primary);
+    border-radius: 4px;
+    box-shadow: var(--mf-shadow);
+}
+.sh-tile.is-success { border-left-color: var(--mf-success); }
+.sh-tile.is-warning { border-left-color: var(--mf-warning); }
+.sh-tile.is-info { border-left-color: var(--mf-cyan); }
+.sh-tile.is-danger { border-left-color: var(--mf-danger); }
+.sh-tile-label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--mf-muted); }
+.sh-tile-value { display: block; margin-top: 4px; font-size: 22px; font-weight: 700; line-height: 1.25; color: var(--mf-heading); word-break: break-word; }
+.sh-tile-note { display: block; margin-top: 2px; font-size: 12px; color: var(--mf-subtle); }
+
+.sh-welcome { margin: 4px 0 14px; }
+.sh-welcome h1 { margin: 0; font-size: 22px; font-weight: 600; color: var(--mf-heading); }
+.sh-welcome p { margin: 2px 0 0; color: var(--mf-muted); }
+
+.sh-chart { width: 100%; height: 300px; }
+.sh-kv { display: grid; grid-template-columns: minmax(120px, 40%) 1fr; gap: 6px 12px; margin: 0; }
+.sh-kv dt { font-weight: 600; color: var(--mf-muted); }
+.sh-kv dd { margin: 0; color: var(--mf-heading); word-break: break-word; }
+.sh-me td { font-weight: 700; background: var(--mf-surface-muted); }
+.sh-confirm { padding: 12px; margin-bottom: 12px; background: var(--mf-surface-muted); border: 1px solid var(--mf-border-strong); border-radius: 4px; }
+.sh-photo { width: 120px; height: 140px; object-fit: cover; border-radius: 4px; border: 1px solid var(--mf-border-strong); }
+
+/* One-time credentials */
+.sh-credentials { margin-bottom: 12px; }
+.sh-credential { display: grid; grid-template-columns: 150px 1fr; gap: 4px 10px; margin: 0 0 10px; padding: 10px; background: var(--mf-surface-muted); border-radius: 4px; }
+.sh-credential dt { font-weight: 600; color: var(--mf-muted); }
+.sh-credential dd { margin: 0; }
+.sh-secret { font-size: 16px; letter-spacing: .04em; user-select: all; }
+
+@media (max-width: 575.98px) {
+    .sh-tile-value { font-size: 18px; }
+    .sh-credential, .sh-kv { grid-template-columns: 1fr; }
+    .sh-user { max-width: 160px; }
+}
+
+@media print {
+    .sh-header, .mf-no-print { display: none !important; }
+    #sh-main { padding: 0; }
+}

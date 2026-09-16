@@ -47,6 +47,7 @@ class SalaryAdvanceController extends HrmController
             'amount' => (float) $request->input('advance_amount'),
             'fee' => $category->fee,
             'status' => 'pending',
+            'requested_by' => $this->currentEmployee()->id,
         ]);
 
         return $this->message('Salary Advance Requested successfully', 201);

@@ -1,6 +1,23 @@
 import type { BadgeTone } from "@/components/ui/Badge";
 
 import type { CustomerFreeze, FreezeState } from "./freeze";
+import type { ComponentsStatus, LoanFeeMemo, LoanRecoveryRow, RecoveryPosition } from "./recovery";
+
+/** A write-off request (rule 6 maker/checker): pending until another user with loans.write_off approves or rejects it. */
+export interface WriteOffRequest {
+  id: number;
+  status: "pending" | "approved" | "rejected";
+  reason: string | null;
+  requested_by: string | null;
+  requested_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  can_approve: boolean;
+  approve_blocked_reason: string | null;
+}
 
 export interface Loan {
   id: number;
@@ -156,7 +173,27 @@ export interface LoanDetail {
   outstanding: { principal: number; penalty: number; interest: number; insurance: number; total: number } | null;
   paid_amount: number;
   schedules: Schedule[];
-  transactions: { id: number; date: string; type: string; description: string; method: string; amount: number; principal: number; penalty: number; interest: number }[];
+  transactions: LoanTransactionRow[];
+  can_reverse_disbursement: boolean;
+  reverse_disbursement_blocked_reason: string | null;
+  write_off: {
+    amount: number;
+    principal_amount: number | null;
+    penalty_amount?: number | null;
+    interest_amount?: number | null;
+    insurance_amount?: number | null;
+    /** How the split at write-off is known (C3 Option B). */
+    components_status?: ComponentsStatus | null;
+    written_off_on: string | null;
+  } | null;
+  /** Latest write-off request (maker/checker) with the viewer's approval flags. */
+  write_off_request?: WriteOffRequest | null;
+  /** Rule 7: a fee that is not deducted is a memo only, never part of the repayment. */
+  loan_fee?: LoanFeeMemo;
+  recovery?: RecoveryPosition | null;
+  recovered_total?: number | null;
+  recovery_status?: RecoveryPosition["status"] | null;
+  recoveries?: LoanRecoveryRow[];
   mandate: { bank_name: string; account_number: string; account_name: string; mandate_reference: string | null; status: string; otp_attempts: number; failure_reason: string | null; activated_at: string | null } | null;
   disbursements: {
     id: number;
@@ -185,6 +222,30 @@ export interface LoanDetail {
   customer_freeze: CustomerFreeze;
   /** normal eligibility rules of the loan's customer (LoanWorkflow::borrowingStatus()['eligible']) */
   customer_eligible: boolean;
+}
+
+/** A loan transaction on the loan detail page; repayments carry the server-computed reversal eligibility. */
+export interface LoanTransactionRow {
+  id: number;
+  date: string;
+  type: string;
+  description: string;
+  method: string;
+  amount: number;
+  principal: number;
+  penalty: number;
+  interest: number;
+  reserve: number;
+  insurance: number;
+  receipt_number: string | null;
+  journal_reference: string | null;
+  reversed: boolean;
+  reversed_at: string | null;
+  reversed_by: string | null;
+  reversal_reason: string | null;
+  reversal_reference: string | null;
+  can_reverse: boolean;
+  reverse_blocked_reason: string | null;
 }
 
 export interface JournalEntrySummary {

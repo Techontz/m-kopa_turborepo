@@ -12,8 +12,10 @@ use App\Http\Resources\Api\V1\Hrm\StaffSalaryAdvanceResource;
 use App\Models\AuditLog;
 use App\Models\Branch;
 use App\Models\Employee;
+use App\Services\Hrm\EmployeeNumberGenerator;
 use App\Services\Hrm\StaffPasswordReset;
 use App\Services\Ledger;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -34,7 +36,7 @@ class StaffController extends HrmController
 
         $rejected = $request->string('status')->toString() === 'rejected';
 
-        $employees = $this->scoped(Employee::query())
+        $employees = $this->scoped(Employee::query())->staff()
             ->when($rejected, fn ($query) => $query->where('status', 'rejected'), fn ($query) => $query->where('status', '!=', 'rejected'))
             ->with(['branch', 'role', 'zone'])
             ->orderByDesc('id')
@@ -45,10 +47,11 @@ class StaffController extends HrmController
 
     /**
      * Live default password: the phone number (unless a password is given). Empl/ID follows the live
-     * pattern MK-<3 digit sequence><year>. Documents: the staff ledger accounts (control, loan,
+     * pattern MK-<3 digit sequence><year>, reserved by EmployeeNumberGenerator inside the create transaction (retried
+     * once when a concurrent registration took the same number). Documents: the staff ledger accounts (control, loan,
      * advance, deductions/fund) are opened on registration.
      */
-    public function store(StaffRequest $request, Ledger $ledger): JsonResponse
+    public function store(StaffRequest $request, Ledger $ledger, EmployeeNumberGenerator $numbers): JsonResponse
     {
         $this->authorizeAny('users.manage', 'hrm.manage');
 
@@ -58,12 +61,10 @@ class StaffController extends HrmController
         }
 
         $companyId = $this->companyId();
-        $employee = DB::transaction(function () use ($request, $data, $companyId, $ledger): Employee {
-            $sequence = Employee::where('company_id', $companyId)->count() + 1;
-
+        $register = fn (): Employee => DB::transaction(function () use ($request, $data, $companyId, $ledger, $numbers): Employee {
             $employee = Employee::create($data + [
                 'company_id' => $companyId,
-                'employee_number' => 'MK-'.str_pad((string) $sequence, 3, '0', STR_PAD_LEFT).now()->format('Y'),
+                'employee_number' => $numbers->next($companyId),
                 'status' => 'active',
                 'password' => $request->filled('password') ? $request->string('password')->toString() : $data['phone'],
             ]);
@@ -80,6 +81,15 @@ class StaffController extends HrmController
 
             return $employee;
         });
+
+        try {
+            $employee = $register();
+        } catch (UniqueConstraintViolationException $exception) {
+            if (! str_contains($exception->getMessage(), 'employee_number')) {
+                throw $exception;
+            }
+            $employee = $register();
+        }
 
         return $this->message('Employee Registered successfully', 201, ['data' => new StaffResource($employee->load(['branch', 'role', 'zone', 'salaryInfo']))]);
     }
@@ -237,7 +247,7 @@ class StaffController extends HrmController
         $this->authorizeAny('users.manage');
 
         $block = $request->boolean('block', true);
-        $query = $this->scoped(Employee::query())
+        $query = $this->scoped(Employee::query())->staff()
             ->whereKeyNot($this->currentEmployee()->id)
             ->where('status', $block ? 'active' : 'blocked');
 

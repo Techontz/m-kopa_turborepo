@@ -48,11 +48,11 @@ function buildUrl(path: string, query?: Query): string {
   return qs ? `${url}?${qs}` : url;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, query?: Query, extraHeaders?: Record<string, string>): Promise<T> {
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   const response = await fetch(buildUrl(path, query), {
     method,
-    headers: isForm ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+    headers: { ...(isForm ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" }), ...extraHeaders },
     body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     credentials: "same-origin",
   });
@@ -71,10 +71,13 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   return payload as T;
 }
 
+/** Optional request headers, e.g. `{ "Idempotency-Key": key }` for money actions. */
+export type RequestHeaders = Record<string, string>;
+
 export const api = {
   get: <T>(path: string, query?: Query) => request<T>("GET", path, undefined, query),
-  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
-  put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-  delete: <T>(path: string, body?: unknown) => request<T>("DELETE", path, body),
+  post: <T>(path: string, body?: unknown, headers?: RequestHeaders) => request<T>("POST", path, body, undefined, headers),
+  put: <T>(path: string, body?: unknown, headers?: RequestHeaders) => request<T>("PUT", path, body, undefined, headers),
+  patch: <T>(path: string, body?: unknown, headers?: RequestHeaders) => request<T>("PATCH", path, body, undefined, headers),
+  delete: <T>(path: string, body?: unknown, headers?: RequestHeaders) => request<T>("DELETE", path, body, undefined, headers),
 };

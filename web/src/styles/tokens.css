@@ -102,6 +102,37 @@
     --mf-auth-bg: #191f28;
 
     --mf-sidebar-width: 250px;
+
+    /* Finance / Head Office shell (live Finance header menu and dashboard, measured) */
+    --fin-bar: #cb0505;
+    --fin-bar-text: #fff;
+    --fin-bar-hover: rgba(255, 255, 255, .16);
+    --fin-dd-bg: #333;
+    --fin-dd-hover: #555;
+    --fin-dd-text: #fff;
+    --fin-dd-divider: #444;
+    --fin-th-bg: #dddddd;
+    --fin-th-text: #444;
+    --fin-modal-head: #01b2c6;
+    --fin-box-accent: #00c0ef;
+    --fin-box-link: #3c8dbc;
+    --fin-footer-bar: #0073b7;
+    --fin-tile-icon: #00c0ef;
+    --fin-infobox-border: #000;
+    --fin-infobox-text: #000;
+    --fin-watermark: rgba(0, 0, 0, .15);
+    --fin-progress-track: #f1f1f1;
+    --fin-progress-yellow: #f39c12;
+    --fin-progress-green: #00a65a;
+    --fin-progress-red: #dd4b39;
+    --fin-count-badge: #6c757d;
+    --fin-btn-primary: #007bff;
+    --fin-btn-info: #17a2b8;
+    --fin-btn-danger: #dc3545;
+    --fin-btn-success: #28a745;
+    --fin-btn-warning: #ffc107;
+    --fin-input-border: #ced4da;
+    --fin-line: #dee2e6;
 }
 
 :root[data-theme="dark"] {
@@ -155,16 +186,17 @@
     --mf-btn-primary: #3a82b0;
     --mf-btn-primary-border: #3176a0;
     --mf-btn-primary-hover-border: #4d97c6;
-    --mf-btn-info: #0aa9d1;
-    --mf-btn-info-border: #0998bc;
-    --mf-btn-info-hover-border: #33bde0;
+    /* Info / success / warning are deep enough for white icons and text (≥ 4.5:1 contrast). */
+    --mf-btn-info: #0b7c9b;
+    --mf-btn-info-border: #096d88;
+    --mf-btn-info-hover-border: #0b8fb3;
     --mf-btn-danger: #d24a39;
     --mf-btn-danger-border: #bf3b2b;
     --mf-btn-danger-hover-border: #e36756;
-    --mf-btn-success: #0a9b58;
-    --mf-btn-success-border: #088a4e;
-    --mf-btn-warning: #e0930f;
-    --mf-btn-warning-border: #c9840d;
+    --mf-btn-success: #087a4a;
+    --mf-btn-success-border: #066a40;
+    --mf-btn-warning: #a86508;
+    --mf-btn-warning-border: #945807;
 
     --mf-success: #3ccf65;
     --mf-warning: #f5bd2e;
@@ -182,4 +214,35 @@
     --mf-chart-tooltip-border: #3a414b;
 
     --mf-auth-bg: #0f1216;
+
+    /* Finance shell: the red bar is kept, deepened so it does not glare on dark surfaces */
+    --fin-bar: #a50f14;
+    --fin-bar-text: #fff;
+    --fin-bar-hover: rgba(255, 255, 255, .14);
+    --fin-dd-bg: #1b1f25;
+    --fin-dd-hover: #2d333c;
+    --fin-dd-text: #e3e7ec;
+    --fin-dd-divider: #2e343d;
+    --fin-th-bg: #2c333d;
+    --fin-th-text: #e3e7ec;
+    --fin-modal-head: #0a8fa0;
+    --fin-box-accent: #16c1d4;
+    --fin-box-link: #6aa9ec;
+    --fin-footer-bar: #1b5f94;
+    --fin-tile-icon: #0a9cc0;
+    --fin-infobox-border: #3a414b;
+    --fin-infobox-text: #e3e7ec;
+    --fin-watermark: rgba(255, 255, 255, .09);
+    --fin-progress-track: #2c333d;
+    --fin-progress-yellow: #e0930f;
+    --fin-progress-green: #1faa62;
+    --fin-progress-red: #e0584a;
+    --fin-count-badge: #5b636e;
+    --fin-btn-primary: #2f7fe0;
+    --fin-btn-info: #157f8f;
+    --fin-btn-danger: #d9434f;
+    --fin-btn-success: #227a3d;
+    --fin-btn-warning: #a86508;
+    --fin-input-border: #3a414b;
+    --fin-line: #2e343d;
 }

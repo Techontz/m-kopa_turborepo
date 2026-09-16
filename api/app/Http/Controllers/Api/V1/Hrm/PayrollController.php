@@ -4,14 +4,17 @@ namespace App\Http\Controllers\Api\V1\Hrm;
 
 use App\Enums\SalaryType;
 use App\Http\Resources\Api\V1\Hrm\SalaryPaymentResource;
+use App\Models\ApprovalPolicy;
 use App\Models\PayrollRun;
 use App\Models\SalaryPayment;
 use App\Services\AccessControl;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Hrm\CommissionEngine;
 use App\Services\Hrm\PayrollEngine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 /**
@@ -69,6 +72,9 @@ class PayrollController extends HrmController
                 'approved_at' => $run->approved_at?->toDateTimeString(),
                 'paid_by' => $run->payer?->full_name,
                 'paid_at' => $run->paid_at?->toDateTimeString(),
+                ...app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_DRAFT, Gate::allows('payroll.approve'), workflow: ApprovalPolicy::PAYROLL),
+                ...collect(app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_APPROVED, Gate::allows('payroll.pay'), workflow: ApprovalPolicy::PAYROLL))
+                    ->mapWithKeys(fn ($value, string $key): array => [str_replace('approve', 'pay', $key) => $value])->all(),
             ] : null,
             'rows' => $rows,
         ]]);
@@ -84,10 +90,14 @@ class PayrollController extends HrmController
         return $this->message('Payroll Generated successfully', 200, ['data' => ['id' => $run->id, 'status' => $run->status]]);
     }
 
-    public function approve(PayrollRun $run): JsonResponse
+    /**
+     * Rule 6: the employee who generated (prepared) the payroll cannot approve it.
+     */
+    public function approve(PayrollRun $run, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('payroll.approve');
         abort_unless($run->company_id === $this->companyId(), 404);
+        $duties->assertCanApprove($run->prepared_by, $this->currentEmployee(), 'payroll', workflow: ApprovalPolicy::PAYROLL);
 
         $this->payroll->approve($run, $this->currentEmployee());
 
@@ -96,11 +106,14 @@ class PayrollController extends HrmController
 
     /**
      * "Pay Salary" modal. Branch staff are paid from their branch INTEREST ACC, HQ staff from the COMPANY ACCOUNT.
+     * Rule 6: approving is the authorisation of the payment, so the payer must differ from the preparer (the approver
+     * already differs from the preparer); an approver who also pays is allowed.
      */
-    public function pay(Request $request, PayrollRun $run): JsonResponse
+    public function pay(Request $request, PayrollRun $run, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('payroll.pay');
         abort_unless($run->company_id === $this->companyId(), 404);
+        $duties->assertCanApprove($run->prepared_by, $this->currentEmployee(), 'payroll payment', workflow: ApprovalPolicy::PAYROLL);
         $request->validate(['ac_id' => ['required', Rule::in(['interest'])]]);
 
         $this->payroll->pay($run, $this->currentEmployee());

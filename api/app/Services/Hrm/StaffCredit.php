@@ -3,10 +3,12 @@
 namespace App\Services\Hrm;
 
 use App\Enums\Account;
+use App\Models\ApprovalPolicy;
 use App\Models\Employee;
 use App\Models\StaffLoan;
 use App\Models\StaffLoanPayment;
 use App\Models\StaffSalaryAdvance;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Ledger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -17,12 +19,17 @@ use Illuminate\Validation\ValidationException;
  *
  * Workflow: request (HR) → approve (HR) → disburse (Finance, money leaves the Staff Fund)
  * → recovery from salary (payroll) or cash repayment into the fund.
+ *
+ * Rule 6 (segregation of duties): the approver is neither the employee who requested the credit nor its beneficiary;
+ * the payer (disbursement) is none of the requester, the approver and the beneficiary — unless self-approval is
+ * explicitly granted ({@see SegregationOfDuties}). Legacy rows without a recorded requester skip that part.
  */
 class StaffCredit
 {
     public function __construct(
         private readonly Ledger $ledger,
         private readonly StaffFund $fund,
+        private readonly SegregationOfDuties $duties,
     ) {}
 
     /**
@@ -32,6 +39,7 @@ class StaffCredit
     public function approveLoan(StaffLoan $loan, Employee $approver): void
     {
         $this->assertStatus($loan->status, 'pending', 'Loan is not pending');
+        $this->duties->assertCanApprove([$loan->requested_by, $loan->employee_id], $approver, 'staff loan', workflow: ApprovalPolicy::STAFF_CREDIT);
 
         $loan->loadMissing('category');
         $amount = (float) $loan->amount_applied;
@@ -64,6 +72,8 @@ class StaffCredit
     public function disburseLoan(StaffLoan $loan, Employee $payer): void
     {
         $this->assertStatus($loan->status, 'approved', 'Loan is not approved');
+        $this->duties->assertCanApprove([$loan->requested_by, $loan->employee_id], $payer, 'staff loan disbursement', workflow: ApprovalPolicy::STAFF_CREDIT);
+        $this->duties->assertCanApprove($loan->approved_by, $payer, 'staff loan disbursement', SegregationOfDuties::STAGE_MESSAGE, workflow: ApprovalPolicy::STAFF_CREDIT);
 
         $principal = (float) $loan->amount_approved;
         $fee = min((float) $loan->fee, $principal);
@@ -109,6 +119,7 @@ class StaffCredit
     public function approveAdvance(StaffSalaryAdvance $advance, Employee $approver): void
     {
         $this->assertStatus($advance->status, 'pending', 'Salary advance is not pending');
+        $this->duties->assertCanApprove([$advance->requested_by, $advance->employee_id], $approver, 'staff salary advance', workflow: ApprovalPolicy::STAFF_CREDIT);
 
         $advance->update(['status' => 'approved', 'approved_by' => $approver->id, 'approved_at' => now()]);
     }
@@ -129,6 +140,8 @@ class StaffCredit
     public function disburseAdvance(StaffSalaryAdvance $advance, Account $source, Employee $payer): void
     {
         $this->assertStatus($advance->status, 'approved', 'Salary advance is not approved');
+        $this->duties->assertCanApprove([$advance->requested_by, $advance->employee_id], $payer, 'staff salary advance disbursement', workflow: ApprovalPolicy::STAFF_CREDIT);
+        $this->duties->assertCanApprove($advance->approved_by, $payer, 'staff salary advance disbursement', SegregationOfDuties::STAGE_MESSAGE, workflow: ApprovalPolicy::STAFF_CREDIT);
 
         if (! in_array($source, [Account::StaffFundCash, Account::Company], true)) {
             throw ValidationException::withMessages(['source' => 'Invalid account']);
@@ -151,6 +164,19 @@ class StaffCredit
                 ['account' => $source === Account::StaffFundCash ? Account::StaffFund : Account::FeeIncome, 'credit' => $fee],
             ], $advance, employee: $payer);
         });
+    }
+
+    /**
+     * Why the employee may not take the next approval step (approve a pending credit, disburse an approved one), or null.
+     */
+    public function stepBlockedReason(StaffLoan|StaffSalaryAdvance $credit, Employee $employee): ?string
+    {
+        return match ($credit->status) {
+            'pending' => $this->duties->blockedReason([$credit->requested_by, $credit->employee_id], $employee, workflow: ApprovalPolicy::STAFF_CREDIT),
+            'approved' => $this->duties->blockedReason([$credit->requested_by, $credit->employee_id], $employee, workflow: ApprovalPolicy::STAFF_CREDIT)
+                ?? $this->duties->blockedReason($credit->approved_by, $employee, SegregationOfDuties::STAGE_MESSAGE, workflow: ApprovalPolicy::STAFF_CREDIT),
+            default => null,
+        };
     }
 
     public function recordLoanPayment(StaffLoan $loan, float $amount): StaffLoanPayment

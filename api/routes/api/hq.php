@@ -10,4 +10,5 @@ Route::prefix('hq')->name('hq.')->controller(HqTransactionController::class)->gr
     Route::post('transactions', 'store')->name('transactions.store');
     Route::post('transactions/{hqTransaction}/approve', 'approve')->name('transactions.approve');
     Route::delete('transactions/{hqTransaction}', 'destroy')->name('transactions.destroy');
+    Route::post('transactions/{hqTransaction}/reverse', 'reverse')->name('transactions.reverse');
 });

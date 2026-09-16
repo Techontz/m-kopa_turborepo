@@ -14,6 +14,7 @@ Route::prefix('salary-advance')->name('salary-advance.')->group(function (): voi
         Route::post('advances', 'store')->name('advances.store');
         Route::post('advances/{salaryAdvance}/approve', 'approve')->name('advances.approve');
         Route::post('advances/{salaryAdvance}/payments', 'pay')->name('advances.pay');
+        Route::post('advances/{salaryAdvance}/collect-fee', 'collectFee')->name('advances.collect-fee');
         Route::delete('advances/{salaryAdvance}', 'destroy')->name('advances.destroy');
         Route::get('approved', 'approved')->name('approved');
         Route::get('active', 'active')->name('active');

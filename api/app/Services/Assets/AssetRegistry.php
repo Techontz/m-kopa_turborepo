@@ -24,9 +24,11 @@ use Throwable;
 /**
  * Asset capital contributions and the Asset Registry lifecycle.
  *
- *  - Contribution: `capitals` row + `assets` row + journal (Dr fixed-asset account by type / Cr CAPITAL ACCOUNT) + history,
- *    all in one database transaction. The Asset ID (AST-000001, per company) is assigned after insert under a company
- *    row lock; the QR token is a random UUID unrelated to the id.
+ *  - Contribution (C6 maker/checker): the request writes the `capitals` row (pending) + `assets` row (status pending) +
+ *    history in one database transaction — no journal, not counted anywhere. A different authorised user approves it
+ *    ({@see self::approve()}): journal Dr fixed-asset account by type / Cr CAPITAL ACCOUNT dated the approval date, asset
+ *    active; or rejects it ({@see self::reject()}): nothing posted, asset status rejected. The Asset ID (AST-000001, per
+ *    company) is assigned after insert under a company row lock; the QR token is a random UUID unrelated to the id.
  *  - The contribution value is the shareholder's contributed capital forever. Revaluations change only `current_value`
  *    and are memo-only history (the chart has no revaluation surplus / impairment accounts), so they never touch
  *    contributed capital or the ledger.
@@ -38,6 +40,12 @@ use Throwable;
  */
 class AssetRegistry
 {
+    /** Asset status while its contribution awaits approval (not in config('assets.statuses'): never set manually). */
+    public const PENDING = 'pending';
+
+    /** Asset status of a rejected contribution (terminal). */
+    public const REJECTED = 'rejected';
+
     public function __construct(
         private readonly AssetTypes $types,
         private readonly CapitalContributions $contributions,
@@ -101,18 +109,15 @@ class AssetRegistry
                     'valuation_notes' => $data['valuation_notes'] ?? null,
                     'specifications' => $this->types->specifications($type, (array) ($data['specifications'] ?? [])),
                     'ledger_account' => $account->value,
-                    'journal_entry_id' => $capital->journal_entry_id,
-                    'status' => 'active',
+                    'journal_entry_id' => null,
+                    'status' => self::PENDING,
                     'recorded_by' => $recordedBy->id,
                 ]);
 
                 $this->assignCode($asset);
 
-                $this->event($asset, 'created', $recordedBy, new: ['asset_code' => $asset->asset_code, 'name' => $asset->name, 'asset_type' => $type, 'quantity' => $quantity, 'unit_value' => $unitValue], after: $total);
-                $this->event($asset, 'contributed_as_capital', $recordedBy, new: ['capital_id' => $capital->id, 'share_holder_id' => $holder->id, 'share_holder' => $holder->full_name, 'ledger_account' => $account->label(), 'journal_entry_id' => $capital->journal_entry_id, 'valuation_method' => $asset->valuation_method], after: $total);
-                $this->event($asset, 'allocated_to_branch', $recordedBy, new: ['branch_id' => $branch->id, 'branch' => $branch->name, 'location' => $asset->location]);
+                $this->event($asset, 'created', $recordedBy, new: ['asset_code' => $asset->asset_code, 'name' => $asset->name, 'asset_type' => $type, 'quantity' => $quantity, 'unit_value' => $unitValue, 'status' => self::PENDING], after: $total);
             },
-            'CAPITAL CONTRIBUTION (ASSET) - '.mb_strtoupper(mb_substr($name, 0, 80)).' - '.$holder->full_name,
         );
 
         $asset = $result['capital']->asset;
@@ -121,6 +126,59 @@ class AssetRegistry
         }
 
         return ['asset' => $asset, 'created' => $result['created']];
+    }
+
+    /**
+     * Approve a pending asset contribution (a different authorised user than the one who recorded it, rule 6): posts Dr the
+     * fixed-asset account / Cr CAPITAL ACCOUNT dated today, activates the asset and records the history, in one transaction.
+     *
+     * @throws ValidationException
+     */
+    public function approve(Asset $asset, Employee $approver): Asset
+    {
+        return DB::transaction(function () use ($asset, $approver): Asset {
+            $locked = Asset::whereKey($asset->id)->with(['branch', 'shareHolder'])->lockForUpdate()->firstOrFail();
+            if ($locked->status !== self::PENDING) {
+                throw ValidationException::withMessages(['asset' => 'This asset contribution is not pending approval.']);
+            }
+
+            $this->contributions->approve(
+                Capital::whereKey($locked->capital_id)->firstOrFail(),
+                $approver,
+                function (Capital $capital) use ($locked, $approver): void {
+                    $locked->update(['status' => 'active', 'journal_entry_id' => $capital->journal_entry_id]);
+                    $total = (string) $locked->contribution_value;
+                    $this->event($locked, 'contributed_as_capital', $approver, new: ['capital_id' => $capital->id, 'share_holder_id' => $locked->share_holder_id, 'share_holder' => $locked->shareHolder?->full_name, 'ledger_account' => $locked->ledgerAccount()?->label(), 'journal_entry_id' => $capital->journal_entry_id, 'valuation_method' => $locked->valuation_method], after: $total);
+                    $this->event($locked, 'allocated_to_branch', $approver, new: ['branch_id' => $locked->branch_id, 'branch' => $locked->branch?->name, 'location' => $locked->location]);
+                },
+                'CAPITAL CONTRIBUTION (ASSET) - '.mb_strtoupper(mb_substr((string) $locked->name, 0, 80)).' - '.$locked->shareHolder?->full_name,
+            );
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Reject a pending asset contribution: nothing was posted; the contribution is kept as rejected with the reason and the
+     * asset gets status rejected (no further changes).
+     *
+     * @throws ValidationException
+     */
+    public function reject(Asset $asset, string $reason, Employee $employee): Asset
+    {
+        return DB::transaction(function () use ($asset, $reason, $employee): Asset {
+            $locked = Asset::whereKey($asset->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== self::PENDING) {
+                throw ValidationException::withMessages(['reason' => 'Only pending asset contributions can be rejected.']);
+            }
+
+            $this->contributions->reject(Capital::whereKey($locked->capital_id)->firstOrFail(), $reason, $employee, function () use ($locked, $reason, $employee): void {
+                $locked->update(['status' => self::REJECTED]);
+                $this->event($locked, 'contribution_rejected', $employee, ['status' => self::PENDING], ['status' => self::REJECTED], reason: $reason);
+            });
+
+            return $locked;
+        });
     }
 
     /**
@@ -250,6 +308,9 @@ class AssetRegistry
             if ($capital->isReversed() || $asset->status === 'reversed') {
                 throw ValidationException::withMessages(['reason' => 'This asset contribution has already been reversed']);
             }
+            if (! $capital->isPosted()) {
+                throw ValidationException::withMessages(['reason' => 'Only approved asset contributions can be reversed']);
+            }
             $linked = ShareTransaction::where('capital_id', $capital->id)->where('status', ShareTransaction::COMPLETED)->value('reference');
             if ($linked !== null) {
                 throw ValidationException::withMessages(['reason' => "Shares were issued against this contribution ({$linked}); reverse that share transaction first"]);
@@ -323,7 +384,10 @@ class AssetRegistry
 
     private function assertNotTerminal(Asset $asset): void
     {
-        if ($asset->isTerminal()) {
+        if ($asset->status === self::PENDING) {
+            throw ValidationException::withMessages(['status' => 'This asset contribution is pending approval and cannot be changed yet']);
+        }
+        if ($asset->status === self::REJECTED || $asset->isTerminal()) {
             throw ValidationException::withMessages(['status' => 'This asset is '.str_replace('_', ' ', $asset->status).' and can no longer be changed']);
         }
     }

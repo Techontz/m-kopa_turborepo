@@ -14,6 +14,8 @@ export interface SalaryAdvancePayment {
   created_at: string | null;
 }
 
+export type SalaryAdvanceFeeStatus = "no_fee" | "not_approved" | "uncollected" | "collected" | "collected_at_approval";
+
 export interface SalaryAdvance {
   id: number;
   branch_id: number;
@@ -28,6 +30,12 @@ export interface SalaryAdvance {
   paid_amount: number;
   remaining_amount: number;
   fee: number;
+  /** C2: the fee is income only when collected (legacy advances posted it at approval). */
+  fee_status?: SalaryAdvanceFeeStatus;
+  fee_collectable?: boolean;
+  fee_collected_at?: string | null;
+  fee_collected_by?: string | null;
+  fee_collection_method?: string | null;
   status: "pending" | "active" | "done" | "reversed";
   created_at: string;
   approved_at: string | null;

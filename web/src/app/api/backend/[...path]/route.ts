@@ -4,7 +4,8 @@ import { apiUrl, clearToken, getToken } from "@/lib/session";
 
 /**
  * Forwards browser requests to the Laravel API (/api/v1/*), attaching the Sanctum token
- * from the httpOnly cookie. JSON and multipart bodies are passed through unchanged.
+ * from the httpOnly cookie. JSON and multipart bodies are passed through unchanged, as is the
+ * `Idempotency-Key` header (and the API's `Idempotent-Replayed` answer).
  */
 async function forward(request: NextRequest, context: RouteContext<"/api/backend/[...path]">) {
   const { path } = await context.params;
@@ -22,6 +23,10 @@ async function forward(request: NextRequest, context: RouteContext<"/api/backend
   if (contentType) {
     headers.set("Content-Type", contentType);
   }
+  const idempotencyKey = request.headers.get("idempotency-key");
+  if (idempotencyKey) {
+    headers.set("Idempotency-Key", idempotencyKey);
+  }
 
   const hasBody = !["GET", "HEAD"].includes(request.method);
   const response = await fetch(target, {
@@ -36,7 +41,7 @@ async function forward(request: NextRequest, context: RouteContext<"/api/backend
   }
 
   const responseHeaders = new Headers();
-  for (const name of ["content-type", "content-disposition"]) {
+  for (const name of ["content-type", "content-disposition", "idempotent-replayed"]) {
     const value = response.headers.get(name);
     if (value) {
       responseHeaders.set(name, value);

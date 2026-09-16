@@ -17,6 +17,7 @@ interface GroupRow {
   completed: number;
   default: number;
   written_off: number;
+  written_off_outstanding: number;
   disbursed: number;
   outstanding_principal: number;
   outstanding_total: number;
@@ -54,9 +55,10 @@ function GroupTable({ rows, heading }: { rows: GroupRow[]; heading: string }) {
         { key: "disbursed", header: "Disbursed", render: (row) => money(row.disbursed) },
         { key: "outstanding_principal", header: "Outstanding Principal", render: (row) => money(row.outstanding_principal) },
         { key: "outstanding_total", header: "Total Outstanding", render: (row) => money(row.outstanding_total) },
+        { key: "written_off_outstanding", header: "Written Off (excluded)", render: (row) => `${row.written_off} / ${money(row.written_off_outstanding)}` },
         { key: "share", header: "% of Portfolio", render: (row) => `${row.share}%` },
       ]}
-      footer={rows.length > 0 && <TotalsRow cells={[sum("loans"), sum("active"), sum("completed"), sum("default"), money(sum("disbursed")), money(sum("outstanding_principal")), money(sum("outstanding_total")), ""]} />}
+      footer={rows.length > 0 && <TotalsRow cells={[sum("loans"), sum("active"), sum("completed"), sum("default"), money(sum("disbursed")), money(sum("outstanding_principal")), money(sum("outstanding_total")), `${sum("written_off")} / ${money(sum("written_off_outstanding"))}`, ""]} />}
     />
   );
 }
@@ -88,6 +90,7 @@ export default function LoanPortfolioPage() {
             <Stat tone="warning" label="Outstanding Interest" value={money(s.outstanding_interest)} />
             <Stat tone="danger" label="Outstanding Penalty" value={money(s.outstanding_penalty)} />
             <Stat tone="success" label={`Total Outstanding (${s.active_customers} customers)`} value={money(s.outstanding_total)} />
+            <Stat tone="info" label={`Written Off — excluded from portfolio (${s.written_off_count} loans, principal ${money(s.written_off_principal)})`} value={money(s.written_off_outstanding)} />
           </div>
         )}
       </Card>
@@ -100,8 +103,8 @@ export default function LoanPortfolioPage() {
             actions={
               <CsvButton
                 filename={`loan-portfolio-${key === "by_category" ? "by_customer_type" : key}`}
-                header={[heading, "Loans Issued", "Active", "Completed", "Default", "Disbursed", "Outstanding Principal", "Total Outstanding", "% of Portfolio"]}
-                rows={data[key].map((row) => [row.label, row.loans, row.active, row.completed, row.default, row.disbursed, row.outstanding_principal, row.outstanding_total, row.share])}
+                header={[heading, "Loans Issued", "Active", "Completed", "Default", "Disbursed", "Outstanding Principal", "Total Outstanding", "Written Off Loans", "Written Off Outstanding", "% of Portfolio"]}
+                rows={data[key].map((row) => [row.label, row.loans, row.active, row.completed, row.default, row.disbursed, row.outstanding_principal, row.outstanding_total, row.written_off, row.written_off_outstanding, row.share])}
               />
             }
           >

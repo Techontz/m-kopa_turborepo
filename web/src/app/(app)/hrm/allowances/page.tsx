@@ -70,7 +70,7 @@ export default function StaffAllowancePage() {
               header: "Action",
               sortable: false,
               render: (row) => row.status === "active"
-                ? <button type="button" className="btn btn-sm btn-danger" title="Stop allowance" onClick={async () => (await confirmAction()) && stop.mutate({ id: row.id })}><i className="icon-close" /></button>
+                ? <button type="button" className="btn btn-sm btn-danger" title="Stop allowance" disabled={stop.isPending} onClick={async () => (await confirmAction()) && stop.mutate({ id: row.id })}><i className={stop.isPending && stop.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-close"} /></button>
                 : <Badge tone="info">{row.status}</Badge>,
             },
           ]}

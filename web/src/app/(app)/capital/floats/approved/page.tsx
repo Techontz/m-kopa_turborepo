@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { DateFilterModal, totalAmount, type DateFilters, type FloatTransfer } from "@/components/capital/DateFilterModal";
+import { isReversed, ReversedStatus, ReverseButton } from "@/components/finance/Reversal";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -29,10 +30,16 @@ export default function ApprovedFloatPage() {
             { key: "from_branch", header: "From Branch" },
             { key: "to_branch", header: "To Branch" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-            { key: "status", header: "Status", render: () => <Badge tone="success">Approved</Badge> },
+            { key: "status", header: "Status", render: (row) => (isReversed(row) ? <ReversedStatus row={row} /> : <Badge tone="success">Approved</Badge>) },
             { key: "date", header: "Date" },
+            {
+              key: "action",
+              header: "Action",
+              sortable: false,
+              render: (row) => !isReversed(row) && <ReverseButton row={row} path={`capital/floats/${row.id}/reverse`} description={`float ${row.from_branch ?? ""} → ${row.to_branch ?? ""}`} />,
+            },
           ]}
-          footer={<tr><td>TOTAL:</td><td /><td /><td><b>{money(totalAmount(transfers))}</b></td><td /><td /></tr>}
+          footer={<tr><td>TOTAL:</td><td /><td /><td><b>{money(totalAmount(transfers))}</b> <small className="text-muted">(excl. reversed)</small></td><td /><td /><td /></tr>}
         />
       </Card>
       <DateFilterModal open={open} title="Filter By" onClose={() => setOpen(false)} onApply={setFilters} />

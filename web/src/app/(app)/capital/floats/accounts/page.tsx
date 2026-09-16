@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import type { FloatTransfer } from "@/components/capital/DateFilterModal";
+import { ApprovalActions, ApprovalStatus, isPending } from "@/components/finance/Approval";
+import { ReverseButton } from "@/components/finance/Reversal";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -17,7 +19,10 @@ interface Balances {
 
 const EMPTY = { blanch_id: "", from_acc: "", to_acc: "", amount: "" };
 
-/** Live admin/float_branch_ac_ac — PRINCIPAL ↔ INTEREST within a branch. */
+/**
+ * Live admin/float_branch_ac_ac — PRINCIPAL ↔ INTEREST within a branch (never from the RESERVE A/C, rule 3). Rule 6: the
+ * movement is requested as PENDING and posted when another authorised user approves it.
+ */
 export default function AccountFloatPage() {
   const [form, setForm] = useState(EMPTY);
   const { data: balances } = useApi<Balances>("capital/floats/balances");
@@ -59,7 +64,7 @@ export default function AccountFloatPage() {
             </div>
           )}
           <div className="text-center m-t-20">
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Transfer</button>
+            <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Request Transfer</button>
           </div>
         </form>
       </Card>
@@ -76,6 +81,18 @@ export default function AccountFloatPage() {
             { key: "to_account", header: "To Account" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "date", header: "Date" },
+            { key: "status", header: "Status", render: (row) => <ApprovalStatus row={row} /> },
+            {
+              key: "action",
+              header: "Action",
+              sortable: false,
+              render: (row) =>
+                isPending(row) ? (
+                  <ApprovalActions row={row} approvePath={`capital/floats/${row.id}/approve`} rejectPath={`capital/floats/${row.id}/reject`} description={`${row.from_account ?? ""} → ${row.to_account ?? ""} (${row.from_branch ?? ""})`} />
+                ) : (
+                  row.status === "approved" && <ReverseButton row={row} path={`capital/floats/${row.id}/reverse`} description={`${row.from_account ?? ""} → ${row.to_account ?? ""} (${row.from_branch ?? ""})`} />
+                ),
+            },
           ]}
         />
       </Card>

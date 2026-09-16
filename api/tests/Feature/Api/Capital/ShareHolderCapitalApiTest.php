@@ -12,18 +12,20 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class ShareHolderCapitalApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     /**
      * @return array<string, string>
      */
     private function holderPayload(array $overrides = []): array
     {
-        return array_merge(['first_name' => 'JOHN', 'middle_name' => 'MICHAEL', 'last_name' => 'MWAKALUKA', 'share_mobile' => '0777', 'share_email' => 'holder@example.com', 'share_sex' => 'male', 'share_dob' => '1992-12-12'], $overrides);
+        return array_merge(['first_name' => 'JOHN', 'middle_name' => 'MICHAEL', 'last_name' => 'MWAKALUKA', 'share_mobile' => '0777123456', 'share_email' => 'holder@example.com', 'share_sex' => 'male', 'share_dob' => '1992-12-12'], $overrides);
     }
 
     public function test_share_holder_crud_with_three_name_parts_and_passport_photo(): void
@@ -100,8 +102,10 @@ class ShareHolderCapitalApiTest extends TestCase
         $this->postJson('/api/v1/capital/capitals', ['share_id' => $holder->id, 'amount' => 5000000, 'pay_method' => 'BANK', 'recept' => '12', 'chaque_no' => '99'])
             ->assertUnprocessable()->assertJsonValidationErrors('bank_account_id');
 
-        $this->postJson('/api/v1/capital/capitals', ['share_id' => $holder->id, 'amount' => 5000000, 'pay_method' => 'BANK', 'bank_account_id' => $bank->id, 'recept' => '12', 'chaque_no' => '99'])
-            ->assertCreated()->assertJsonPath('message', 'Capital Added successfully');
+        $id = $this->postJson('/api/v1/capital/capitals', ['share_id' => $holder->id, 'amount' => 5000000, 'pay_method' => 'BANK', 'bank_account_id' => $bank->id, 'recept' => '12', 'chaque_no' => '99'])
+            ->assertCreated()->assertJsonPath('message', 'Capital Recorded successfully — awaiting approval by another authorised user')->json('data.id');
+        $this->assertSame(0.0, app(Ledger::class)->balance($admin->company_id, Account::Capital), 'a pending contribution posts nothing');
+        $this->approveAsSecondUser($admin, "/api/v1/capital/capitals/{$id}/approve")->assertJsonPath('message', 'Capital Contribution Approved successfully');
 
         $ledger = app(Ledger::class);
         $this->assertSame(0.0, $ledger->balance($admin->company_id, Account::Company));
@@ -151,6 +155,8 @@ class ShareHolderCapitalApiTest extends TestCase
         ], ['Accept' => 'application/json'])->assertCreated();
 
         $capital = $holder->capitals()->sole();
+        $this->approveAsSecondUser($admin, "/api/v1/capital/capitals/{$capital->id}/approve");
+        $capital->refresh();
         $this->assertSame('RC-77', $capital->receipt_number);
         $this->assertSame('CH-12', $capital->cheque_number);
         $this->assertSame('deposit slip.pdf', $capital->receipt_file_name);

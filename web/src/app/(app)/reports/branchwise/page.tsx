@@ -19,6 +19,7 @@ interface BranchRow {
   received_principal: number;
   received_interest: number;
   pending: number;
+  written_off: number;
   reserve: number;
 }
 
@@ -30,6 +31,7 @@ const AMOUNTS: Array<[keyof BranchRow, string]> = [
   ["received_principal", "Received Principal"],
   ["received_interest", "Received Interest"],
   ["pending", "Total Pending"],
+  ["written_off", "Written Off (not pending)"],
   ["reserve", "Reserve"],
 ];
 

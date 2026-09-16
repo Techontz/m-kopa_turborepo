@@ -5,18 +5,22 @@ namespace App\Http\Controllers\Api\V1\Capital;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Capital\AssetContributionRequest;
 use App\Http\Requests\Api\Capital\AssetUpdateRequest;
+use App\Models\ApprovalPolicy;
 use App\Models\Asset;
 use App\Models\AssetDocument;
 use App\Models\AssetEvent;
 use App\Models\ShareHolder;
 use App\Models\ShareTransaction;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Assets\AssetQrCode;
 use App\Services\Assets\AssetRegistry;
 use App\Services\Assets\AssetTypes;
+use App\Services\CapitalContributions;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -25,6 +29,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * Capital → Assets: asset capital contributions (Add Capitals with Pay Method ASSET) and the Asset Registry — list, view,
  * descriptive edit, branch transfer, status change, memo revaluation, contribution reversal, QR code / label / scan and
  * documents. capital.view reads; capital.manage changes.
+ *
+ * C6 maker/checker: a new asset contribution is recorded PENDING (no journal, not counted) and posted when a different
+ * authorised user approves it (POST assets/{asset}/approve) or rejected (POST assets/{asset}/reject).
  */
 class AssetController extends ApiController
 {
@@ -57,7 +64,7 @@ class AssetController extends ApiController
 
         $search = trim((string) $request->input('search'));
         $assets = Asset::where('company_id', $this->currentEmployee()->company_id)
-            ->with(['shareHolder', 'branch', 'capital.shareTransactions'])
+            ->with(['shareHolder', 'branch', 'capital.shareTransactions', 'capital.recorder', 'capital.approver', 'capital.rejecter'])
             ->when($request->filled('asset_type'), fn ($query) => $query->where('asset_type', $request->string('asset_type')->toString()))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->filled('branch_id'), fn ($query) => $query->where('branch_id', $request->integer('branch_id')))
@@ -83,10 +90,38 @@ class AssetController extends ApiController
         $asset = $result['asset']->fresh(['shareHolder', 'branch', 'capital.shareTransactions', 'journalEntry']);
 
         return $this->message(
-            $result['created'] ? "Asset capital added successfully — {$asset->asset_code}" : 'Asset capital was already recorded',
+            $result['created'] ? "Asset capital recorded successfully — {$asset->asset_code} awaiting approval by another authorised user" : 'Asset capital was already recorded',
             $result['created'] ? 201 : 200,
             ['data' => $this->present($asset)],
         );
+    }
+
+    /**
+     * Approve a pending asset contribution: posts Dr the fixed-asset account / Cr CAPITAL ACCOUNT. The employee who recorded it
+     * cannot approve it (rule 6).
+     */
+    public function approve(Asset $asset): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $this->ensureCompany($asset);
+
+        $this->registry->approve($asset, $this->currentEmployee());
+
+        return $this->message('Asset Contribution Approved successfully', 200, ['data' => $this->detail($asset->fresh())]);
+    }
+
+    /**
+     * Reject a pending asset contribution (nothing was posted).
+     */
+    public function reject(Request $request, Asset $asset): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $this->ensureCompany($asset);
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']]);
+
+        $this->registry->reject($asset, $data['reason'], $this->currentEmployee());
+
+        return $this->message('Asset Contribution Rejected successfully', 200, ['data' => $this->detail($asset->fresh())]);
     }
 
     public function show(Asset $asset): JsonResponse
@@ -267,7 +302,10 @@ class AssetController extends ApiController
             'condition' => $asset->condition,
             'condition_label' => $asset->condition ? (config('assets.conditions')[$asset->condition] ?? $asset->condition) : null,
             'status' => $asset->status,
-            'status_label' => config('assets.statuses')[$asset->status] ?? ucfirst(str_replace('_', ' ', $asset->status)),
+            'status_label' => match ($asset->status) {
+                AssetRegistry::PENDING => 'Pending Approval',
+                default => config('assets.statuses')[$asset->status] ?? ucfirst(str_replace('_', ' ', $asset->status)),
+            },
             'contributed_on' => $asset->contributed_on?->toDateString(),
             'specifications' => $asset->specifications ?? [],
             'identifiers' => $this->types->identifiers($asset->asset_type, $asset->specifications),
@@ -278,6 +316,31 @@ class AssetController extends ApiController
             'qr_endpoint' => "capital/assets/{$asset->id}/qr",
             'scan_url' => $this->qr->url($asset),
             'scan_path' => "/capital/assets/scan/{$asset->qr_token}",
+            ...$this->approvalFields($asset),
+        ];
+    }
+
+    /**
+     * Maker/checker fields of the asset's contribution (C6).
+     *
+     * @return array<string, mixed>
+     */
+    private function approvalFields(Asset $asset): array
+    {
+        $capital = $asset->capital;
+        $pending = $asset->status === AssetRegistry::PENDING && $capital !== null && $capital->isPending();
+        $viewer = $this->currentEmployee();
+
+        return [
+            'contribution_status' => $capital?->status,
+            'requested_by' => $capital?->recorder?->full_name,
+            'approved_by' => $capital?->approver?->full_name,
+            'approved_at' => $capital?->approved_at?->toDateTimeString(),
+            'rejected_by' => $capital?->rejecter?->full_name,
+            'rejected_at' => $capital?->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $capital?->rejection_reason,
+            ...app(SegregationOfDuties::class)->flags($capital === null ? null : app(CapitalContributions::class)->initiatorIds($capital), $viewer, $pending, Gate::allows('capital.manage'), workflow: ApprovalPolicy::ASSET_CONTRIBUTIONS),
+            'can_reject' => $pending && Gate::allows('capital.manage'),
         ];
     }
 
@@ -286,7 +349,7 @@ class AssetController extends ApiController
      */
     private function detail(Asset $asset): array
     {
-        $asset->loadMissing(['shareHolder', 'branch', 'capital.shareTransactions', 'capital.recorder', 'journalEntry', 'recorder', 'events.employee', 'documents.uploader']);
+        $asset->loadMissing(['shareHolder', 'branch', 'capital.shareTransactions', 'capital.recorder', 'capital.approver', 'capital.rejecter', 'journalEntry', 'recorder', 'events.employee', 'documents.uploader']);
         $capital = $asset->capital;
 
         return $this->present($asset) + [

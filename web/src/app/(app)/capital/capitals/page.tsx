@@ -6,6 +6,8 @@ import { Fragment, useState } from "react";
 import { AssetContributionFields } from "@/components/capital/assets/AssetContributionFields";
 import { assetPayload, emptyAssetForm, findType, type AssetConfig, type AssetForm, type AssetRow } from "@/components/capital/assets/assets";
 import { ContributionHistoryModal } from "@/components/capital/ContributionHistoryModal";
+import { ApprovalActions, ApprovalStatus } from "@/components/finance/Approval";
+import { ReverseButton, ReversedStatus } from "@/components/finance/Reversal";
 import { ownershipLabel, payMethodTone, type Contribution } from "@/components/capital/contributions";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -42,12 +44,32 @@ interface CapitalData {
   capital_account: number;
 }
 
+interface LedgerLine {
+  key: string;
+  label: string;
+  amount: number;
+}
+
 interface CompanyPosition {
   shareholder_contributions: { total: number };
-  balances: { company_cash: number; banks: { id: number; name: string; balance: number }[]; bank_total: number; branch_lending_cash: number; total_cash_and_bank: number };
+  balances: {
+    company_cash: number;
+    banks: { id: number; name: string; balance: number }[];
+    bank_total: number;
+    branch_lending_cash: number;
+    total_cash_and_bank: number;
+    total_cash_and_bank_label: string;
+    money_groups: LedgerLine[];
+    total_money_assets: number;
+  };
   income: number;
+  income_breakdown: LedgerLine[];
+  reserve_from_interest: number;
   expenses: number;
+  expense_breakdown: LedgerLine[];
   net_income: number;
+  from: string | null;
+  to: string | null;
   loans: { disbursed_count: number; disbursed_total: number; outstanding_principal: number };
   capital_account_ledger: number;
 }
@@ -89,10 +111,21 @@ function toFormData(form: CapitalForm, idempotencyKey: string): FormData {
  * share register (Shares module). What the company holds now (cash, banks, loans, income, expenses) is shown separately
  * in Company Capital Position.
  */
+/** "2026-06" → the month's first and last day for the position filter; no filter (all time) when empty. */
+function monthRange(month: string): Record<string, string> | undefined {
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (!year || !monthNumber) {
+    return undefined;
+  }
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, "0")}` };
+}
+
 export default function CapitalsPage() {
   const { can } = useAuth();
   const { data, isLoading } = useApi<CapitalData>("capital/capitals");
-  const { data: position } = useApi<CompanyPosition>("capital/position");
+  const [positionMonth, setPositionMonth] = useState("");
+  const { data: position } = useApi<CompanyPosition>("capital/position", monthRange(positionMonth));
   const [form, setForm] = useState<CapitalForm>(EMPTY);
   const [formKey, setFormKey] = useState(0);
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey("capital"));
@@ -190,7 +223,7 @@ export default function CapitalsPage() {
               </>)}
             </div>
             {isAsset && <AssetContributionFields config={assetConfig} form={assetForm} onChange={setAssetForm} fieldError={createAsset.fieldError} />}
-            {!isAsset && <p className="mb-0"><small className="text-muted">Posting: Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT. Contributions are financial records — ownership comes from shares in the share register (Shares → Issue Shares can record a paid issuance in one step).</small></p>}
+            {!isAsset && <p className="mb-0"><small className="text-muted">Recorded as PENDING; another authorised user approves it, which posts Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT. Pending contributions do not count in totals, ownership or dividends. Contributions are financial records — ownership comes from shares in the share register (Shares → Issue Shares can record a paid issuance in one step).</small></p>}
             <div className="text-center m-t-20">
               <button type="submit" className="btn btn-primary" disabled={create.isPending || createAsset.isPending}><i className="icon-drawer" />Save</button>
             </div>
@@ -218,17 +251,22 @@ export default function CapitalsPage() {
                   {holder.capitals.map((capital) => (
                     <tr key={capital.id}>
                       <td /><td />
-                      <td>{capital.reversed ? <s title={`Reversed: ${capital.reversal_reason ?? ""}`}>{money(capital.amount)}</s> : money(capital.amount)}</td>
+                      <td>{capital.reversed || capital.status === "rejected" || capital.status === "cancelled" ? <s title={capital.reversed ? `Reversed: ${capital.reversal_reason ?? ""}` : capital.status === "cancelled" ? "Cancelled by the shareholder" : `Rejected: ${capital.rejection_reason ?? ""}`}>{money(capital.amount)}</s> : capital.status === "pending" ? <span className="text-muted" title="Pending approval — not counted">{money(capital.amount)}</span> : money(capital.amount)}</td>
                       <td>
                         <Badge tone={payMethodTone(capital.pay_method)}>{capital.pay_method}</Badge>
                         {capital.asset_id && <><br /><Link href={`/capital/assets/${capital.asset_id}`} title={capital.asset_name ?? ""}>{capital.asset_code}</Link></>}
-                        {capital.reversed && <><br /><Badge tone="danger">REVERSED</Badge></>}
+                        {capital.reversed && <><br /><ReversedStatus row={{ ...capital, status: "reversed" }} /></>}
+                        {(capital.status === "pending" || capital.status === "rejected") && <><br /><ApprovalStatus row={{ ...capital, status: capital.status }} /></>}
                       </td>
                       <td>{capital.receiving_account_label ?? "—"}</td>
                       <td>{capital.receipt_number || "-"}</td>
                       <td>{capital.cheque_number || "-"}</td>
                       <td>{capital.contributed_at}</td>
-                      <td>{capital.recorded_by ?? "—"}</td>
+                      <td>
+                        {capital.recorded_by ?? "—"}
+                        {capital.source === "shareholder_portal" && <><br /><Badge tone="info">{capital.source_label ?? "Submitted by shareholder"}</Badge></>}
+                        {capital.status === "cancelled" && <><br /><Badge tone="default">CANCELLED BY SHAREHOLDER</Badge></>}
+                      </td>
                       <td>{capital.journal_reference ?? "—"}{capital.share_transaction_reference && <><br /><small className="text-muted">Shares: {capital.share_transaction_reference}</small></>}</td>
                       <td className="text-nowrap">
                         {capital.receipt_endpoint ? (
@@ -243,6 +281,25 @@ export default function CapitalsPage() {
                             <i className="icon-cloud-upload" />
                           </button>
                         )}
+                        {capital.status === "pending" && (
+                          <div className="mt-1" style={{ whiteSpace: "normal" }}>
+                            <ApprovalActions
+                              row={{ ...capital, status: "pending" }}
+                              approvePath={`capital/capitals/${capital.id}/approve`}
+                              rejectPath={`capital/capitals/${capital.id}/reject`}
+                              description={`${capital.pay_method} capital contribution of ${holder.name} (Dr ${capital.receiving_account_label ?? "receiving account"} / Cr CAPITAL ACCOUNT)`}
+                            />
+                          </div>
+                        )}
+                        {!capital.reversed && (capital.status ?? "posted") === "posted" && (
+                          <div className="mt-1" style={{ whiteSpace: "normal" }}>
+                            <ReverseButton
+                              row={{ ...capital, status: capital.status ?? "posted" }}
+                              path={`capital/capitals/${capital.id}/reverse`}
+                              description={`${capital.pay_method} capital contribution of ${holder.name} (Dr CAPITAL ACCOUNT / Cr ${capital.receiving_account_label ?? "receiving account"})`}
+                            />
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -256,8 +313,17 @@ export default function CapitalsPage() {
         </div>
       </Card>
 
-      <Card title="Company Capital Position">
-        <p className="mb-2"><small className="text-muted">What the company holds and earns today. These balances change as money is spent, transferred or lent; they never change share ownership.</small></p>
+      <Card
+        title="Company Capital Position"
+        actions={
+          <label className="mb-0 d-flex align-items-center">
+            <small className="mr-2">Income &amp; expenses for</small>
+            <input type="month" className="form-control form-control-sm" value={positionMonth} onChange={(e) => setPositionMonth(e.target.value)} aria-label="Income and expenses month" />
+            {positionMonth && <button type="button" className="btn btn-sm btn-default ml-1" onClick={() => setPositionMonth("")}>All time</button>}
+          </label>
+        }
+      >
+        <p className="mb-2"><small className="text-muted">Balances are what the company holds today. Income and expenses are ledger movements {position?.from ? `from ${position.from} to ${position.to}` : "for all time"} (month-end closing entries excluded). These figures never change share ownership.</small></p>
         <div className="table-responsive">
           <table className="table table-hover table-custom mb-0">
             <tbody>
@@ -271,10 +337,23 @@ export default function CapitalsPage() {
               ))}
               <tr><td>Total bank balances</td><td className="text-right"><b>{money(position?.balances.bank_total ?? data?.bank_balance_total)}</b></td></tr>
               <tr><td>Branch lending cash — PRINCIPAL A/C (all branches)</td><td className="text-right">{money(position?.balances.branch_lending_cash)}</td></tr>
-              <tr className="thead-info"><th colSpan={2}>Company performance &amp; loans</th></tr>
-              <tr><td>Company income</td><td className="text-right">{money(position?.income)}</td></tr>
+              <tr><td><b>Total cash &amp; bank</b> — {position?.balances.total_cash_and_bank_label}</td><td className="text-right"><b>{money(position?.balances.total_cash_and_bank)}</b></td></tr>
+              <tr className="thead-info"><th colSpan={2}>All money accounts by group (current balances)</th></tr>
+              {(position?.balances.money_groups ?? []).map((group) => (
+                <tr key={group.key}><td>{group.label}</td><td className="text-right">{money(group.amount)}</td></tr>
+              ))}
+              <tr><td><b>Total money held (all groups)</b></td><td className="text-right"><b>{money(position?.balances.total_money_assets)}</b></td></tr>
+              <tr className="thead-info"><th colSpan={2}>Company performance {position?.from ? `(${position.from} – ${position.to})` : "(all time)"} &amp; loans</th></tr>
+              {(position?.income_breakdown ?? []).map((line) => (
+                <tr key={line.key}><td className="pl-4">{line.label}</td><td className="text-right">{money(line.amount)}</td></tr>
+              ))}
+              <tr><td>Company income — gross ledger income (interest before reserve, fees, penalties, insurance, recoveries)</td><td className="text-right">{money(position?.income)}</td></tr>
+              <tr><td className="pl-4">of which reserve set aside from interest</td><td className="text-right">{money(position?.reserve_from_interest)}</td></tr>
+              {(position?.expense_breakdown ?? []).map((line) => (
+                <tr key={line.key}><td className="pl-4">{line.label}</td><td className="text-right">{money(line.amount)}</td></tr>
+              ))}
               <tr><td>Company expenses</td><td className="text-right">{money(position?.expenses)}</td></tr>
-              <tr><td>Net income</td><td className="text-right"><b>{money(position?.net_income)}</b></td></tr>
+              <tr><td>Net income (gross income − expenses)</td><td className="text-right"><b>{money(position?.net_income)}</b></td></tr>
               <tr><td>Loans disbursed ({position?.loans.disbursed_count ?? 0})</td><td className="text-right">{money(position?.loans.disbursed_total)}</td></tr>
               <tr><td>Loans outstanding — LOAN RECEIVABLE</td><td className="text-right"><b>{money(position?.loans.outstanding_principal)}</b></td></tr>
             </tbody>
@@ -291,6 +370,7 @@ export default function CapitalsPage() {
             <img src={backendUrl(createdAsset.qr_endpoint)} alt={`QR code ${createdAsset.asset_code}`} width={180} height={180} className="mb-2" />
             <p className="mb-1"><b>{createdAsset.asset_code}</b> · {createdAsset.name} · {createdAsset.asset_type_label}</p>
             <p className="mb-2">Contribution value <b>{money(createdAsset.contribution_value)}</b> · {createdAsset.branch} · Dr {createdAsset.ledger_account_label} / Cr CAPITAL ACCOUNT</p>
+            {createdAsset.status === "pending" && <p className="alert alert-warning mb-2">Awaiting approval by another authorised user: nothing is posted until it is approved on the asset page.</p>}
             <Link href={`/capital/assets/${createdAsset.id}`} className="btn btn-primary btn-sm mr-1">View Asset</Link>
             <Link href={`/capital/assets/${createdAsset.id}/label`} className="btn btn-info btn-sm mr-1"><i className="icon-printer" /> Print Label</Link>
             <a href={backendUrl(`${createdAsset.qr_endpoint}?download=1`)} className="btn btn-secondary btn-sm"><i className="icon-cloud-download" /> Download QR</a>

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
  * Repayments are split at posting time in the order Principal → Penalty → Interest → Insurance and stored on
  * `loan_transactions`, so per loan: outstanding principal = approved − Σ principal paid, interest = interest
  * amount − Σ interest paid, insurance = insurance − Σ insurance paid, penalty = Σ (amount − paid) of unwaived
- * penalties (each floored at 0). Adds the columns `out_principal`, `out_interest`, `out_insurance`,
+ * penalties (each floored at 0). Reversed repayments (`reversed_at` set) are ignored. Adds the columns `out_principal`, `out_interest`, `out_insurance`,
  * `out_penalty`, `out_total`, `paid_total`, `paid_principal`, `paid_interest`, `paid_penalty` to a `loans` query.
  */
 final class LoanBalances
@@ -28,6 +28,7 @@ final class LoanBalances
     {
         $paid = DB::table('loan_transactions')
             ->where('type', 'deposit')
+            ->whereNull('reversed_at')
             ->whereNotNull('loan_id')
             ->groupBy('loan_id')
             ->selectRaw('loan_id, SUM(amount) amount, SUM(principal) principal, SUM(interest) interest, SUM(insurance) insurance, SUM(penalty) penalty');

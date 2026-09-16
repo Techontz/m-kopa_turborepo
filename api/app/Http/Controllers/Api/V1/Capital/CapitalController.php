@@ -5,18 +5,24 @@ namespace App\Http\Controllers\Api\V1\Capital;
 use App\Enums\Account;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Capital\CapitalRequest;
+use App\Models\ApprovalPolicy;
 use App\Models\BankAccount;
 use App\Models\Capital;
 use App\Models\LoanTransaction;
 use App\Models\ShareHolder;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\CapitalContributions;
 use App\Services\Ledger;
+use App\Services\Reports\Financial\CashAccounts;
+use App\Services\Reports\Financial\ClosingEntries;
+use App\Services\Reports\Financial\ProfitLossReport;
 use App\Services\ShareholderOwnership;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -26,9 +32,17 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * Dr the receiving company account (COMPANY ACCOUNT for CASH, the selected bank account for BANK) / Cr CAPITAL ACCOUNT.
  * Contributions are financial transactions; ownership comes from the share register ({@see ShareholderOwnership}) and
  * company balances are reported separately.
+ *
+ * Rule 6: a new contribution is recorded PENDING (no journal, excluded from every total) and posted when a different
+ * authorised user approves it (POST capitals/{capital}/approve) or rejected (POST capitals/{capital}/reject).
  */
 class CapitalController extends ApiController
 {
+    /**
+     * @var list<string>
+     */
+    private const RELATIONS = ['bankAccount', 'recorder', 'approver', 'rejecter', 'journalEntry', 'shareTransactions', 'asset', 'reverser', 'reversalJournalEntry'];
+
     public function __construct(
         private readonly Ledger $ledger,
         private readonly CapitalContributions $contributions,
@@ -41,7 +55,7 @@ class CapitalController extends ApiController
 
         $companyId = $this->currentEmployee()->company_id;
         $capitals = Capital::where('company_id', $companyId)
-            ->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions', 'asset'])
+            ->with(['bankAccount', 'recorder', 'approver', 'rejecter', 'journalEntry.lines.account.branch', 'journalEntry.lines.account.bankAccount', 'shareTransactions', 'asset', 'reverser', 'reversalJournalEntry'])
             ->orderBy('id')
             ->get()
             ->groupBy('share_holder_id');
@@ -77,7 +91,7 @@ class CapitalController extends ApiController
         $this->authorizeAny('capital.manage');
 
         $employee = $this->currentEmployee();
-        $result = $this->contributions->contribute(
+        $result = $this->contributions->requestContribution(
             ShareHolder::where('company_id', $employee->company_id)->findOrFail($request->integer('share_id')),
             $request->float('amount'),
             $request->string('pay_method')->toString(),
@@ -91,10 +105,38 @@ class CapitalController extends ApiController
         );
 
         return $this->message(
-            $result['created'] ? 'Capital Added successfully' : 'Capital was already recorded',
+            $result['created'] ? 'Capital Recorded successfully — awaiting approval by another authorised user' : 'Capital was already recorded',
             $result['created'] ? 201 : 200,
-            ['data' => $this->presentContribution($result['capital']->load(['bankAccount', 'recorder', 'journalEntry']))],
+            ['data' => $this->presentContribution($result['capital']->refresh()->load(self::RELATIONS))],
         );
+    }
+
+    /**
+     * Approve a pending contribution: posts Dr COMPANY ACCOUNT / bank, Cr CAPITAL ACCOUNT. The employee who recorded it
+     * cannot approve it (rule 6).
+     */
+    public function approve(Capital $capital): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        abort_unless((int) $capital->company_id === (int) $this->currentEmployee()->company_id, 404);
+
+        $approved = $this->contributions->approve($capital, $this->currentEmployee());
+
+        return $this->message('Capital Contribution Approved successfully', 200, ['data' => $this->presentContribution($approved->load(self::RELATIONS))]);
+    }
+
+    /**
+     * Reject a pending contribution (nothing was posted).
+     */
+    public function reject(Request $request, Capital $capital): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        abort_unless((int) $capital->company_id === (int) $this->currentEmployee()->company_id, 404);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']]);
+
+        $rejected = $this->contributions->reject($capital, $validated['reason'], $this->currentEmployee());
+
+        return $this->message('Capital Contribution Rejected successfully', 200, ['data' => $this->presentContribution($rejected->load(self::RELATIONS))]);
     }
 
     /**
@@ -117,16 +159,21 @@ class CapitalController extends ApiController
             'ownership_percent' => $ownership['ownership_percent'],
             'holding_value' => $ownership['holding_value'],
             'company_total_contributed' => $this->ownership->totalContributed((int) $shareHolder->company_id),
-            'contributions' => $shareHolder->capitals()->with(['bankAccount', 'recorder', 'journalEntry', 'shareTransactions', 'asset'])->orderBy('id')->get()
+            'contributions' => $shareHolder->capitals()->with(['bankAccount', 'recorder', 'approver', 'rejecter', 'journalEntry.lines.account.branch', 'journalEntry.lines.account.bankAccount', 'shareTransactions', 'asset', 'reverser', 'reversalJournalEntry'])->orderBy('id')->get()
                 ->map(fn (Capital $capital): array => $this->presentContribution($capital))->values(),
         ]]);
     }
 
     /**
      * Company capital position: historical shareholder contributions (financial records, not ownership) kept apart from what the
-     * company holds and earns now — COMPANY ACCOUNT and bank balances, branch lending cash, income, expenses and loans.
+     * company holds and earns now — money balances by group ({@see CashAccounts}), income, expenses and loans.
+     *
+     * Income and expenses are the ledger movements of the income / expense accounts in the range (all time without dates),
+     * month-end closing entries excluded ({@see ClosingEntries}) so a closed month still shows what it earned and spent.
+     * "income" is gross ledger income (interest before the reserve cut, fees, penalties, insurance, recoveries); the reserve set
+     * aside from interest is listed in the breakdown. The profit definition of the month-end close is not changed here.
      */
-    public function position(Request $request): JsonResponse
+    public function position(Request $request, ProfitLossReport $profitLoss, CashAccounts $cash): JsonResponse
     {
         $this->authorizeAny('capital.view', 'capital.manage');
         $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date', 'after_or_equal:from']]);
@@ -134,17 +181,22 @@ class CapitalController extends ApiController
         $companyId = $this->currentEmployee()->company_id;
         $from = $request->filled('from') ? CarbonImmutable::parse($request->string('from')->toString()) : null;
         $to = $request->filled('to') ? CarbonImmutable::parse($request->string('to')->toString()) : null;
-        $sum = fn (string $type): float => round(array_sum(array_map(
-            fn (Account $account): float => $this->ledger->balance($companyId, $account, until: $to, allBranches: true, from: $from),
+        $raw = $profitLoss->companyFigures($companyId, $from ?? CarbonImmutable::create(1970), $to ?? CarbonImmutable::create(2999, 12, 31));
+        $lines = fn (string $type): array => array_values(array_map(
+            fn (Account $account): array => ['key' => $account->value, 'label' => $account->label(), 'amount' => (float) ($raw[$account->value] ?? 0)],
             array_filter(Account::cases(), fn (Account $account): bool => $account->type() === $type),
-        )), 2) + 0.0;
+        ));
+
+        $incomeLines = $lines('income');
+        $expenseLines = $lines('expense');
+        $income = round(array_sum(array_column($incomeLines, 'amount')), 2) + 0.0;
+        $expenses = round(array_sum(array_column($expenseLines, 'amount')), 2) + 0.0;
 
         $banks = $this->bankBalances($companyId);
+        $breakdown = $cash->breakdown($companyId);
         $companyCash = $this->ledger->balance($companyId, Account::Company) + 0.0;
         $branchCash = $this->ledger->balance($companyId, Account::Principal, allBranches: true) + 0.0;
-        $income = $sum('income');
-        $expenses = $sum('expense');
-        $withdrawals = LoanTransaction::where('company_id', $companyId)->where('type', 'withdrawal')
+        $withdrawals = LoanTransaction::where('company_id', $companyId)->where('type', 'withdrawal')->whereNull('reversed_at')
             ->when($from, fn ($query) => $query->whereDate('transaction_date', '>=', $from->toDateString()))
             ->when($to, fn ($query) => $query->whereDate('transaction_date', '<=', $to->toDateString()));
 
@@ -166,9 +218,15 @@ class CapitalController extends ApiController
                 'bank_total' => round($banks->sum('balance'), 2),
                 'branch_lending_cash' => $branchCash,
                 'total_cash_and_bank' => round($companyCash + $banks->sum('balance') + $branchCash, 2),
+                'total_cash_and_bank_label' => 'Company A/C + bank accounts + branch PRINCIPAL A/C',
+                'money_groups' => $breakdown,
+                'total_money_assets' => CashAccounts::total($breakdown),
             ],
             'income' => $income,
+            'income_breakdown' => $incomeLines,
+            'reserve_from_interest' => (float) ($raw['reserve'] ?? 0),
             'expenses' => $expenses,
+            'expense_breakdown' => $expenseLines,
             'net_income' => round($income - $expenses, 2),
             'loans' => [
                 'disbursed_count' => (clone $withdrawals)->count(),
@@ -213,6 +271,25 @@ class CapitalController extends ApiController
     }
 
     /**
+     * Reverse a wrongly recorded CASH or BANK contribution: Dr CAPITAL ACCOUNT / Cr the receiving account, posted today
+     * ({@see CapitalContributions::reverse()}). Blocked while shares issued against it are active, for asset contributions
+     * (asset register) and when the receiving account no longer holds the money.
+     */
+    public function reverse(Request $request, Capital $capital): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $this->authorizeAny('accounting.reverse');
+        abort_unless((int) $capital->company_id === (int) $this->currentEmployee()->company_id, 404);
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']]);
+
+        $reversed = $this->contributions->reverse($capital, $validated['reason'], $this->currentEmployee());
+
+        return $this->message('Capital Contribution Reversed successfully', 200, [
+            'data' => $this->presentContribution($reversed->load(self::RELATIONS)),
+        ]);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function presentContribution(Capital $capital): array
@@ -239,7 +316,22 @@ class CapitalController extends ApiController
             'asset_code' => $capital->asset?->asset_code,
             'asset_name' => $capital->asset?->name,
             'reversed' => $capital->isReversed(),
+            'status' => $capital->isReversed() ? 'reversed' : ($capital->status ?? Capital::STATUS_POSTED),
+            'approved_by' => $capital->approver?->full_name,
+            'approved_at' => $capital->approved_at?->toDateTimeString(),
+            'rejected_by' => $capital->rejecter?->full_name,
+            'rejected_at' => $capital->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $capital->rejection_reason,
+            'source' => $capital->source,
+            'source_label' => $capital->isFromShareholderPortal() ? 'Submitted by shareholder' : 'Recorded by staff',
+            'cancelled_at' => $capital->cancelled_at?->toDateTimeString(),
+            ...app(SegregationOfDuties::class)->flags($capital->isPending() ? $this->contributions->initiatorIds($capital) : $capital->recorded_by, $this->currentEmployee(), $capital->isPending() && $capital->pay_method !== 'ASSET', Gate::allows('capital.manage'), workflow: ApprovalPolicy::CAPITAL_CONTRIBUTIONS),
+            'can_reject' => $capital->isPending() && $capital->pay_method !== 'ASSET' && Gate::allows('capital.manage'),
+            'reversed_at' => $capital->reversed_at?->toDateTimeString(),
+            'reversed_by' => $capital->reverser?->full_name,
             'reversal_reason' => $capital->reversal_reason,
+            'reversal_reference' => $capital->reversalJournalEntry?->reference,
+            ...$this->contributions->reverseFlags($capital, Gate::allows('capital.manage') && Gate::allows('accounting.reverse')),
             'created_at' => $capital->created_at?->format('Y-m-d H:i:s'),
         ];
     }

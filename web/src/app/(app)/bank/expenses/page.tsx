@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { HeaderButton, sum } from "@/components/finance/FilterModal";
+import { BlockedApproveButton } from "@/components/finance/Approval";
+import { ReversedStatus, ReverseButton } from "@/components/finance/Reversal";
 import type { ExpenseRequest } from "@/components/finance/types";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -54,21 +56,27 @@ export default function BankExpensesPage() {
               sortable: false,
               className: "text-nowrap",
               render: (row) =>
-                row.status === "accepted" ? (
-                  <Badge tone="success">ACCEPTED</Badge>
+                row.status === "reversed" ? (
+                  <ReversedStatus row={row} />
+                ) : row.status === "accepted" ? (
+                  <>
+                    <Badge tone="success">ACCEPTED</Badge>
+                    <span className="ml-1"><ReverseButton row={row} path={`expenses/requests/${row.id}/reverse`} description={`${row.expense ?? "expense"} paid from ${row.bank_account ?? "bank"}`} /></span>
+                  </>
                 ) : (
                   <>
-                    {row.can_approve && <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Accept" onClick={async () => (await confirmAction()) && accept.mutate({ id: row.id })}><i className="icon-like" /></button>}
-                    <button type="button" className="btn btn-sm btn-icon btn-danger" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
+                    {row.can_approve && <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Accept" disabled={accept.isPending} onClick={async () => (await confirmAction()) && accept.mutate({ id: row.id })}><i className="icon-like" /></button>}
+                    {!row.can_approve && row.approve_blocked_reason && <BlockedApproveButton reason={row.approve_blocked_reason} label="Accept" />}
+                    <button type="button" className="btn btn-sm btn-icon btn-danger" disabled={remove.isPending} onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                   </>
                 ),
             },
           ]}
           footer={
             <tr>
-              <td>TOTAL:</td>
+              <td>TOTAL <small className="text-muted">(excl. reversed)</small>:</td>
               <td />
-              <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
+              <td><b>{money(sum(rows, (row) => (row.status === "reversed" ? 0 : row.amount)))}</b></td>
               <td colSpan={4} />
             </tr>
           }

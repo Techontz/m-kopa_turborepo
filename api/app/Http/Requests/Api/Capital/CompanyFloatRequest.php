@@ -2,12 +2,15 @@
 
 namespace App\Http\Requests\Api\Capital;
 
+use App\Enums\Account;
+use App\Services\FloatService;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Live "Transfer Float Form" (admin/create_float): company account → branch principal.
+ * "Transfer Float Form": company money account → HQ PRINCIPAL A/C. The source is the COMPANY ACCOUNT, a company bank
+ * account or the Investment RESERVE A/C ({@see FloatService::hqFloatSources()}) — never an asset, and never a branch.
  */
 class CompanyFloatRequest extends FormRequest
 {
@@ -22,8 +25,13 @@ class CompanyFloatRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'blanch_amount' => ['required', 'numeric', 'min:1'],
-            'blanch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where('company_id', $this->user()->company_id)],
+            'amount' => ['required', 'numeric', 'min:1'],
+            'from_account' => ['required', Rule::in(array_map(fn (Account $account): string => $account->value, FloatService::hqFloatSources()))],
+            'bank_account_id' => [
+                Rule::requiredIf(fn (): bool => $this->string('from_account')->toString() === Account::Bank->value),
+                'nullable', 'integer',
+                Rule::exists('bank_accounts', 'id')->where('company_id', $this->user()->company_id),
+            ],
         ];
     }
 
@@ -32,6 +40,6 @@ class CompanyFloatRequest extends FormRequest
      */
     public function attributes(): array
     {
-        return ['blanch_amount' => 'amount', 'blanch_id' => 'branch'];
+        return ['from_account' => 'source account', 'bank_account_id' => 'bank account'];
     }
 }

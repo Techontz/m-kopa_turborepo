@@ -88,7 +88,7 @@ class MessageController extends ApiController
     {
         $this->authorizeAny('messages.use');
 
-        $recipient = Employee::where('company_id', $this->currentEmployee()->company_id)->findOrFail($request->integer('employee_id'));
+        $recipient = Employee::staff()->where('company_id', $this->currentEmployee()->company_id)->findOrFail($request->integer('employee_id'));
         $conversation = $this->chat->direct($this->currentEmployee(), $recipient, $request->string('body')->toString());
 
         return $this->message('Message sent successfully', 201, ['data' => ['id' => $conversation->id]]);

@@ -16,6 +16,12 @@ export interface CurrentUser {
   role: { key: string; name: string; scope: "company" | "zone" | "branch" } | null;
   permissions: string[];
   branch_ids: number[] | null;
+  /** "staff" or "shareholder" (a Shareholder Portal login). */
+  account_type?: "staff" | "shareholder";
+  /** A temporary password must be changed before anything else. */
+  must_change_password?: boolean;
+  /** The shareholder record linked to this login (portal access), if any. */
+  shareholder?: { id: number; name: string } | null;
 }
 
 interface AuthContextValue {

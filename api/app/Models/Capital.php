@@ -38,17 +38,43 @@ class Capital extends Model
             'amount' => 'decimal:2',
             'contributed_at' => 'datetime',
             'reversed_at' => 'datetime',
+            'approved_at' => 'datetime',
+            'rejected_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_POSTED = 'posted';
+
+    public const STATUS_REJECTED = 'rejected';
+
+    /** Withdrawn by the shareholder who submitted it while still pending (nothing was ever posted). */
+    public const STATUS_CANCELLED = 'cancelled';
+
+    /** `source` of a contribution submitted by the shareholder from the Shareholder Portal (null = recorded by staff). */
+    public const SOURCE_SHAREHOLDER_PORTAL = 'shareholder_portal';
+
     /**
-     * Contributions that still count as contributed capital (not reversed).
+     * Contributions that count as contributed capital: posted (approved) and not reversed. Pending and rejected
+     * contributions never count in ownership, contribution totals or dividends (rule 6).
      *
      * @param  Builder<Capital>  $query
      */
     public function scopeActive(Builder $query): void
     {
-        $query->whereNull('reversed_at');
+        $query->whereNull('reversed_at')->where('status', self::STATUS_POSTED);
+    }
+
+    public function isPending(): bool
+    {
+        return $this->status === self::STATUS_PENDING;
+    }
+
+    public function isPosted(): bool
+    {
+        return ($this->status ?? self::STATUS_POSTED) === self::STATUS_POSTED;
     }
 
     public function isReversed(): bool
@@ -82,6 +108,36 @@ class Capital extends Model
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
+    }
+
+    public function reversalJournalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'reversal_journal_entry_id');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'approved_by');
+    }
+
+    public function rejecter(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'rejected_by');
+    }
+
+    public function canceller(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'cancelled_by');
+    }
+
+    public function isFromShareholderPortal(): bool
+    {
+        return $this->source === self::SOURCE_SHAREHOLDER_PORTAL;
+    }
+
+    public function reverser(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'reversed_by');
     }
 
     /**

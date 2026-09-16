@@ -7,6 +7,7 @@ use App\Enums\ShareTransactionType;
 use App\Models\AccountingPeriod;
 use App\Models\AuditLog;
 use App\Models\BankAccount;
+use App\Models\BranchPeriodResult;
 use App\Models\Capital;
 use App\Models\DividendAllocation;
 use App\Models\Employee;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use LogicException;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 /**
@@ -40,6 +42,7 @@ use Tests\TestCase;
 class ShareRegisterTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -111,10 +114,11 @@ class ShareRegisterTest extends TestCase
         $this->establish();
         $this->revalue(100000, '2026-09-13');
 
-        $this->issue($this->c, 250, ['payment_treatment' => 'paid', 'pay_method' => 'CASH'])->assertCreated()
+        $this->issuePaid($this->c, 250, ['pay_method' => 'CASH'])
             ->assertJsonPath('data.shares', 250)
             ->assertJsonPath('data.price_per_share', 100000)
-            ->assertJsonPath('data.total_amount', 25000000);
+            ->assertJsonPath('data.amount', 25000000)
+            ->assertJsonPath('data.status', 'approved');
 
         $this->assertRegister([$this->a->id => [500, 40, 50000000], $this->b->id => [500, 40, 50000000], $this->c->id => [250, 20, 25000000]], 1250, 100000);
     }
@@ -172,7 +176,8 @@ class ShareRegisterTest extends TestCase
     public function test_ownership_as_of_a_past_date_replays_the_register(): void
     {
         $this->establish(['established_on' => '2026-01-01']);
-        $this->issue($this->c, 250, ['payment_treatment' => 'paid', 'pay_method' => 'CASH', 'issue_date' => '2026-03-01'])->assertCreated();
+        // A paid issuance posts at its approval date (C6), so the back-dated movement here is a bonus issuance.
+        $this->issue($this->c, 250, ['type' => 'bonus_issuance', 'issue_date' => '2026-03-01'])->assertCreated();
         $this->transfer($this->a, $this->c, 100)->assertCreated();
 
         $this->getJson('/api/v1/shares/register?as_of=2026-02-01')->assertOk()
@@ -221,13 +226,16 @@ class ShareRegisterTest extends TestCase
         $this->establish();
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
 
-        $response = $this->post('/api/v1/shares/issuances', [
+        $id = $this->post('/api/v1/shares/issuances', [
             'share_holder_id' => $this->c->id, 'type' => 'issuance', 'payment_treatment' => 'paid', 'shares' => '250', 'price_per_share' => '60,000',
             'pay_method' => 'BANK', 'bank_account_id' => $bank->id, 'receipt_number' => 'RC-9', 'idempotency_key' => 'issue-1',
             'document' => UploadedFile::fake()->create('subscription.pdf', 100, 'application/pdf'),
-        ], ['Accept' => 'application/json'])->assertCreated();
+        ], ['Accept' => 'application/json'])->assertStatus(202)->json('data.id');
+        $this->assertSame([0, 0, 0], [Capital::count(), JournalEntry::count(), ShareTransaction::where('type', ShareTransactionType::Issuance)->count()], 'a pending paid issuance posts nothing');
+        $this->approveAsSecondUser($this->admin, "/api/v1/shares/issuance-requests/{$id}/approve");
 
-        $transaction = ShareTransaction::findOrFail($response->json('data.id'));
+        $transaction = ShareTransaction::where('type', ShareTransactionType::Issuance)->sole();
+        $response = $this->getJson("/api/v1/shares/transactions/{$transaction->id}")->assertOk();
         $capital = Capital::findOrFail($transaction->capital_id);
         $this->assertSame([15000000.0, 'BANK', $bank->id, 'RC-9', $this->c->id], [(float) $capital->amount, $capital->pay_method, $capital->bank_account_id, $capital->receipt_number, $capital->share_holder_id]);
         $this->assertSame($capital->journal_entry_id, $transaction->journal_entry_id);
@@ -249,8 +257,8 @@ class ShareRegisterTest extends TestCase
 
     public function test_initial_allocation_linked_to_recorded_contributions_posts_no_second_journal(): void
     {
-        $first = $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->a->id, 'amount' => 25000000, 'pay_method' => 'CASH'])->assertCreated()->json('data.id');
-        $second = $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->b->id, 'amount' => 25000000, 'pay_method' => 'CASH'])->assertCreated()->json('data.id');
+        $first = $this->contribution($this->a, 25000000);
+        $second = $this->contribution($this->b, 25000000);
         $journals = JournalEntry::count();
 
         $this->establish(['allocations' => [
@@ -326,9 +334,11 @@ class ShareRegisterTest extends TestCase
         $this->establish(['idempotency_key' => 'setup-2'])->assertUnprocessable();
 
         $issue = ['payment_treatment' => 'paid', 'pay_method' => 'CASH', 'idempotency_key' => 'issue-key'];
-        $this->issue($this->c, 250, $issue)->assertCreated();
-        $this->issue($this->c, 250, $issue)->assertOk()->assertJsonPath('message', 'Shares were already issued');
+        $request = $this->issue($this->c, 250, $issue)->assertStatus(202)->json('data.id');
+        $this->issue($this->c, 250, $issue)->assertOk()->assertJsonPath('message', 'The share issuance was already requested')->assertJsonPath('data.id', $request);
         $this->issue($this->c, 251, $issue)->assertUnprocessable()->assertJsonValidationErrors('idempotency_key');
+        $this->approveAsSecondUser($this->admin, "/api/v1/shares/issuance-requests/{$request}/approve");
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/shares/issuance-requests/{$request}/approve")->assertUnprocessable());
 
         $this->transfer($this->a, $this->c, 100, ['idempotency_key' => 'transfer-key'])->assertCreated();
         $this->transfer($this->a, $this->c, 100, ['idempotency_key' => 'transfer-key'])->assertOk();
@@ -378,7 +388,7 @@ class ShareRegisterTest extends TestCase
     public function test_failed_operations_leave_no_partial_rows(): void
     {
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
-        $foreign = $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->a->id, 'amount' => 1000, 'pay_method' => 'CASH'])->json('data.id');
+        $foreign = $this->contribution($this->a, 1000);
 
         $this->establish(['allocations' => [
             ['share_holder_id' => $this->b->id, 'shares' => 500, 'treatment' => 'paid', 'pay_method' => 'BANK', 'bank_account_id' => $bank->id],
@@ -395,8 +405,8 @@ class ShareRegisterTest extends TestCase
 
         $this->establish(['established_on' => '2026-07-01'])->assertCreated();
         AccountingPeriod::create(['company_id' => $this->admin->company_id, 'period_start' => '2026-08-01', 'period_end' => '2026-08-31', 'status' => 'closed']);
-        $this->issue($this->c, 100, ['payment_treatment' => 'paid', 'pay_method' => 'CASH', 'issue_date' => '2026-08-15'])
-            ->assertUnprocessable()->assertJsonValidationErrors('entry_date');
+        // C6: a paid issuance is only requested (nothing posted); its journal is dated the approval date, never a closed period.
+        $this->issue($this->c, 100, ['payment_treatment' => 'paid', 'pay_method' => 'CASH', 'issue_date' => '2026-08-15'])->assertStatus(202);
 
         $this->assertSame(2, ShareTransaction::count());
         $this->assertSame(1, Capital::count());
@@ -440,17 +450,19 @@ class ShareRegisterTest extends TestCase
 
     public function test_dividends_are_split_by_share_register_ownership_on_the_declaration_date(): void
     {
-        $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->a->id, 'amount' => 90000000, 'pay_method' => 'CASH'])->assertCreated();
-        $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->b->id, 'amount' => 10000000, 'pay_method' => 'CASH'])->assertCreated();
+        $this->contribution($this->a, 90000000);
+        $this->contribution($this->b, 10000000);
         $this->establish(['allocations' => [
             ['share_holder_id' => $this->a->id, 'shares' => 500, 'treatment' => 'no_cash'],
             ['share_holder_id' => $this->b->id, 'shares' => 500, 'treatment' => 'no_cash'],
         ]]);
         $this->transfer($this->a, $this->c, 100);
         $this->ledger()->journal($this->admin->company_id, 'MONTH END PROFIT', [
-            ['account' => Account::InterestIncome, 'debit' => 1000000, 'branch' => $this->admin->branch_id],
+            ['account' => Account::Interest, 'debit' => 1000000, 'branch' => $this->admin->branch_id],
             ['account' => Account::RetainedProfit, 'credit' => 1000000, 'branch' => $this->admin->branch_id],
         ]);
+        $period = AccountingPeriod::create(['company_id' => $this->admin->company_id, 'period_start' => '2026-08-01', 'period_end' => '2026-08-31', 'status' => AccountingPeriod::STATUS_CLOSED, 'closed_at' => now(), 'commission_calculated_at' => now()]);
+        BranchPeriodResult::create(['accounting_period_id' => $period->id, 'branch_id' => $this->admin->branch_id, 'gross_profit' => 1000000, 'net_profit' => 1000000, 'distributable_profit' => 1000000, 'commission_eligible' => true]);
 
         $this->getJson('/api/v1/capital/dividends/preview')->assertOk()
             ->assertJsonPath('data.rows.0.contribution_total', 90000000)
@@ -459,7 +471,8 @@ class ShareRegisterTest extends TestCase
             ->assertJsonPath('data.rows.1.ownership_percent', 50)
             ->assertJsonPath('data.rows.2.ownership_percent', 10);
 
-        $this->postJson('/api/v1/capital/dividends', ['period' => '2026-08'])->assertCreated()->assertJsonPath('data.profit_amount', 1000000);
+        $requestId = $this->postJson('/api/v1/capital/dividends', ['period' => '2026-08'])->assertCreated()->assertJsonPath('data.profit_amount', 1000000)->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/capital/dividends/requests/{$requestId}/approve");
 
         $allocations = DividendAllocation::orderBy('id')->get();
         $this->assertSame([120000.0, 150000.0, 30000.0], $allocations->map(fn (DividendAllocation $row): float => (float) $row->amount)->all(), 'contributions (90/10) do not decide the split');
@@ -542,9 +555,9 @@ class ShareRegisterTest extends TestCase
 
     public function test_share_profile_shareholders_list_and_reports_read_the_register(): void
     {
-        $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->a->id, 'amount' => 25000000, 'pay_method' => 'CASH'])->assertCreated();
+        $this->contribution($this->a, 25000000);
         $this->establish();
-        $this->issue($this->c, 250, ['payment_treatment' => 'paid', 'pay_method' => 'CASH']);
+        $this->issuePaid($this->c, 250, ['pay_method' => 'CASH']);
         $this->transfer($this->a, $this->c, 100, ['consideration_per_share' => 50000]);
 
         $this->getJson('/api/v1/shares/share-holders')->assertOk()
@@ -575,6 +588,17 @@ class ShareRegisterTest extends TestCase
         $this->getJson('/api/v1/capital/share-holders')->assertOk()->assertJsonPath('data.0.shares', 400)->assertJsonPath('data.0.ownership_percent', 32);
         $this->assertSame(32.0, app(ShareholderOwnership::class)->forShareHolder($this->a)['ownership_percent']);
         $this->deleteJson("/api/v1/capital/share-holders/{$this->c->id}")->assertUnprocessable();
+    }
+
+    /**
+     * A CASH contribution recorded by the admin and approved by a second authorised user (rule 6); returns its id.
+     */
+    private function contribution(ShareHolder $holder, float $amount): int
+    {
+        $id = $this->postJson('/api/v1/capital/capitals', ['share_id' => $holder->id, 'amount' => $amount, 'pay_method' => 'CASH'])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/capital/capitals/{$id}/approve");
+
+        return $id;
     }
 
     private function holder(string $firstName): ShareHolder
@@ -621,6 +645,18 @@ class ShareRegisterTest extends TestCase
     private function revalue(float $value, string $date, array $extra = []): TestResponse
     {
         return $this->postJson('/api/v1/shares/valuations', $extra + ['new_value' => $value, 'valuation_date' => $date, 'reason' => 'Board valuation']);
+    }
+
+    /**
+     * Request a paid issuance and have a second authorised user approve it (C6 maker/checker); returns the approval response.
+     *
+     * @param  array<string, mixed>  $extra
+     */
+    private function issuePaid(ShareHolder $holder, int $shares, array $extra = []): TestResponse
+    {
+        $id = $this->issue($holder, $shares, ['payment_treatment' => 'paid'] + $extra)->assertStatus(202)->json('data.id');
+
+        return $this->approveAsSecondUser($this->admin, "/api/v1/shares/issuance-requests/{$id}/approve");
     }
 
     /**

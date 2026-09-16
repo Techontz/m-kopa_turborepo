@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\Api\V1\Capital;
 
 use App\Http\Controllers\Api\V1\ApiController;
+use App\Http\Middleware\EnsureIdempotentRequest;
 use App\Http\Requests\Api\Capital\ShareHolderRequest;
 use App\Models\ShareHolder;
 use App\Services\ShareholderOwnership;
+use App\Services\Shareholders\ShareholderAccounts;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +22,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ShareHolderController extends ApiController
 {
-    public function __construct(private readonly ShareholderOwnership $ownership) {}
+    public function __construct(
+        private readonly ShareholderOwnership $ownership,
+        private readonly ShareholderAccounts $accounts,
+    ) {}
 
     /**
      * Share holders with their total contributed capital and their share-register shares and ownership percentage.
@@ -28,23 +34,45 @@ class ShareHolderController extends ApiController
     {
         $this->authorizeAny('capital.view', 'capital.manage');
 
-        return response()->json(['data' => $this->ownership->summary($this->currentEmployee()->company_id)
-            ->map(fn (array $row): array => $this->present($row['share_holder'], $row))
-            ->values()]);
+        $rows = $this->ownership->summary($this->currentEmployee()->company_id);
+        (new EloquentCollection($rows->pluck('share_holder')->all()))->load('account');
+
+        return response()->json(['data' => $rows->map(fn (array $row): array => $this->present($row['share_holder'], $row))->values()]);
     }
 
+    /**
+     * Registers the shareholder and its login account in one transaction ({@see ShareholderAccounts::register()}). A new
+     * portal login's temporary password is returned ONCE in `credentials` — never stored, logged or replayed.
+     */
     public function store(ShareHolderRequest $request): JsonResponse
     {
         $this->authorizeAny('capital.manage');
 
-        $holder = DB::transaction(function () use ($request): ShareHolder {
-            $holder = ShareHolder::create($request->shareHolderData() + ['company_id' => $this->currentEmployee()->company_id]);
-            $this->storePhoto($holder, $request->file('passport_photo'));
+        $result = $this->accounts->register(
+            $request->shareHolderData(),
+            (int) $this->currentEmployee()->company_id,
+            $this->currentEmployee(),
+            fn (ShareHolder $holder) => $this->storePhoto($holder, $request->file('passport_photo')),
+        );
 
-            return $holder;
-        });
+        EnsureIdempotentRequest::doNotStore(['credentials']);
+        $linked = $result['outcome'] === ShareholderAccounts::OUTCOME_LINKED;
 
-        return $this->message('Shareholder Registered successfully', 201, ['data' => $this->present($holder)]);
+        return $this->message(
+            'Shareholder Registered successfully',
+            201,
+            [
+                'data' => $this->present($result['share_holder']->load('account')),
+                'account' => [
+                    'outcome' => $result['outcome'],
+                    'message' => $linked ? "Linked to the existing staff login of {$result['account']->full_name}" : 'Shareholder login account created',
+                    'employee_id' => $result['account']->id,
+                    'account_type' => $result['account']->account_type,
+                    'login' => $result['account']->phone,
+                ],
+                'credentials' => $result['credentials'],
+            ],
+        );
     }
 
     public function show(ShareHolder $shareHolder): JsonResponse
@@ -58,8 +86,12 @@ class ShareHolderController extends ApiController
     {
         $this->authorizeAny('capital.manage');
 
-        $shareHolder->update($request->shareHolderData());
-        $this->storePhoto($shareHolder, $request->file('passport_photo'));
+        DB::transaction(function () use ($request, $shareHolder): void {
+            $data = $request->shareHolderData();
+            $this->accounts->syncLogin($shareHolder, $data['mobile'], $data['email']);
+            $shareHolder->update($data);
+            $this->storePhoto($shareHolder, $request->file('passport_photo'));
+        });
 
         return $this->message('Shareholder Updated successfully', 200, ['data' => $this->present($shareHolder)]);
     }
@@ -78,7 +110,17 @@ class ShareHolderController extends ApiController
             return $this->message('Shareholder has share transactions and cannot be deleted', 422);
         }
 
-        $shareHolder->delete();
+        DB::transaction(function () use ($shareHolder): void {
+            $account = $shareHolder->account;
+            $shareHolder->delete();
+
+            // A portal-only login cannot exist without its shareholder: it is blocked and signed out (kept for the audit
+            // trail; registering the shareholder again reuses it). A linked staff login is simply unlinked.
+            if ($account !== null && $account->isShareholderAccount()) {
+                $account->update(['status' => 'blocked']);
+                $account->tokens()->delete();
+            }
+        });
         if ($shareHolder->passport_photo) {
             Storage::disk(ShareHolder::DISK)->delete($shareHolder->passport_photo);
         }
@@ -142,6 +184,7 @@ class ShareHolderController extends ApiController
             'shares' => $ownership['shares'],
             'ownership_percent' => $ownership['ownership_percent'],
             'holding_value' => $ownership['holding_value'],
+            'login' => $this->accounts->loginSummary($holder),
         ];
     }
 }

@@ -77,10 +77,10 @@ export default function DisbursementPage() {
           return can("loans.disburse") && <button type="button" className="btn btn-sm btn-success" disabled={disburse.isPending} onClick={async () => (await confirmAction("Disburse via Vodacom?", `${money(latest.amount)} to ${row.customer_phone} from ${latest.source_label}`)) && disburse.mutate({ id: row.id }, { onSuccess: openPortal })}>Disburse</button>;
         }
         if (latest?.channel === "cash") {
-          return can("payments.cash") ? <button type="button" className="btn btn-sm btn-info" onClick={async () => { const code = await askText("Enter withdrawal code", "Code sent by SMS"); if (code) { cashOut.mutate({ id: row.id, code }); } }}>Cash Withdrawal</button> : <small>Waiting for cash withdrawal at branch</small>;
+          return can("payments.cash") ? <button type="button" className="btn btn-sm btn-info" disabled={cashOut.isPending} onClick={async () => { const code = await askText("Enter withdrawal code", "Code sent by SMS"); if (code) { cashOut.mutate({ id: row.id, code }); } }}>Cash Withdrawal</button> : <small>Waiting for cash withdrawal at branch</small>;
         }
         if (latest && ["airtel", "bank"].includes(latest.channel)) {
-          return can("loans.disburse") && <button type="button" className="btn btn-sm btn-info" onClick={async () => { const reference = await askText(`Confirm ${latest.channel.toUpperCase()} payment`, "Transaction reference"); if (reference) { confirm.mutate({ id: row.id, reference }); } }}>Confirm Paid</button>;
+          return can("loans.disburse") && <button type="button" className="btn btn-sm btn-info" disabled={confirm.isPending} onClick={async () => { const reference = await askText(`Confirm ${latest.channel.toUpperCase()} payment`, "Transaction reference"); if (reference) { confirm.mutate({ id: row.id, reference }); } }}>Confirm Paid</button>;
         }
         return <small>Waiting Vodacom callback</small>;
       case "disbursement_failed":
@@ -88,7 +88,7 @@ export default function DisbursementPage() {
       case "escalated":
         return can("loans.disburse") && <button type="button" className="btn btn-sm btn-danger" onClick={() => { setEscalated(row); setDecision({ action: "", channel: "", reason: "" }); setDecisionSource(EMPTY_SOURCE); }}>Manual Decision</button>;
       case "disbursement_suspense":
-        return can(["loans.disburse", "loans.prepare_disbursement"]) && <button type="button" className="btn btn-sm btn-primary" onClick={async () => (await confirmAction("Send back to Finance?")) && requeue.mutate({ id: row.id })}>Send to Finance</button>;
+        return can(["loans.disburse", "loans.prepare_disbursement"]) && <button type="button" className="btn btn-sm btn-primary" disabled={requeue.isPending} onClick={async () => (await confirmAction("Send back to Finance?")) && requeue.mutate({ id: row.id })}>Send to Finance</button>;
       default:
         return null;
     }

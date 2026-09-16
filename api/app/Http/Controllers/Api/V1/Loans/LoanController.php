@@ -7,16 +7,22 @@ use App\Enums\Duration;
 use App\Enums\LoanStatus;
 use App\Http\Requests\Api\Loans\LoanApplicationRequest;
 use App\Http\Resources\Api\V1\Loans\LoanResource;
+use App\Models\ApprovalPolicy;
 use App\Models\AuditLog;
 use App\Models\Customer;
+use App\Models\Employee;
 use App\Models\Group;
 use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\LoanCategory;
 use App\Models\LoanDisbursement;
+use App\Models\LoanRecovery;
 use App\Models\LoanTransaction;
+use App\Models\WriteOffRequest;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\CustomerEligibility;
 use App\Services\LoanCalculator;
+use App\Services\LoanRecoveryService;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
 use Carbon\CarbonImmutable;
@@ -52,6 +58,7 @@ class LoanController extends LoanApiController
     public function __construct(
         private readonly LoanService $loans,
         private readonly LoanWorkflow $workflow,
+        private readonly LoanRecoveryService $recoveries,
     ) {}
 
     /**
@@ -95,6 +102,8 @@ class LoanController extends LoanApiController
 
         $loan->load(['customer.region', 'customer.branch', 'customer.customerCategory', 'branch', 'category.customerType', 'employee', 'group', 'guarantors.region', 'collaterals', 'schedules', 'mandate', 'disbursements.requester', 'disbursements.sourceBankAccount', 'disbursements.branch', 'disbursements.journalEntry.lines.account', 'latestDisbursement.sourceBankAccount', 'latestDisbursement.branch', 'latestDisbursement.journalEntry', 'topupOf', 'writeOff']);
         $customer = $loan->customer;
+        $recovery = $loan->writeOff ? $this->recoveries->position($loan) : null;
+        $viewer = $this->currentEmployee();
 
         return response()->json(['data' => [
             'loan' => new LoanResource($loan),
@@ -154,17 +163,55 @@ class LoanController extends LoanApiController
                 'paid_amount' => (float) $schedule->paid_amount,
                 'pending' => round((float) $schedule->amount - (float) $schedule->paid_amount, 2),
             ])->values(),
-            'transactions' => $loan->transactions()->latest('transaction_date')->latest('id')->get()->map(fn (LoanTransaction $transaction): array => [
-                'id' => $transaction->id,
-                'date' => CarbonImmutable::parse($transaction->transaction_date)->toDateString(),
-                'type' => $transaction->type,
-                'description' => $transaction->description,
-                'method' => $transaction->method,
-                'amount' => (float) $transaction->amount,
-                'principal' => (float) $transaction->principal,
-                'penalty' => (float) $transaction->penalty,
-                'interest' => (float) $transaction->interest,
-            ])->values(),
+            'transactions' => $loan->transactions()->with(['reverser', 'journalEntry', 'reversalJournalEntry', 'paymentAllocation.payment'])->latest('transaction_date')->latest('id')->get()->map(function (LoanTransaction $transaction) use ($loan, $viewer): array {
+                $transaction->setRelation('loan', $loan);
+                $blocker = $transaction->type === 'deposit' ? $this->loans->repaymentReverseBlockedReason($transaction, $viewer) : null;
+
+                return [
+                    'id' => $transaction->id,
+                    'date' => CarbonImmutable::parse($transaction->transaction_date)->toDateString(),
+                    'type' => $transaction->type,
+                    'description' => $transaction->description,
+                    'method' => $transaction->method,
+                    'amount' => (float) $transaction->amount,
+                    'principal' => (float) $transaction->principal,
+                    'penalty' => (float) $transaction->penalty,
+                    'interest' => (float) $transaction->interest,
+                    'reserve' => (float) $transaction->reserve,
+                    'insurance' => (float) $transaction->insurance,
+                    'receipt_number' => $transaction->paymentAllocation?->payment?->receipt_number,
+                    'journal_reference' => $transaction->journalEntry?->reference,
+                    'reversed' => $transaction->reversed_at !== null,
+                    'reversed_at' => $transaction->reversed_at?->toDateTimeString(),
+                    'reversed_by' => $transaction->reverser?->full_name,
+                    'reversal_reason' => $transaction->reversal_reason,
+                    'reversal_reference' => $transaction->reversalJournalEntry?->reference,
+                    'can_reverse' => $transaction->type === 'deposit' && $blocker === null,
+                    'reverse_blocked_reason' => $transaction->type === 'deposit' ? $blocker : null,
+                ];
+            })->values(),
+            'can_reverse_disbursement' => ($disbursementBlocker = in_array($loan->status, LoanStatus::disbursed(), true) ? $this->loans->disbursementReverseBlockedReason($loan, $viewer) : 'The loan has not been disbursed.') === null,
+            'reverse_disbursement_blocked_reason' => $disbursementBlocker,
+            'write_off' => $loan->writeOff ? [
+                'amount' => (float) $loan->writeOff->amount,
+                'principal_amount' => $loan->writeOff->principal_amount !== null ? (float) $loan->writeOff->principal_amount : null,
+                'penalty_amount' => $loan->writeOff->penalty_amount !== null ? (float) $loan->writeOff->penalty_amount : null,
+                'interest_amount' => $loan->writeOff->interest_amount !== null ? (float) $loan->writeOff->interest_amount : null,
+                'insurance_amount' => $loan->writeOff->insurance_amount !== null ? (float) $loan->writeOff->insurance_amount : null,
+                'components_status' => $recovery['components_status'] ?? null,
+                'written_off_on' => $loan->writeOff->written_off_on?->toDateString(),
+            ] : null,
+            'write_off_request' => $this->writeOffRequest($loan, $viewer),
+            'loan_fee' => [
+                'amount' => (float) $loan->loan_fee,
+                'deducted' => (bool) $loan->fee_deduct,
+                'note' => $loan->fee_deduct ? 'Deducted at disbursement (fee income)' : 'Not deducted — not part of repayment',
+            ],
+            'recovery' => $recovery,
+            'recovered_total' => $recovery['recovered'] ?? null,
+            'recovery_status' => $recovery['status'] ?? null,
+            'recoveries' => $loan->recoveries()->with(['employee', 'reverser', 'journalEntry', 'reversalJournalEntry', 'payment'])->latest('id')->get()
+                ->map(fn (LoanRecovery $recovery): array => $this->recoveries->present($recovery, $viewer))->values(),
             'mandate' => $loan->mandate ? [
                 'bank_name' => $loan->mandate->bank_name,
                 'account_number' => $loan->mandate->account_number,
@@ -213,6 +260,34 @@ class LoanController extends LoanApiController
     }
 
     /**
+     * The latest write-off request of the loan (maker/checker) with the viewer's approval flags.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function writeOffRequest(Loan $loan, Employee $viewer): ?array
+    {
+        $request = WriteOffRequest::where('loan_id', $loan->id)->with(['requester', 'approver', 'rejecter'])->latest('id')->first();
+        if ($request === null) {
+            return null;
+        }
+        $pending = $request->status === WriteOffRequest::PENDING;
+
+        return [
+            'id' => $request->id,
+            'status' => $request->status,
+            'reason' => $request->reason,
+            'requested_by' => $request->requester?->full_name,
+            'requested_at' => $request->created_at?->toDateTimeString(),
+            'approved_by' => $request->approver?->full_name,
+            'approved_at' => $request->approved_at?->toDateTimeString(),
+            'rejected_by' => $request->rejecter?->full_name,
+            'rejected_at' => $request->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $request->rejection_reason,
+            ...app(SegregationOfDuties::class)->flags($request->requested_by, $viewer, $pending, $viewer->can('loans.write_off'), workflow: ApprovalPolicy::WRITE_OFFS),
+        ];
+    }
+
+    /**
      * Customer → Loan → Approval → Disbursement → source account → journal entry, from the loan's own records.
      *
      * @return array<string, mixed>|null
@@ -250,8 +325,8 @@ class LoanController extends LoanApiController
     }
 
     /**
-     * The customer's loan account in the ledger: every journal entry posted for this loan or its repayments, and the
-     * LOAN RECEIVABLE balance those postings leave.
+     * The customer's loan account in the ledger: every journal entry posted for this loan, its repayments and its recoveries
+     * after write-off, and the LOAN RECEIVABLE balance those postings leave.
      *
      * @return array{receivable_balance: float, entries: list<array<string, mixed>>}
      */
@@ -261,7 +336,8 @@ class LoanController extends LoanApiController
             ->where('company_id', $loan->company_id)
             ->where(fn (Builder $query) => $query
                 ->where(fn (Builder $inner) => $inner->where('source_type', $loan->getMorphClass())->where('source_id', $loan->id))
-                ->orWhere(fn (Builder $inner) => $inner->where('source_type', (new LoanTransaction)->getMorphClass())->whereIn('source_id', $loan->transactions()->select('id'))))
+                ->orWhere(fn (Builder $inner) => $inner->where('source_type', (new LoanTransaction)->getMorphClass())->whereIn('source_id', $loan->transactions()->select('id')))
+                ->orWhere(fn (Builder $inner) => $inner->where('source_type', (new LoanRecovery)->getMorphClass())->whereIn('source_id', $loan->recoveries()->select('id'))))
             ->with('lines.account')
             ->orderBy('id')
             ->get();

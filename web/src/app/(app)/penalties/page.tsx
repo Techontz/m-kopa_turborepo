@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { PaymentFilterModal, SearchButton, type PaymentFilters } from "@/components/payments/PaymentFilterModal";
+import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Modal } from "@/components/ui/Modal";
@@ -20,6 +21,8 @@ interface PenaltyRow {
   paid_amount: number;
   remaining: number;
   penalty_date: string;
+  accounting?: "accrued" | "cash";
+  accrual_reference?: string | null;
 }
 
 /** Penalty → Penalty List (live admin/get_penart_list). */
@@ -50,6 +53,11 @@ export default function PenaltyListPage() {
             { key: "remaining", header: "Penalty Amount", render: (row) => money(row.remaining) },
             { key: "penalty_date", header: "Date" },
             {
+              key: "accounting",
+              header: "Accounting",
+              render: (row) => (row.accounting === "accrued" ? <span title={`Legacy accrual: income recognised when charged${row.accrual_reference ? ` (${row.accrual_reference})` : ""}; payment clears PENALTY RECEIVABLE`}><Badge tone="info">ACCRUED (LEGACY)</Badge></span> : <span title="Cash basis: income is recognised only when the penalty is paid (no journal until then)"><Badge tone="default">CASH BASIS</Badge></span>),
+            },
+            {
               key: "action",
               header: "Action",
               sortable: false,
@@ -57,7 +65,7 @@ export default function PenaltyListPage() {
               render: (row) => (
                 <>
                   <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" onClick={() => { setPaying(row); setAmount(""); }}><i className="icon-pencil" /></button>
-                  <button type="button" className="btn btn-sm btn-icon btn-danger" onClick={async () => (await confirmAction()) && waive.mutate({ id: row.id })}><i className="icon-trash" /></button>
+                  <button type="button" className="btn btn-sm btn-icon btn-danger" disabled={waive.isPending} onClick={async () => (await confirmAction()) && waive.mutate({ id: row.id })}><i className={waive.isPending && waive.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-trash"} /></button>
                 </>
               ),
             },

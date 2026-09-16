@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { currentMonth, FilterModal, HeaderButton, statusTone, sum, type Filters } from "@/components/hrm/common";
+import { BlockedApproveButton } from "@/components/finance/Approval";
 import type { SalaryPayment } from "@/components/hrm/types";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -41,7 +42,7 @@ interface Sheet {
   period: string;
   period_label: string;
   period_closed: boolean;
-  run: null | { id: number; status: string; commission_status: string | null; total_gross: number; total_net: number; prepared_by: string | null; approved_by: string | null; approved_at: string | null; paid_by: string | null; paid_at: string | null };
+  run: null | { id: number; status: string; commission_status: string | null; total_gross: number; total_net: number; prepared_by: string | null; approved_by: string | null; can_approve?: boolean; approve_blocked_reason?: string | null; can_pay?: boolean; pay_blocked_reason?: string | null; approved_at: string | null; paid_by: string | null; paid_at: string | null };
   rows: Row[];
 }
 
@@ -90,7 +91,8 @@ export default function SalarySheetPage() {
         title={title}
         actions={
           <>
-            {run?.status === "approved" && can("payroll.pay") && <HeaderButton icon="icon-pencil" title="pay salary" onClick={() => setModal("pay")} />}
+            {run?.status === "approved" && can("payroll.pay") && run.can_pay !== false && <HeaderButton icon="icon-pencil" title="pay salary" onClick={() => setModal("pay")} />}
+            {run?.status === "approved" && run.can_pay === false && run.pay_blocked_reason && <BlockedApproveButton reason={run.pay_blocked_reason} label="Pay Salary" />}
             <HeaderButton icon="icon-list" title="salary statement" onClick={() => setModal("paid")} />
             <HeaderButton title="filter" onClick={() => setModal("filter")} />
             <HeaderButton icon="icon-printer" tone="info" title="print" onClick={() => window.print()} />
@@ -112,7 +114,8 @@ export default function SalarySheetPage() {
               {can("payroll.approve") && (!run || run.status === "draft") && (
                 <button type="button" className="btn btn-sm btn-primary mr-1" disabled={generate.isPending} onClick={() => generate.mutate({ period })}>{run ? "Re-generate" : "Generate Payroll"}</button>
               )}
-              {can("payroll.approve") && run?.status === "draft" && (
+              {run?.status === "draft" && run.can_approve === false && run.approve_blocked_reason && <BlockedApproveButton reason={run.approve_blocked_reason} label="Approve Payroll" />}
+              {can("payroll.approve") && run?.status === "draft" && run.can_approve !== false && (
                 <button type="button" className="btn btn-sm btn-success" disabled={approve.isPending} onClick={async () => (await confirmAction("Approve payroll?", "Salaries can not be changed after approval")) && approve.mutate({ id: run.id })}>Approve Payroll</button>
               )}
             </span>

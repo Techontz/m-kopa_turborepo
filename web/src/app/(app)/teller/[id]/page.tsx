@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { LoanRecoveryCard } from "@/components/loans/LoanRecoveryCard";
+import type { RecoveryPosition } from "@/components/loans/recovery";
 import { ReceiptModal } from "@/components/payments/ReceiptModal";
 import type { Payment } from "@/components/payments/types";
 import { Badge } from "@/components/ui/Badge";
@@ -44,12 +46,15 @@ interface TellerData {
   outstanding: Outstanding | null;
   pending_cash: number;
   available_to_deposit: number;
+  /** A written-off loan whose split is known and not fully recovered: money is held pending Finance, then recovered. */
+  accepts_recovery?: boolean;
   salary_advance: number;
   recovery_amount: number;
+  recovery?: RecoveryPosition | null;
   penalty: number;
   awaiting_cash_out: boolean;
-  cashbook: { opening: number; deposit: number; withdrawal: number; closing: number };
-  statement: { id: number; date: string; description: string; deposit: number; withdrawal: number; balance: number; remain: number; penalty: number }[];
+  cashbook: { opening: number; deposit: number; withdrawal: number; closing: number; pending_cash?: number };
+  statement: { id: number; date: string; description: string; deposit: number; withdrawal: number; balance: number; remain: number; penalty: number; reversed?: boolean; reversal_reason?: string | null }[];
   receipts: Payment[];
 }
 
@@ -58,6 +63,15 @@ interface DepositBody {
   p_method: string;
   recept: boolean;
 }
+
+const EMPTY_RECEIPT = { amount: "", channel: "VODACOM", transaction_id: "", reference: "" };
+const NON_CASH_CHANNELS = [
+  { value: "VODACOM", label: "VODACOM M-PESA" },
+  { value: "TIGO", label: "YAS (TIGO PESA)" },
+  { value: "AIRTEL", label: "AIRTEL MONEY" },
+  { value: "HALOPESA", label: "HALOPESA" },
+  { value: "BANK", label: "BANK" },
+];
 
 /** Teller → Customer Loan Information (live admin/data_with_depost/{customer}). */
 export default function TellerCustomerPage() {
@@ -69,6 +83,9 @@ export default function TellerCustomerPage() {
   const [form, setForm] = useState<DepositBody>({ depost: "", p_method: "CASH", recept: true });
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const deposit = useAction<DepositBody, { data: Payment; receipt: boolean }>("post", `teller/customers/${id}/deposit`);
+  const [receiving, setReceiving] = useState(false);
+  const [receipt, setReceipt] = useState(EMPTY_RECEIPT);
+  const branchReceipt = useAction<typeof EMPTY_RECEIPT & { loan_id: number }>("post", "payments/branch-receipts");
 
   const loan = data?.loan;
   const statement = data?.statement ?? [];
@@ -86,8 +103,11 @@ export default function TellerCustomerPage() {
               <br />
               <small>{data.customer.full_name}</small>
               <div className="m-t-10">
-                {loan?.is_repayable && can("payments.cash") && (
-                  <button type="button" className="btn btn-sm btn-primary mr-1" onClick={() => setDepositing(true)}>Deposit</button>
+                {(loan?.is_repayable || data.accepts_recovery) && can("payments.cash") && (
+                  <>
+                    <button type="button" className="btn btn-sm btn-primary mr-1" onClick={() => setDepositing(true)}>Deposit</button>
+                    <button type="button" className="btn btn-sm btn-info mr-1" onClick={() => { setReceipt(EMPTY_RECEIPT); branchReceipt.setErrors({}); setReceiving(true); }}>Mobile / Bank Receipt</button>
+                  </>
                 )}
                 {data.awaiting_cash_out && (
                   <Link href="/loans/withdrawal" className="btn btn-sm btn-warning">Withdrawal</Link>
@@ -144,22 +164,26 @@ export default function TellerCustomerPage() {
         </Card>
       )}
 
+      {loan && data?.recovery && <LoanRecoveryCard loanId={loan.id} loanStatus={loan.status} position={data.recovery} />}
+
       <div className="row">
         <div className="col-lg-6">
           <Card>
             <div className="table-responsive">
               <table className="table table-hover table-custom mb-0">
-                <thead className="thead-info"><tr><th>Opening</th><th>Deposit</th><th>Withdrawal</th><th>Closing</th></tr></thead>
+                <thead className="thead-info"><tr><th>Opening</th><th>Deposit</th><th>Withdrawal</th><th>Closing</th><th>Pending Cash</th></tr></thead>
                 <tbody>
                   <tr>
                     <td>{money(data?.cashbook.opening)}</td>
                     <td>{money(data?.cashbook.deposit)}</td>
                     <td>{money(data?.cashbook.withdrawal)}</td>
-                    <td>{money(data?.cashbook.closing)}</td>
+                    <td><b>{money(data?.cashbook.closing)}</b></td>
+                    <td title="Teller cash receipts not yet confirmed by Finance — not included in Closing">{money(data?.cashbook.pending_cash)}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            <small className="text-muted">PRINCIPAL A/C ledger movements today. Pending cash (teller receipts awaiting Finance confirmation) is not part of the closing balance.</small>
           </Card>
         </div>
       </div>
@@ -176,9 +200,9 @@ export default function TellerCustomerPage() {
               {statement.map((row) => (
                 <tr key={row.id}>
                   <td>{row.date}</td>
-                  <td>{row.description}</td>
-                  <td>{money(row.deposit)}</td>
-                  <td>{money(row.withdrawal)}</td>
+                  <td>{row.reversed ? <><s className="text-muted">{row.description}</s> <span className="badge badge-danger" title={row.reversal_reason ?? ""}>REVERSED</span></> : row.description}</td>
+                  <td>{row.reversed ? <s className="text-muted">{money(row.deposit)}</s> : money(row.deposit)}</td>
+                  <td>{row.reversed ? <s className="text-muted">{money(row.withdrawal)}</s> : money(row.withdrawal)}</td>
                   <td>{money(row.balance)}</td>
                   <td>{money(row.remain)}</td>
                   <td>{money(row.penalty)}</td>
@@ -274,7 +298,44 @@ export default function TellerCustomerPage() {
               </div>
             </div>
             <div className="col-md-12 m-t-10">
-              <small className="text-muted">Principal {money(data.outstanding?.principal)} · Penalty {money(data.outstanding?.penalty)} · Interest {money(data.outstanding?.interest)} — cash is held as PENDING VERIFICATION until Finance confirms the bank deposit.</small>
+              <small className="text-muted">{data.accepts_recovery ? "Written-off loan: the cash becomes a recovery (Principal → Penalty → Interest → Insurance) only when Finance confirms the bank deposit." : `Principal ${money(data.outstanding?.principal)} · Penalty ${money(data.outstanding?.penalty)} · Interest ${money(data.outstanding?.interest)}`} — cash is held as PENDING VERIFICATION until Finance confirms the bank deposit.</small>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={receiving && Boolean(loan)}
+        onClose={() => setReceiving(false)}
+        title="Mobile money / bank receipt"
+        submitLabel="Send to Finance"
+        submitting={branchReceipt.isPending}
+        onSubmit={() => loan && branchReceipt.mutate({ ...receipt, amount: receipt.amount.replace(/[^\d.]/g, ""), loan_id: loan.id }, { onSuccess: () => setReceiving(false) })}
+      >
+        {data && (
+          <div className="row clearfix">
+            <div className="col-md-6">
+              <span>Amount (up to {money(data.available_to_deposit)})</span>
+              <input className="form-control" value={receipt.amount} onChange={(e) => setReceipt({ ...receipt, amount: e.target.value })} required />
+              {branchReceipt.fieldError("amount") && <div className="field-error">{branchReceipt.fieldError("amount")}</div>}
+            </div>
+            <div className="col-md-6">
+              <span>Channel</span>
+              <select className="form-control" value={receipt.channel} onChange={(e) => setReceipt({ ...receipt, channel: e.target.value })}>
+                {NON_CASH_CHANNELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+            <div className="col-md-6 m-t-10">
+              <span>Transaction ID</span>
+              <input className="form-control" maxLength={100} value={receipt.transaction_id} onChange={(e) => setReceipt({ ...receipt, transaction_id: e.target.value })} required />
+              {branchReceipt.fieldError("transaction_id") && <div className="field-error">{branchReceipt.fieldError("transaction_id")}</div>}
+            </div>
+            <div className="col-md-6 m-t-10">
+              <span>Reference</span>
+              <input className="form-control" maxLength={100} value={receipt.reference} onChange={(e) => setReceipt({ ...receipt, reference: e.target.value })} />
+            </div>
+            <div className="col-md-12 m-t-10">
+              <small className="text-muted">The receipt is PENDING APPROVAL: nothing is posted and the {data.accepts_recovery ? "write-off recovery" : "loan balance"} does not change until Finance approves it.</small>
             </div>
           </div>
         )}

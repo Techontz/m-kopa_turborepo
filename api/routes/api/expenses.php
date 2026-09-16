@@ -16,6 +16,7 @@ Route::prefix('expenses')->name('expenses.')->group(function (): void {
         Route::post('requests', 'store')->name('requests.store');
         Route::post('requests/{expenseRequest}/accept', 'accept')->name('requests.accept');
         Route::delete('requests/{expenseRequest}', 'destroy')->name('requests.destroy');
+        Route::post('requests/{expenseRequest}/reverse', 'reverse')->name('requests.reverse');
     });
 });
 

@@ -26,15 +26,11 @@ use Illuminate\Support\Facades\DB;
 class CashFlowReport
 {
     /**
-     * Receivable/adjustment asset accounts that do not hold money.
+     * Receivable/adjustment asset accounts that do not hold money ({@see CashAccounts}).
      *
      * @var list<Account>
      */
-    public const NON_CASH_ASSETS = [
-        Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::OutstandingInterest,
-        Account::SalaryAdvanceReceivable, Account::StaffLoanReceivable, Account::StaffAdvanceReceivable, Account::Offset,
-        Account::MotorVehicles, Account::Equipment, Account::FurnitureFixtures, Account::Buildings, Account::Land, Account::OtherFixedAssets,
-    ];
+    public const NON_CASH_ASSETS = CashAccounts::NON_CASH_ASSETS;
 
     /**
      * Category key → [inflow label, outflow label].

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -49,6 +50,22 @@ class ShareHolder extends Model
 
             return $parts === [] ? (string) $this->name : implode(' ', $parts);
         });
+    }
+
+    /**
+     * The login account (employees row) of this shareholder — 1:1, ON DELETE RESTRICT.
+     */
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'employee_id');
+    }
+
+    /**
+     * "SH-0007": the shareholder number shown in the portal directory (the register has no separate holder number).
+     */
+    protected function holderNumber(): Attribute
+    {
+        return Attribute::get(fn (): string => 'SH-'.str_pad((string) $this->id, 4, '0', STR_PAD_LEFT));
     }
 
     public function capitals(): HasMany

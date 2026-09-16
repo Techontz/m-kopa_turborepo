@@ -12,13 +12,16 @@ use App\Http\Resources\Api\V1\Payments\PaymentResource;
 use App\Http\Resources\Api\V1\Payments\TellerDepositResource;
 use App\Models\BankAccount;
 use App\Models\Customer;
+use App\Models\JournalLine;
 use App\Models\Loan;
 use App\Models\LoanTransaction;
 use App\Models\Payment;
 use App\Models\Penalty;
+use App\Models\PenaltyPayment;
 use App\Models\TellerDeposit;
 use App\Services\AccessControl;
 use App\Services\Ledger;
+use App\Services\LoanRecoveryService;
 use App\Services\LoanService;
 use App\Services\PaymentService;
 use Carbon\CarbonImmutable;
@@ -30,8 +33,9 @@ use Illuminate\Validation\ValidationException;
 /**
  * Teller (live admin/teller_dashboard + admin/data_with_depost/{customer}).
  *
- * Documents: the teller only handles the cash channel — cash is recorded as PENDING_VERIFICATION in the
- * Teller Cash account with a receipt, the teller banks it (deposit slip) and Finance verifies/confirms.
+ * Documents: the teller handles the cash channel — cash is recorded as PENDING_VERIFICATION in the Teller Cash account with
+ * a receipt, the teller banks it (deposit slip) and Finance verifies/confirms. Non-cash receipts a branch takes (mobile money /
+ * bank) are recorded PENDING_APPROVAL through {@see BranchReceiptController} and posted only when Finance approves them.
  * Cash-out of approved loans belongs to the Loans module (Loan Withdrawal).
  */
 class TellerController extends ApiController
@@ -59,6 +63,8 @@ class TellerController extends ApiController
         $paid = $loan ? (float) $loan->paid_amount : 0.0;
         $outstanding = $loan ? $this->loans->outstanding($loan) : null;
         $pending = $loan ? $this->payments->pendingCash($loan) : 0.0;
+        $recovery = $loan !== null && $loan->status === LoanStatus::WrittenOff ? app(LoanRecoveryService::class)->position($loan) : null;
+        $acceptsRecovery = $recovery !== null && $recovery['components_status'] !== LoanRecoveryService::COMPONENTS_AMBIGUOUS && $recovery['unrecovered'] > 0.004;
 
         return response()->json(['data' => [
             'customer' => [
@@ -87,9 +93,15 @@ class TellerController extends ApiController
             ] : null,
             'outstanding' => $outstanding,
             'pending_cash' => $pending,
-            'available_to_deposit' => $isRepayable ? max(0.0, round($outstanding['total'] - $pending, 2)) : 0.0,
+            'available_to_deposit' => match (true) {
+                $isRepayable => max(0.0, round($outstanding['total'] - $pending, 2)),
+                $acceptsRecovery => max(0.0, round($recovery['unrecovered'] - $pending, 2)),
+                default => 0.0,
+            },
+            'accepts_recovery' => $acceptsRecovery,
             'salary_advance' => $loan ? (float) ($this->loans->deductions($loan)['salary_advance'] ?? 0) : 0.0,
-            'recovery_amount' => 0.0,
+            'recovery_amount' => $recovery['unrecovered'] ?? 0.0,
+            'recovery' => $recovery,
             'penalty' => round((float) Penalty::where('customer_id', $customer->id)->where('is_waived', false)->selectRaw('COALESCE(SUM(amount - paid_amount),0) v')->value('v'), 2),
             'awaiting_cash_out' => $awaitingCashOut,
             'cashbook' => $this->cashbook(),
@@ -101,14 +113,15 @@ class TellerController extends ApiController
     }
 
     /**
-     * Teller cash deposit → PENDING_VERIFICATION (live success text "Deposit successfully").
+     * Teller cash deposit → PENDING_VERIFICATION (live success text "Deposit successfully"). Cash for a written-off loan is held the
+     * same way and becomes a recovery only when Finance confirms the bank deposit.
      */
     public function deposit(TellerDepositRequest $request, Customer $customer): JsonResponse
     {
         $this->authorizeAny('payments.cash');
         $this->assertBranchAccessible((int) $customer->branch_id);
 
-        $loan = $this->payments->repayableLoan($customer);
+        $loan = $this->payments->receivableLoan($customer);
         if ($loan === null) {
             throw ValidationException::withMessages(['depost' => 'This customer has no active loan.']);
         }
@@ -208,57 +221,116 @@ class TellerController extends ApiController
     }
 
     /**
-     * Branch cashbook on the teller page: Opening / Deposit / Withdrawal / Closing.
+     * Branch cashbook on the teller page: Opening / Deposit / Withdrawal / Closing of the branch PRINCIPAL A/C, all from
+     * ledger movements (closing = opening + deposit − withdrawal = today's ledger balance). A posting reversed on the
+     * same day is left out together with its reversal (they cancel). Teller cash that Finance has not confirmed yet is
+     * not in the ledger principal and is returned apart as `pending_cash`.
      *
-     * @return array{opening: float, deposit: float, withdrawal: float, closing: float}
+     * @return array{opening: float, deposit: float, withdrawal: float, closing: float, pending_cash: float}
      */
     private function cashbook(): array
     {
         $employee = $this->currentEmployee();
-        $today = CarbonImmutable::today();
+        $today = CarbonImmutable::today()->toDateString();
         $branchIds = app(AccessControl::class)->branchIds($employee);
 
         $opening = $branchIds === null
-            ? $this->ledger->balance($employee->company_id, Account::Principal, until: $today->subDay(), allBranches: true)
-            : array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($employee->company_id, Account::Principal, $branchId, until: $today->subDay()), $branchIds));
+            ? $this->ledger->balance($employee->company_id, Account::Principal, until: CarbonImmutable::today()->subDay(), allBranches: true)
+            : array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($employee->company_id, Account::Principal, $branchId, until: CarbonImmutable::today()->subDay()), $branchIds));
 
-        $transactions = $this->scoped(LoanTransaction::query())->whereDate('transaction_date', $today->toDateString());
-        $deposit = (float) (clone $transactions)->where('type', 'deposit')->sum('amount')
-            + (float) $this->scoped(Payment::query())->where('source', Payment::SOURCE_TELLER)->whereDate('paid_on', $today->toDateString())->whereIn('status', [PaymentStatus::PendingVerification->value, PaymentStatus::Deposited->value])->sum('amount');
-        $withdrawal = (float) (clone $transactions)->where('type', 'withdrawal')->sum('amount');
+        $movements = JournalLine::query()
+            ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
+            ->where('accounts.company_id', $employee->company_id)
+            ->where('accounts.key', Account::Principal->value)
+            ->when($branchIds !== null, fn ($query) => $query->whereIn('accounts.branch_id', $branchIds))
+            ->whereDate('journal_entries.entry_date', $today)
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('journal_entries as reversals')
+                ->whereColumn('reversals.reversal_of_id', 'journal_entries.id')
+                ->whereDate('reversals.entry_date', $today))
+            ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('journal_entries as originals')
+                ->whereColumn('originals.id', 'journal_entries.reversal_of_id')
+                ->whereDate('originals.entry_date', $today))
+            ->selectRaw('COALESCE(SUM(journal_lines.debit), 0) AS debits, COALESCE(SUM(journal_lines.credit), 0) AS credits')
+            ->first();
 
-        return ['opening' => $opening, 'deposit' => $deposit, 'withdrawal' => $withdrawal, 'closing' => round($opening + $deposit - $withdrawal, 2)];
+        $deposit = round((float) $movements->debits, 2);
+        $withdrawal = round((float) $movements->credits, 2);
+        $pendingCash = (float) $this->scoped(Payment::query())
+            ->where('source', Payment::SOURCE_TELLER)
+            ->whereIn('status', [PaymentStatus::PendingVerification->value, PaymentStatus::Deposited->value])
+            ->sum('amount');
+
+        return [
+            'opening' => round($opening, 2),
+            'deposit' => $deposit,
+            'withdrawal' => $withdrawal,
+            'closing' => round($opening + $deposit - $withdrawal, 2),
+            'pending_cash' => round($pendingCash, 2),
+        ];
     }
 
     /**
      * Running statement: Date / Description / Deposit / Withdrawal / Balance / Remaining Debt / Penalty.
+     *
+     * "remain" follows {@see LoanService::outstanding()}: principal + interest + insurance less the components paid by the
+     * non-reversed deposits so far, plus the non-waived penalties dated on or before the row less penalty paid by then.
+     * The last row is the loan's current remaining debt (all non-waived penalties to date), so it always equals the
+     * outstanding total shown on the loan and teller pages.
      *
      * @return list<array<string, mixed>>
      */
     private function loanStatement(Loan $loan): array
     {
         $balance = 0.0;
-        $remaining = (float) $loan->total_payable + (float) $loan->insurance;
-        $penalties = Penalty::where('loan_id', $loan->id)->get(['amount', 'penalty_date']);
+        $paid = ['principal' => 0.0, 'interest' => 0.0, 'insurance' => 0.0];
+        $currentPenalty = $this->loans->outstanding($loan)['penalty'];
+        $penalties = Penalty::where('loan_id', $loan->id)->get(['id', 'amount', 'penalty_date', 'is_waived']);
+        $chargeable = $penalties->where('is_waived', false);
+        $penaltyPayments = PenaltyPayment::whereIn('penalty_id', $chargeable->modelKeys())->get(['penalty_id', 'amount', 'paid_on']);
+        $transactions = $loan->transactions()->orderBy('transaction_date')->orderBy('id')->get();
+        $lastId = $transactions->last()?->id;
 
-        return $loan->transactions()->orderBy('transaction_date')->orderBy('id')->get()
-            ->map(function (LoanTransaction $transaction) use (&$balance, &$remaining, $penalties): array {
+        return $transactions
+            ->map(function (LoanTransaction $transaction) use (&$balance, &$paid, $loan, $currentPenalty, $penalties, $chargeable, $penaltyPayments, $lastId): array {
                 $isDeposit = $transaction->type === 'deposit';
-                $balance += $isDeposit ? (float) $transaction->amount : -(float) $transaction->amount;
-                $remaining -= $isDeposit ? (float) $transaction->amount : 0;
+                $isReversed = $transaction->reversed_at !== null;
+                $date = $transaction->transaction_date;
+                if (! $isReversed) {
+                    $balance += $isDeposit ? (float) $transaction->amount : -(float) $transaction->amount;
+                    if ($isDeposit) {
+                        foreach (array_keys($paid) as $component) {
+                            $paid[$component] += (float) $transaction->{$component};
+                        }
+                    }
+                }
+
+                $penaltyDue = $transaction->id === $lastId
+                    ? $currentPenalty
+                    : max(0.0, round(
+                        (float) $chargeable->filter(fn (Penalty $penalty): bool => $penalty->penalty_date->lte($date))->sum('amount')
+                        - (float) $penaltyPayments->filter(fn (PenaltyPayment $payment): bool => $payment->paid_on->lte($date))->sum('amount'),
+                        2,
+                    ));
+                $remaining = max(0.0, round((float) $loan->amount_approved - $paid['principal'], 2))
+                    + max(0.0, round((float) $loan->interest_amount - $paid['interest'], 2))
+                    + max(0.0, round((float) $loan->insurance - $paid['insurance'], 2))
+                    + $penaltyDue;
 
                 return [
                     'id' => $transaction->id,
-                    'date' => $transaction->transaction_date->toDateString(),
+                    'date' => $date->toDateString(),
                     'description' => $transaction->description,
                     'deposit' => $isDeposit ? (float) $transaction->amount : 0.0,
                     'withdrawal' => $isDeposit ? 0.0 : (float) $transaction->amount,
                     'balance' => round($balance, 2),
-                    'remain' => max(0.0, round($remaining, 2)),
-                    'penalty' => (float) $penalties->filter(fn (Penalty $penalty): bool => $penalty->penalty_date->lte($transaction->transaction_date))->sum('amount'),
+                    'remain' => round($remaining, 2),
+                    'penalty' => (float) $penalties->filter(fn (Penalty $penalty): bool => $penalty->penalty_date->lte($date))->sum('amount'),
                     'principal' => (float) $transaction->principal,
                     'interest' => (float) $transaction->interest,
                     'penalty_paid' => (float) $transaction->penalty,
+                    'reversed' => $isReversed,
+                    'reversal_reason' => $transaction->reversal_reason,
                 ];
             })->all();
     }

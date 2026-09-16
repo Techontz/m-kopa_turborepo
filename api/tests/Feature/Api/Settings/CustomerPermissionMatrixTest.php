@@ -35,6 +35,7 @@ class CustomerPermissionMatrixTest extends TestCase
         'zone_manager' => ['customers.view'],
         'hr' => ['branches.view_all'],
         'teller' => [],
+        'shareholder' => [],
     ];
 
     public function test_seeded_roles_follow_the_customer_matrix_exactly(): void

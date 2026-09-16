@@ -89,7 +89,12 @@ class TellerCashFlowTest extends TestCase
         $payment = Payment::sole();
 
         $this->actingAs($teller)->postJson('/api/v1/teller/bank-deposits', [
-            'bank_account_id' => $bank->id, 'slip_number' => 'SLIP-1', 'amount' => 100000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$payment->id],
+            'bank_account_id' => $bank->id, 'slip_number' => 'SLIP-0', 'amount' => 100000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$payment->id],
+        ])->assertUnprocessable()->assertJsonValidationErrors(['amount' => 'The slip amount must equal the selected receipts (TZS 105,000.00).']);
+        $this->assertSame(0, TellerDeposit::count());
+
+        $this->actingAs($teller)->postJson('/api/v1/teller/bank-deposits', [
+            'bank_account_id' => $bank->id, 'slip_number' => 'SLIP-1', 'amount' => 105000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$payment->id],
         ])->assertCreated();
         $deposit = TellerDeposit::sole();
         $this->assertSame(PaymentStatus::Deposited, $payment->fresh()->status);

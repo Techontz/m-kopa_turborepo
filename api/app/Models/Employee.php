@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\Auditable;
 use App\Services\AccessControl;
 use Database\Factories\EmployeeFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -51,6 +52,10 @@ class Employee extends Authenticatable
         'admin' => 'Admin',
     ];
 
+    public const ACCOUNT_STAFF = 'staff';
+
+    public const ACCOUNT_SHAREHOLDER = 'shareholder';
+
     protected $guarded = ['id'];
 
     /**
@@ -66,7 +71,35 @@ class Employee extends Authenticatable
         return [
             'date_of_birth' => 'date',
             'password' => 'hashed',
+            'must_change_password' => 'boolean',
         ];
+    }
+
+    /**
+     * Staff accounts only: excludes shareholder portal logins (employees.account_type = shareholder) from HRM, payroll,
+     * commission, messaging, goals, officer lists and staff counts. Staff who are also shareholders stay staff.
+     *
+     * @param  Builder<Employee>  $query
+     */
+    public function scopeStaff(Builder $query): void
+    {
+        $query->where($query->qualifyColumn('account_type'), '!=', self::ACCOUNT_SHAREHOLDER);
+    }
+
+    /**
+     * A portal-only login created for a shareholder (holds no staff permission and no data scope).
+     */
+    public function isShareholderAccount(): bool
+    {
+        return $this->account_type === self::ACCOUNT_SHAREHOLDER;
+    }
+
+    /**
+     * The shareholder record linked to this login (share_holders.employee_id), if any.
+     */
+    public function shareHolder(): HasOne
+    {
+        return $this->hasOne(ShareHolder::class);
     }
 
     protected function fullName(): Attribute

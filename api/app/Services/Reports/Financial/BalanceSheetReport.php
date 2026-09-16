@@ -3,6 +3,7 @@
 namespace App\Services\Reports\Financial;
 
 use App\Enums\Account;
+use App\Enums\LoanStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -23,7 +24,7 @@ class BalanceSheetReport
      * @var array<string, list<Account>>
      */
     public const ASSET_GROUPS = [
-        'Loan portfolio' => [Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::OutstandingInterest],
+        'Loan portfolio' => [Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::OutstandingInterest, Account::PenaltyReceivable],
         'Staff receivables' => [Account::SalaryAdvanceReceivable, Account::StaffLoanReceivable, Account::StaffAdvanceReceivable],
         'Other assets' => [Account::Offset],
         'Fixed assets' => [Account::MotorVehicles, Account::Equipment, Account::FurnitureFixtures, Account::Buildings, Account::Land, Account::OtherFixedAssets],
@@ -73,6 +74,9 @@ class BalanceSheetReport
 
         $equity = [
             $line(Account::Capital),
+            $line(Account::ReinvestedProfit),
+            $line(Account::InterestReserve),
+            $line(Account::InsuranceReserve),
             ['key' => 'retained_earnings', 'code' => Account::RetainedProfit->code(), 'label' => 'RETAINED EARNINGS', 'amount' => $amount(Account::RetainedProfit)],
             ['key' => 'current_earnings', 'code' => '', 'label' => 'CURRENT PERIOD EARNINGS', 'amount' => round($income - $expense, 2)],
         ];
@@ -94,6 +98,27 @@ class BalanceSheetReport
             'total_liabilities_equity' => round($totalLiabilities + $totalEquity, 2),
             'difference' => round($totalAssets - $totalLiabilities - $totalEquity, 2),
             'balanced' => abs($totalAssets - $totalLiabilities - $totalEquity) < 0.005,
+            'memo' => [
+                'legacy_unaccrued_penalties' => $this->legacyUnaccruedPenalties($scope, $asOf),
+                'legacy_unaccrued_penalties_label' => 'Legacy unaccrued penalties (cash basis, memo only — not in PENALTY RECEIVABLE)',
+            ],
         ];
+    }
+
+    /**
+     * Unpaid, not waived penalties charged before penalty accrual existed (no accrual journal) on loans that are not written off:
+     * they are collected on a cash basis and never appear in PENALTY RECEIVABLE (user decision D9 — history is not backfilled).
+     */
+    private function legacyUnaccruedPenalties(FinancialScope $scope, CarbonImmutable $asOf): float
+    {
+        $query = DB::table('penalties')
+            ->join('loans', 'loans.id', '=', 'penalties.loan_id')
+            ->where('penalties.company_id', $scope->companyId)
+            ->whereNull('penalties.accrual_journal_entry_id')
+            ->where('penalties.is_waived', false)
+            ->where('loans.status', '!=', LoanStatus::WrittenOff->value)
+            ->whereDate('penalties.penalty_date', '<=', $asOf->toDateString());
+
+        return round((float) $scope->apply($query, 'penalties.branch_id')->sum(DB::raw('penalties.amount - penalties.paid_amount')), 2) + 0.0;
     }
 }

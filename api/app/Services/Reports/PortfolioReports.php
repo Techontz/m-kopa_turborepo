@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Enums\LoanStatus;
+use App\Models\WriteOff;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +49,9 @@ class PortfolioReports
 
     /**
      * Loan Portfolio: loans issued / active / completed / default and the outstanding portfolio per branch, product,
-     * loan officer and customer type.
+     * loan officer and customer type. Outstanding figures cover repayable loans only (active, overdue, default); written-off
+     * loans are excluded from the portfolio (their principal left LOAN RECEIVABLE at write-off) and shown on their own
+     * written-off line.
      *
      * @return array<string, mixed>
      */
@@ -56,6 +59,7 @@ class PortfolioReports
     {
         $loans = $this->loanDataset($scope, filterByWithdrawal: true);
         $repayable = $loans->filter(fn (object $loan): bool => $this->isRepayable($loan));
+        $writtenOff = $loans->where('status', LoanStatus::WrittenOff->value);
         $portfolioPrincipal = (float) $repayable->sum('out_principal');
 
         $group = fn (string $key, string $label): array => $loans->groupBy($key)->map(function (Collection $items) use ($label, $portfolioPrincipal): array {
@@ -69,6 +73,7 @@ class PortfolioReports
                 'completed' => $items->where('status', LoanStatus::Closed->value)->count(),
                 'default' => $items->where('status', LoanStatus::Default->value)->count(),
                 'written_off' => $items->where('status', LoanStatus::WrittenOff->value)->count(),
+                'written_off_outstanding' => round((float) $items->where('status', LoanStatus::WrittenOff->value)->sum('out_total'), 2),
                 'disbursed' => round((float) $items->sum('amount_approved'), 2),
                 'outstanding_principal' => $principal,
                 'outstanding_total' => round((float) $open->sum('out_total'), 2),
@@ -91,6 +96,8 @@ class PortfolioReports
                 'outstanding_penalty' => round((float) $repayable->sum('out_penalty'), 2),
                 'outstanding_insurance' => round((float) $repayable->sum('out_insurance'), 2),
                 'outstanding_total' => round((float) $repayable->sum('out_total'), 2),
+                'written_off_principal' => round((float) $writtenOff->sum('out_principal'), 2),
+                'written_off_outstanding' => round((float) $writtenOff->sum('out_total'), 2),
             ],
             'by_branch' => $group('branch_id', 'branch_name'),
             'by_product' => $group('loan_category_id', 'product_name'),
@@ -114,6 +121,7 @@ class PortfolioReports
 
         $actual = $scope->between($scope->apply(DB::table('loan_transactions')->join('branches', 'branches.id', '=', 'loan_transactions.branch_id'), 'loan_transactions'), 'loan_transactions.transaction_date')
             ->where('loan_transactions.type', 'deposit')
+            ->whereNull('loan_transactions.reversed_at')
             ->get(['loan_transactions.transaction_date as date', 'loan_transactions.amount', 'loan_transactions.principal', 'loan_transactions.interest', 'loan_transactions.penalty', 'loan_transactions.insurance', 'loan_transactions.branch_id', 'branches.name as branch_name']);
 
         $key = fn (object $row): string => $this->periodKey(substr((string) $row->date, 0, 10), $period);
@@ -243,6 +251,7 @@ class PortfolioReports
             ->join('branches', 'branches.id', '=', 'loans.branch_id')
             ->join('customers', 'customers.id', '=', 'loans.customer_id')
             ->where('loan_transactions.type', 'deposit')
+            ->whereNull('loan_transactions.reversed_at')
             ->whereIn('loans.status', $defaulted)
             ->whereNotNull('loans.end_date')
             ->whereColumn('loan_transactions.transaction_date', '>', 'loans.end_date')
@@ -257,7 +266,19 @@ class PortfolioReports
             ]);
 
         $writeOffs = $scope->apply(DB::table('write_offs')->join('loans', 'loans.id', '=', 'write_offs.loan_id'), 'loans')
-            ->get(['write_offs.amount', 'write_offs.recovered_amount', 'loans.branch_id']);
+            ->selectRaw('write_offs.amount, '.WriteOff::recoveredSql().' AS recovered_amount, loans.branch_id')
+            ->get();
+
+        $afterWriteOff = $scope->between($scope->apply(DB::table('loan_recoveries')->join('loans', 'loans.id', '=', 'loan_recoveries.loan_id'), 'loans'), 'loan_recoveries.recovered_on')
+            ->join('branches', 'branches.id', '=', 'loans.branch_id')
+            ->join('customers', 'customers.id', '=', 'loans.customer_id')
+            ->whereNull('loan_recoveries.reversed_at')
+            ->orderBy('loan_recoveries.recovered_on')
+            ->get([
+                'loan_recoveries.id', 'loan_recoveries.recovered_on', 'loan_recoveries.amount', 'loans.id as loan_id', 'loans.loan_number', 'loans.end_date', 'loans.status', 'loans.branch_id',
+                'branches.name as branch_name', 'customers.id as customer_id',
+                DB::raw("TRIM(CONCAT_WS(' ', customers.first_name, customers.middle_name, customers.last_name)) as customer_name"),
+            ]);
 
         $summarise = function (Collection $branchLoans, Collection $branchRecoveries, Collection $branchWriteOffs, string $label): array {
             $inDefault = $branchLoans->where('status', LoanStatus::Default->value);
@@ -274,6 +295,7 @@ class PortfolioReports
                 'written_off' => $writtenOff,
                 'recovered_default' => $recoveredDefault,
                 'recovered_write_off' => $recoveredWriteOff,
+                'unrecovered_write_off' => max(0.0, round($writtenOff - $recoveredWriteOff, 2)),
                 'total_recovered' => $total,
                 'efficiency' => $this->percent($total, $total + $defaultBalance + max(0, $writtenOff - $recoveredWriteOff)),
             ];
@@ -304,7 +326,24 @@ class PortfolioReports
                 'penalty' => (float) $row->penalty,
                 'interest' => (float) $row->interest,
                 'status' => LoanStatus::from($row->status)->label(),
-            ])->values()->all(),
+                'source' => 'repayment',
+            ])->merge($afterWriteOff->map(fn (object $row): array => [
+                'id' => (int) $row->id,
+                'date' => substr((string) $row->recovered_on, 0, 10),
+                'loan_id' => (int) $row->loan_id,
+                'loan_number' => $row->loan_number,
+                'customer_id' => (int) $row->customer_id,
+                'customer' => $row->customer_name,
+                'branch' => $row->branch_name,
+                'end_date' => $row->end_date !== null ? substr((string) $row->end_date, 0, 10) : null,
+                'days_after_end' => $row->end_date !== null ? (int) CarbonImmutable::parse(substr((string) $row->end_date, 0, 10))->diffInDays(CarbonImmutable::parse(substr((string) $row->recovered_on, 0, 10))) : null,
+                'amount' => (float) $row->amount,
+                'principal' => 0.0,
+                'penalty' => 0.0,
+                'interest' => (float) $row->amount,
+                'status' => LoanStatus::from($row->status)->label(),
+                'source' => 'write_off_recovery',
+            ]))->sortBy('date')->values()->all(),
         ];
     }
 

@@ -53,6 +53,11 @@ class CommissionAllocation extends Model
         return $this->belongsTo(Zone::class);
     }
 
+    public function journalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
+
     public function payrollRun(): BelongsTo
     {
         return $this->belongsTo(PayrollRun::class);

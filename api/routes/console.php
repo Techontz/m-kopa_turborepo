@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('loans:process-overdue')->dailyAt('00:30')->withoutOverlapping();
+Schedule::command('idempotency:prune')->dailyAt('01:00')->withoutOverlapping();

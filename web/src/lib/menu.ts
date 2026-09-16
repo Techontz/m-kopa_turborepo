@@ -29,6 +29,7 @@ export const menu: MenuTab[] = [
     label: "Menu",
     items: [
       { label: "Dashboard", icon: "icon-home", href: "/dashboard", permission: "dashboard.view" },
+      { label: "Pending Approvals", icon: "icon-check", href: "/approvals", permission: "approvals.view" },
       {
         label: "Settings",
         icon: "icon-settings",
@@ -44,6 +45,7 @@ export const menu: MenuTab[] = [
           { label: "Penalty", href: "/settings/penalty", permission: "settings.manage" },
           { label: "Reserve Setting", href: "/settings/reserve", permission: "settings.manage" },
           { label: "Dividend Settings", href: "/settings/dividends", permission: "settings.manage" },
+          { label: "Approval Policy", href: "/settings/approval-policy", permission: "settings.manage" },
           { label: "Roles & Permissions", href: "/settings/roles", permission: "users.manage" },
         ],
       },
@@ -70,9 +72,9 @@ export const menu: MenuTab[] = [
           { label: "Account Balance", href: "/bank/balances", permission: "bank.manage" },
           { label: "Bank Transaction", href: "/bank/transfers", permission: "bank.manage" },
           { label: "Approved Transaction", href: "/bank/transfers/approved", permission: "bank.manage" },
-          { label: "Transfer Balance /Branch Acc", href: "/bank/to-branch", permission: "bank.manage" },
           { label: "Transfer Balance /Salary advance & disbursement Acc", href: "/bank/to-hq", permission: "bank.manage" },
           { label: "Company Cash ↔ Bank Transfer", href: "/bank/company-transfers", permission: "bank.manage" },
+          { label: "Send Reserve To Investment", href: "/bank/reserve-to-investment", permission: "bank.manage" },
           { label: "Register Bank Expenses", href: "/bank/expense-types", permission: "bank.manage" },
           { label: "Request Expenses", href: "/bank/expenses", permission: "bank.manage" },
           { label: "Payroll", href: "/bank/payroll", permission: ["bank.manage", "payroll.pay"] },
@@ -200,6 +202,7 @@ export const menu: MenuTab[] = [
       { label: "CRM", icon: "icon-call-in", href: "/crm", permission: "crm.use" },
       { label: "Messages", icon: "icon-bubbles", href: "/messages", permission: "messages.use" },
       { label: "Goals", icon: "icon-target", href: "/goals", permission: ["goals.view", "goals.manage"] },
+      { label: "My Shareholder Portal", icon: "icon-pie-chart", href: "/shareholder", permission: "shareholder.portal" },
     ],
   },
   {
@@ -246,6 +249,7 @@ export const menu: MenuTab[] = [
           { label: "Loss Carry Forward", href: "/reports/loss-carry-forward", permission: "reports.financial" },
           { label: "Consolidated P&L", href: "/reports/profit-loss", permission: "reports.financial" },
           { label: "Balance Sheet", href: "/reports/balance-sheet", permission: "reports.financial" },
+          { label: "Cash & Fund Position", href: "/reports/fund-position", permission: "reports.financial" },
           { label: "Suspense Report", href: "/reports/suspense", permission: "reports.financial" },
           { label: "Reversal Report", href: "/reports/reversals", permission: "reports.financial" },
           { label: "Daily Position", href: "/reports/daily-position", permission: "reports.financial" },

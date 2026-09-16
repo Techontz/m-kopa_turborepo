@@ -96,10 +96,11 @@ export function ShareTransactionsTable({ rows, loading, compact = false, pageSiz
                         type="button"
                         className="btn btn-sm btn-icon btn-danger"
                         title="Reverse"
+                        disabled={reverse.isPending}
                         onClick={async () => {
                           const reason = await promptReason(
                             row.payment_treatment === "paid" || row.payment_treatment === "linked_contribution"
-                              ? `Reverse ${row.reference}? The capital contribution and its journal entry stay recorded; reverse the journal in Accounting if money was refunded.`
+                              ? `Reverse ${row.reference}? The capital contribution and its journal entry stay recorded (a refund of the contribution is not reversed here).`
                               : `Reverse ${row.reference}?`,
                           );
                           if (reason) {
@@ -107,7 +108,7 @@ export function ShareTransactionsTable({ rows, loading, compact = false, pageSiz
                           }
                         }}
                       >
-                        <i className="icon-action-undo" />
+                        <i className={reverse.isPending && reverse.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-action-undo"} />
                       </button>
                     )}
                   </>

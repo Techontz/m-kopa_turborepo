@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1\Penalties;
 
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Payments\PayPenaltyRequest;
-use App\Models\AuditLog;
 use App\Models\Penalty;
 use App\Models\PenaltyPayment;
 use App\Services\LoanService;
@@ -26,7 +25,7 @@ class PenaltyController extends ApiController
         $query = $this->scoped(Penalty::query())
             ->where('is_waived', false)
             ->whereColumn('paid_amount', '<', 'amount')
-            ->with(['customer', 'branch', 'loan'])
+            ->with(['customer', 'branch', 'loan', 'accrualJournal:id,reference'])
             ->orderBy('penalty_date');
         $this->applyFilters($query, $request);
 
@@ -42,6 +41,8 @@ class PenaltyController extends ApiController
             'paid_amount' => (float) $penalty->paid_amount,
             'remaining' => round((float) $penalty->amount - (float) $penalty->paid_amount, 2),
             'penalty_date' => $penalty->penalty_date->toDateString(),
+            'accounting' => $penalty->accrual_journal_entry_id !== null ? 'accrued' : 'cash',
+            'accrual_reference' => $penalty->accrualJournal?->reference,
         ])]);
     }
 
@@ -60,32 +61,21 @@ class PenaltyController extends ApiController
             throw ValidationException::withMessages(['penart_paid' => 'Amount is greater than penalty amount ('.money($remaining).')']);
         }
 
-        $loans->payPenalty($penalty, $amount, CarbonImmutable::today());
+        $loans->payPenalty($penalty, $amount, CarbonImmutable::today(), $this->currentEmployee());
 
         return $this->message('Penalty Paid successfully');
     }
 
     /**
-     * Live "aporojize_penalty" (trash icon): the penalty is forgiven, recorded in the audit trail.
+     * Live "aporojize_penalty" (trash icon): the penalty is forgiven, recorded in the audit trail. Cash-basis penalties post
+     * nothing (rule 14); only a legacy accrued penalty's unpaid remainder is reversed out of income ({@see LoanService::waivePenalty()}).
      */
-    public function waive(Penalty $penalty): JsonResponse
+    public function waive(Penalty $penalty, LoanService $loans): JsonResponse
     {
         $this->authorizeAny('penalties.manage');
         $this->assertBranchAccessible((int) $penalty->branch_id);
 
-        $before = $penalty->only(['is_waived', 'amount', 'paid_amount']);
-        $penalty->update(['is_waived' => true]);
-
-        AuditLog::create([
-            'company_id' => $penalty->company_id,
-            'employee_id' => $this->currentEmployee()->id,
-            'action' => 'Penalty.waived',
-            'auditable_type' => $penalty->getMorphClass(),
-            'auditable_id' => $penalty->id,
-            'before' => $before,
-            'after' => ['is_waived' => true],
-            'ip_address' => request()->ip(),
-        ]);
+        $loans->waivePenalty($penalty, $this->currentEmployee());
 
         return $this->message('Penalty Removed successfully');
     }
@@ -113,6 +103,7 @@ class PenaltyController extends ApiController
             'branch' => $payment->penalty?->branch?->name,
             'amount' => (float) $payment->amount,
             'paid_on' => $payment->paid_on->toDateString(),
+            'accounting' => $payment->penalty?->accrual_journal_entry_id !== null ? 'accrued' : 'cash',
         ])]);
     }
 

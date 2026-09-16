@@ -7,6 +7,7 @@ use App\Enums\LoanStatus;
 use App\Models\AccountingPeriod;
 use App\Models\BankAccount;
 use App\Models\BankTransfer;
+use App\Models\BranchPeriodResult;
 use App\Models\Capital;
 use App\Models\Customer;
 use App\Models\Employee;
@@ -23,6 +24,7 @@ use App\Services\ShareholderOwnership;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 /**
@@ -34,6 +36,7 @@ use Tests\TestCase;
 class ShareholderCapitalAccountingTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -82,8 +85,10 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->allocate([[$a, 500, $first], [$b, 500, $second]]);
         $this->assertOwnership([$a->id => [50000000, 500, 50], $b->id => [50000000, 500, 50]]);
 
-        $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'company_to_bank', 'bank_account_id' => $bank->id, 'amount' => 30000000])->assertCreated();
-        $this->postJson('/api/v1/capital/floats', ['blanch_id' => $this->admin->branch_id, 'blanch_amount' => 20000000])->assertCreated();
+        $toBank = $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'company_to_bank', 'bank_account_id' => $bank->id, 'amount' => 30000000])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/bank/transfers/{$toBank}/approve");
+        $float = $this->postJson('/api/v1/capital/floats', ['amount' => 20000000, 'from_account' => Account::Company->value])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/capital/floats/{$float}/approve");
         app(Ledger::class)->journal($this->admin->company_id, 'OFFICE RENT', [
             ['account' => Account::OperatingExpense, 'debit' => 10000000],
             ['account' => Account::Company, 'credit' => 10000000],
@@ -200,15 +205,20 @@ class ShareholderCapitalAccountingTest extends TestCase
         $bank = $this->bank('NMB');
 
         $payload = ['share_id' => $holder->id, 'amount' => 3000000, 'pay_method' => 'BANK', 'bank_account_id' => $bank->id, 'idempotency_key' => 'capital-key-1'];
-        $this->postJson('/api/v1/capital/capitals', $payload)->assertCreated();
+        $id = $this->postJson('/api/v1/capital/capitals', $payload)->assertCreated()->json('data.id');
         $this->postJson('/api/v1/capital/capitals', $payload)->assertOk()->assertJsonPath('message', 'Capital was already recorded');
+        $approver = $this->secondApprover($this->admin);
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/capitals/{$id}/approve")->assertOk(), $approver);
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/capitals/{$id}/approve")->assertUnprocessable(), $approver);
         $this->postJson('/api/v1/capital/capitals', ['amount' => 1] + $payload)->assertUnprocessable()->assertJsonValidationErrors('idempotency_key');
         $this->assertSame(1, Capital::count());
         $this->assertSame(1, JournalEntry::where('source_type', (new Capital)->getMorphClass())->count());
 
         $transfer = ['direction' => 'bank_to_company', 'bank_account_id' => $bank->id, 'amount' => 1000000, 'idempotency_key' => 'transfer-key-1'];
-        $this->postJson('/api/v1/bank/company-transfers', $transfer)->assertCreated();
+        $transferId = $this->postJson('/api/v1/bank/company-transfers', $transfer)->assertCreated()->json('data.id');
         $this->postJson('/api/v1/bank/company-transfers', $transfer)->assertOk();
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/bank/transfers/{$transferId}/approve")->assertOk(), $approver);
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/bank/transfers/{$transferId}/approve")->assertUnprocessable(), $approver);
         $this->assertSame(1000000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Company));
 
         config(['integrations.vodacom.test_outcome' => 'failed']);
@@ -258,7 +268,9 @@ class ShareholderCapitalAccountingTest extends TestCase
         $ledger = app(Ledger::class);
         $this->assertSame(0.0, $ledger->balance($loan->company_id, Account::LoanReceivable, $loan->branch_id));
         $this->assertSame(10000.0, $ledger->balance($loan->company_id, Account::PenaltyIncome, $loan->branch_id));
-        $this->assertSame(15000.0, $ledger->balance($loan->company_id, Account::InterestIncome, $loan->branch_id));
+        $reserve = round(15000 * (float) $loan->company->reserve_percent / 100, 2);
+        $this->assertSame(15000.0 - $reserve, $ledger->balance($loan->company_id, Account::InterestIncome, $loan->branch_id), 'D6: interest income is net of the reserve');
+        $this->assertSame($reserve, $ledger->balance($loan->company_id, Account::InterestReserve, $loan->branch_id));
         $this->assertSame(0.0, $this->getJson(route('api.v1.loans.show', $loan))->json('data.ledger.receivable_balance') + 0.0);
 
         foreach (JournalEntry::with('lines')->get() as $entry) {
@@ -350,9 +362,12 @@ class ShareholderCapitalAccountingTest extends TestCase
 
         $toBank = $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'company_to_bank', 'bank_account_id' => $bank->id, 'amount' => 6000000, 'reference' => 'DEP-1'])
             ->assertCreated()->json('data');
-        $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'bank_to_company', 'bank_account_id' => $bank->id, 'amount' => 2000000])->assertCreated();
-        $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'bank_to_company', 'bank_account_id' => $bank->id, 'amount' => 4000001])
-            ->assertUnprocessable()->assertJsonValidationErrors('amount');
+        $this->approveAsSecondUser($this->admin, "/api/v1/bank/transfers/{$toBank['id']}/approve");
+        $back = $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'bank_to_company', 'bank_account_id' => $bank->id, 'amount' => 2000000])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/bank/transfers/{$back}/approve");
+        $tooMuch = $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'bank_to_company', 'bank_account_id' => $bank->id, 'amount' => 4000001])->assertCreated()->json('data.id');
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/bank/transfers/{$tooMuch}/approve")->assertUnprocessable()->assertJsonValidationErrors('amount'));
+        $this->postJson("/api/v1/bank/transfers/{$tooMuch}/reject", ['reason' => 'Insufficient bank balance'])->assertOk();
 
         $this->assertSame(6000000.0, $ledger->balance($this->admin->company_id, Account::Company));
         $this->assertSame(4000000.0, $ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
@@ -363,7 +378,7 @@ class ShareholderCapitalAccountingTest extends TestCase
             [Account::Bank, $bank->id, 6000000, 0],
             [Account::Company, null, 0, 6000000],
         ]);
-        $this->getJson('/api/v1/bank/company-transfers')->assertOk()->assertJsonCount(2, 'data')->assertJsonPath('data.1.reference', 'DEP-1');
+        $this->getJson('/api/v1/bank/company-transfers')->assertOk()->assertJsonCount(3, 'data')->assertJsonPath('data.0.status', 'rejected')->assertJsonPath('data.2.reference', 'DEP-1');
         $this->getJson('/api/v1/capital/position')->assertOk()
             ->assertJsonPath('data.shareholder_contributions.total', 10000000)
             ->assertJsonPath('data.balances.company_cash', 6000000)
@@ -379,23 +394,27 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->allocate([[$a, 250, $first], [$b, 750, $second]]);
         app(Ledger::class)->openingBalance($this->admin->company_id, Account::Bank, 60000000, bankAccount: $this->bank('NMB'));
         app(Ledger::class)->journal($this->admin->company_id, 'MONTH END PROFIT', [
-            ['account' => Account::InterestIncome, 'debit' => 1000000, 'branch' => $this->admin->branch_id],
+            ['account' => Account::Interest, 'debit' => 1000000, 'branch' => $this->admin->branch_id],
             ['account' => Account::RetainedProfit, 'credit' => 1000000, 'branch' => $this->admin->branch_id],
         ]);
+        $month = now()->subMonthNoOverflow()->startOfMonth();
+        $period = AccountingPeriod::create(['company_id' => $this->admin->company_id, 'period_start' => $month->toDateString(), 'period_end' => $month->endOfMonth()->toDateString(), 'status' => AccountingPeriod::STATUS_CLOSED, 'closed_at' => now(), 'commission_calculated_at' => now()]);
+        BranchPeriodResult::create(['accounting_period_id' => $period->id, 'branch_id' => $this->admin->branch_id, 'gross_profit' => 1000000, 'net_profit' => 1000000, 'distributable_profit' => 1000000, 'commission_eligible' => true]);
 
-        $this->getJson('/api/v1/capital/dividends/preview')->assertOk()
+        $this->getJson('/api/v1/capital/dividends/preview?period='.$month->format('Y-m'))->assertOk()
             ->assertJsonPath('data.rows.0.contribution_total', 10000000)
             ->assertJsonPath('data.rows.0.shares', 250)
             ->assertJsonPath('data.rows.0.ownership_percent', 25)
             ->assertJsonPath('data.rows.1.ownership_percent', 75);
 
-        $declarationId = $this->postJson('/api/v1/capital/dividends', ['period' => now()->subMonthNoOverflow()->format('Y-m')])->assertCreated()->json('data.id');
+        $requestId = $this->postJson('/api/v1/capital/dividends', ['period' => now()->subMonthNoOverflow()->format('Y-m')])->assertCreated()->json('data.id');
+        $declarationId = $this->approveAsSecondUser($this->admin, "/api/v1/capital/dividends/requests/{$requestId}/approve")->json('data.id');
         $this->getJson("/api/v1/capital/dividends/{$declarationId}/allocations")->assertOk()
             ->assertJsonPath('data.0.ownership_percent', 25)
             ->assertJsonPath('data.0.entitlement', 75000)
             ->assertJsonPath('data.1.entitlement', 225000);
 
-        $this->assertOwnership([$a->id => [10000000, 250, 25], $b->id => [30000000, 750, 75]], 'the reinvested 70% credited to CAPITAL ACCOUNT is neither a contribution nor shares');
+        $this->assertOwnership([$a->id => [10000000, 250, 25], $b->id => [30000000, 750, 75]], 'the reinvested 70% (REINVESTED PROFIT, D4) is neither a contribution nor shares');
     }
 
     private function holder(string $firstName): ShareHolder
@@ -413,7 +432,9 @@ class ShareholderCapitalAccountingTest extends TestCase
      */
     private function contribute(ShareHolder $holder, float $amount, string $method = 'CASH', ?BankAccount $bank = null, array $extra = []): TestResponse
     {
-        return $this->postJson('/api/v1/capital/capitals', $extra + ['share_id' => $holder->id, 'amount' => $amount, 'pay_method' => $method, 'bank_account_id' => $bank?->id])->assertCreated();
+        $id = $this->postJson('/api/v1/capital/capitals', $extra + ['share_id' => $holder->id, 'amount' => $amount, 'pay_method' => $method, 'bank_account_id' => $bank?->id])->assertCreated()->json('data.id');
+
+        return $this->approveAsSecondUser($this->admin, "/api/v1/capital/capitals/{$id}/approve");
     }
 
     /**
@@ -483,6 +504,8 @@ class ShareholderCapitalAccountingTest extends TestCase
 
     private function loanAtFinance(float $amount, bool $feeDeducted = false): Loan
     {
+        // Rule 6 is covered by SegregationOfDutiesTest; this fixture drives every loan stage as one admin, so self-approval is granted explicitly.
+        $this->grantSelfApproval($this->admin);
         $category = LoanCategory::factory()->create(['company_id' => $this->admin->company_id, 'insurance' => 0]);
         $customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '2557540'.random_int(10000, 99999), 'customer_category_id' => $category->customer_category_id]);
         $category->branches()->attach($this->admin->branch_id);

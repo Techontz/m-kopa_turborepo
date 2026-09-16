@@ -3,18 +3,22 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { FinanceDashboard } from "@/components/finance-dashboard/FinanceDashboard";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAuth } from "@/lib/auth";
+import { usesFinanceShell } from "@/lib/financeMenu";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
 interface DashboardData {
   header_accounts: Record<string, number> | null;
-  cards: { account_balance: number; loan_withdrawal: number; receivable: number; default_loan: number };
+  cards: { account_balance: number; account_balance_title: string; account_balance_label: string; loan_withdrawal: number; receivable: number; default_loan: number };
   account_balances: Record<string, number> | null;
+  account_balances_total: number | null;
   branch_accounts: Array<Record<string, number | string>> | null;
-  today: Record<string, number>;
+  today: Record<string, number | null>;
   customer_types: Array<{ label: string; route: string; all: number; active: number; pending: number; close: number; default: number; male: number; female: number }>;
 }
 
@@ -47,7 +51,13 @@ const TYPE_LINKS: Record<string, string> = {
   "customers.index": "/customers",
 };
 
+/** Finance (Head Office) users get the live Head Office dashboard; every other role keeps the admin dashboard. */
 export default function DashboardPage() {
+  const { user } = useAuth();
+  return usesFinanceShell(user) ? <FinanceDashboard /> : <AdminDashboard />;
+}
+
+function AdminDashboard() {
   const { data, isLoading } = useApi<DashboardData>("dashboard");
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [branchesOpen, setBranchesOpen] = useState(false);
@@ -57,6 +67,8 @@ export default function DashboardPage() {
   }
 
   const t = data.today;
+  /** Company money movements (capital, float, principal transfers, bank-paid expenses) are null for branch- and zone-scoped employees. */
+  const seesCompanyMoney = t.capital_received !== null;
 
   return (
     <>
@@ -81,7 +93,8 @@ export default function DashboardPage() {
             <a href="#" onClick={(e) => { e.preventDefault(); if (data.account_balances) { setAccountsOpen(true); } }}>
               <div className="body dashboard-stat bg-success text-light">
                 <h4><i className="icon-wallet" /> {money(data.cards.account_balance)}</h4>
-                <span>Account Balance</span>
+                <span>{data.cards.account_balance_title}</span>
+                <small className="d-block">{data.cards.account_balance_label}</small>
               </div>
             </a>
           </div>
@@ -114,43 +127,43 @@ export default function DashboardPage() {
                 <th className="c">Customer Type</th>
                 <th className="c">Today Deposit</th>
                 <th className="c">Today withdrawal</th>
-                <th className="c">Today Income</th>
-                <th className="c">Today Expenses</th>
+                <th className="c">Today Income (ledger)</th>
+                <th className="c">Today Expenses (ledger)</th>
               </tr>
               <tr>
                 <td>Monthly customer <span className="badge badge-success">{t.monthly_customers}</span></td>
                 <td>Monthly Deposit <span className="badge badge-success">{money(t.monthly_deposit)}</span></td>
                 <td>Monthly Withdrawal <span className="badge badge-success">{money(t.monthly_withdrawal)}</span></td>
-                <td>Penalty <span className="badge badge-success">{money(t.penalty_income)}</span></td>
-                <td>Today Expenses <span className="badge badge-success">{money(t.expenses)}</span></td>
+                <td>Interest (after reserve) <span className="badge badge-success">{money(t.interest_income)}</span></td>
+                <td>Operating expenses <span className="badge badge-success">{money(t.expenses)}</span></td>
               </tr>
               <tr>
                 <td>Weekly customer <span className="badge badge-success">{t.weekly_customers}</span></td>
                 <td>Weekly Deposit <span className="badge badge-success">{money(t.weekly_deposit)}</span></td>
                 <td>Weekly Withdrawal <span className="badge badge-success">{money(t.weekly_withdrawal)}</span></td>
                 <td>Loan fee <span className="badge badge-success">{money(t.loan_fee_income)}</span></td>
-                <td>Bank <span className="badge badge-success">{money(t.bank_expenses)}</span></td>
+                <td>Salaries, commission, write-offs, bank charges <span className="badge badge-success">{money(t.other_expenses)}</span></td>
               </tr>
               <tr>
                 <td>Daily customer <span className="badge badge-success">{t.daily_customers}</span></td>
                 <td>Daily Deposit <span className="badge badge-success">{money(t.daily_deposit)}</span></td>
                 <td>Daily Withdrawal <span className="badge badge-success">{money(t.daily_withdrawal)}</span></td>
-                <td>Capital<span className="badge badge-success">{money(t.capital_income)}</span></td>
-                <td>Transfer <span className="badge badge-success">{money(t.transfer_expenses)}</span></td>
+                <td>Penalty <span className="badge badge-success">{money(t.penalty_income)}</span></td>
+                <td>-</td>
               </tr>
               <tr>
                 <td>Groups <span className="badge badge-success">{t.groups}</span></td>
                 <td>Salary advance <span className="badge badge-success">{money(t.salary_advance_deposit)}</span></td>
                 <td>Salary advance <span className="badge badge-success">{money(t.salary_advance_withdrawal)}</span></td>
-                <td>Transfer <span className="badge badge-success">{money(t.transfer_income)}</span></td>
+                <td>Recovery <span className="badge badge-success">{money(t.recovery_income)}</span></td>
                 <td>-</td>
               </tr>
               <tr>
                 <td>-</td>
                 <td>Agent <span className="badge badge-success">{money(t.agent_deposit)}</span></td>
                 <td>-</td>
-                <td>Insurance<span className="badge badge-success">{money(t.insurance_income)}</span></td>
-                <td>Saving withdrawal <span className="badge badge-success">{money(t.saving_withdrawal)}</span></td>
+                <td>-</td>
+                <td>-</td>
               </tr>
               <tr className="mf-row-strong">
                 <th>All customer: {t.all_customers}</th>
@@ -159,6 +172,39 @@ export default function DashboardPage() {
                 <th>Total : {money(t.total_income)}</th>
                 <th>Total: {money(t.total_expenses)}</th>
               </tr>
+              <tr>
+                <td colSpan={3} />
+                <th colSpan={2}>Net income today: {money(t.net_income)}</th>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="mb-2 mt-2"><small className="text-muted">Today money movements — not income and not expenses</small></p>
+        <div className="table-responsive">
+          <table className="table table-bordered table-custom mb-0">
+            <tbody>
+              {seesCompanyMoney ? (
+                <>
+                  <tr>
+                    <td>Capital received <span className="badge badge-info">{money(t.capital_received)}</span></td>
+                    <td>Float to HQ <span className="badge badge-info">{money(t.float_to_hq)}</span></td>
+                    <td>Other principal transfers out <span className="badge badge-info">{money(t.principal_transfers_out)}</span></td>
+                    <td>Saving withdrawal <span className="badge badge-info">{money(t.saving_withdrawal)}</span></td>
+                  </tr>
+                  <tr>
+                    <td>Insurance collected (not in profit income) <span className="badge badge-info">{money(t.insurance_income)}</span></td>
+                    <td>Reserve set aside from interest <span className="badge badge-info">{money(t.reserve_amount)}</span></td>
+                    <td>Expenses paid from bank (included above) <span className="badge badge-info">{money(t.expenses_paid_from_bank)}</span></td>
+                    <td>-</td>
+                  </tr>
+                </>
+              ) : (
+                <tr>
+                  <td>Saving withdrawal <span className="badge badge-info">{money(t.saving_withdrawal)}</span></td>
+                  <td>Insurance collected (not in profit income) <span className="badge badge-info">{money(t.insurance_income)}</span></td>
+                  <td>Reserve set aside from interest <span className="badge badge-info">{money(t.reserve_amount)}</span></td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -210,7 +256,7 @@ export default function DashboardPage() {
           <thead className="thead-info"><tr><th>A/c Name</th><th>Amount</th></tr></thead>
           <tbody>
             {Object.entries(data.account_balances ?? {}).map(([name, amount]) => <tr key={name}><td>{name}</td><td>{money(amount)}</td></tr>)}
-            <tr><th>TOTAL:</th><th>{money(Object.values(data.account_balances ?? {}).reduce((sum, value) => sum + Number(value), 0))}</th></tr>
+            <tr><th>TOTAL:</th><th>{money(data.account_balances_total)}</th></tr>
           </tbody>
         </table>
       </Modal>

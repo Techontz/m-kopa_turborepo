@@ -22,7 +22,7 @@ class PerformanceController extends HrmController
         $from = $request->filled('from') ? CarbonImmutable::parse($request->string('from')->toString()) : CarbonImmutable::now()->startOfMonth();
         $to = $request->filled('to') ? CarbonImmutable::parse($request->string('to')->toString()) : CarbonImmutable::today();
 
-        $employees = $this->applyFilters($this->scoped(Employee::query())->where('status', 'active'), $request)
+        $employees = $this->applyFilters($this->scoped(Employee::query())->staff()->where('status', 'active'), $request)
             ->where(fn ($query) => $query->whereHas('role', fn ($role) => $role->whereIn('key', ['loan_officer', 'branch_manager']))
                 ->orWhereExists(fn ($sub) => $sub->selectRaw('1')->from('loans')->whereColumn('loans.employee_id', 'employees.id'))
                 ->orWhereExists(fn ($sub) => $sub->selectRaw('1')->from('customers')->whereColumn('customers.employee_id', 'employees.id')))
@@ -68,7 +68,7 @@ class PerformanceController extends HrmController
     {
         $this->authorizeAny('hrm.manage');
 
-        $employee = Employee::findOrFail($request->integer('empl_id'));
+        $employee = Employee::staff()->findOrFail($request->integer('empl_id'));
         $this->ensureVisible($employee);
 
         StaffPerformanceReview::create([

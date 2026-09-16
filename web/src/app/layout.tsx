@@ -8,6 +8,8 @@ import "@/styles/tokens.css";
 import "@/styles/theme.css";
 import "@/styles/theme-components.css";
 import "@/styles/app.css";
+import "@/styles/finance.css";
+import "@/styles/shareholder.css";
 
 import { Providers } from "@/components/providers";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";

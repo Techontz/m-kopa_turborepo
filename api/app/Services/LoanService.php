@@ -4,17 +4,32 @@ namespace App\Services;
 
 use App\Enums\Account;
 use App\Enums\LoanStatus;
+use App\Enums\PaymentStatus;
+use App\Enums\TransactionType;
+use App\Models\AccountingPeriod;
+use App\Models\ApprovalPolicy;
+use App\Models\AuditLog;
+use App\Models\CommissionAllocation;
 use App\Models\Customer;
+use App\Models\DividendDeclaration;
 use App\Models\Employee;
 use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\LoanCategory;
+use App\Models\LoanDisbursement;
+use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
+use App\Models\Payment;
 use App\Models\Penalty;
+use App\Models\PenaltyPayment;
 use App\Models\SmsLog;
 use App\Models\WriteOff;
+use App\Models\WriteOffRequest;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Customers\KycStatusCalculator;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -164,6 +179,10 @@ class LoanService
      * lands in the branch LOAN FEE A/C (unchanged behaviour); with a bank source it never leaves the bank, so the
      * bank is debited back the fee. Never an expense or revenue for the principal itself.
      *
+     * A fee that is NOT deducted (fee_deduct = false) is a memo only (rule 7): nothing is posted, and it never becomes part of
+     * the principal, interest, penalty, repayment amount, schedules, outstanding balance or repayment allocation. An unpaid
+     * fee is never income (rule 14, cash basis).
+     *
      * @param  array{account: Account, branch?: int|null, bank?: int|null}|null  $source
      */
     public function withdraw(Loan $loan, CarbonImmutable $date, ?Employee $employee = null, string $description = 'CASH WITHDRAWALS', string $channel = 'cash', ?array $source = null): JournalEntry
@@ -228,22 +247,35 @@ class LoanService
 
     /**
      * Repayment against a loan. Cash is allocated in the business-mandated order
-     * Principal → Penalty → Interest (insurance, not covered by that rule, is collected last).
-     * Reserve is cut from the interest portion in real time.
+     * Principal → Penalty → Interest (insurance, not covered by that rule, is collected last). A loan fee that was not
+     * deducted at disbursement is never part of the allocation (rule 7).
+     * Reserve is cut from the interest portion in real time and is not income (user decision D6): Dr INTEREST A/C (interest −
+     * reserve) + Dr RESERVE A/C (reserve) / Cr INTEREST INCOME (interest − reserve) + Cr INTEREST RESERVE (reserve).
+     * Penalty cash (rule 14, cash basis): Dr PENALTY A/C / Cr PENALTY INCOME. Only legacy penalties that were accrued when
+     * charged (accrual_journal_entry_id set, stream P's short-lived D9) credit PENALTY RECEIVABLE instead, because their income
+     * was already recognised — split per penalty, oldest first, exactly as settlePenalties() pays them.
+     * Insurance cash (rule 15): Dr INSURANCE A/C / Cr INSURANCE RESERVE — never income, never distributable.
+     *
+     * Concurrency: the loan row is locked and the status, outstanding balance and allocation are recomputed from
+     * committed data inside the transaction, so two repayments can never allocate the same balance twice. Callers
+     * that already run a transaction (payment allocation, saving CLEAR, top-up settlement) simply nest into it.
      */
     public function deposit(Loan $loan, float $amount, CarbonImmutable $date, string $method = 'CASH', ?Employee $employee = null): LoanTransaction
     {
-        if (! in_array($loan->status, LoanStatus::repayable(), true)) {
-            throw ValidationException::withMessages(['depost' => 'This loan is not active.']);
-        }
+        return DB::transaction(function () use ($loan, $amount, $date, $method, $employee): LoanTransaction {
+            $loan = Loan::whereKey($loan->id)->lockForUpdate()->with('company')->firstOrFail();
 
-        $allocation = $this->allocate($loan, $amount);
-        if ($allocation['excess'] > 0.001) {
-            throw ValidationException::withMessages(['depost' => 'Amount exceeds the outstanding balance of '.money($amount - $allocation['excess']).'.']);
-        }
+            if (! in_array($loan->status, LoanStatus::repayable(), true)) {
+                throw ValidationException::withMessages(['depost' => 'This loan is not active.']);
+            }
 
-        return DB::transaction(function () use ($loan, $amount, $date, $method, $employee, $allocation): LoanTransaction {
+            $allocation = $this->allocate($loan, $amount);
+            if ($allocation['excess'] > 0.001) {
+                throw ValidationException::withMessages(['depost' => 'Amount exceeds the outstanding balance of '.money($amount - $allocation['excess']).'.']);
+            }
+
             $reserve = round($allocation['interest'] * (float) $loan->company->reserve_percent / 100, 2);
+            $penaltySplit = $this->penaltySplit($loan, $allocation['penalty']);
 
             $transaction = LoanTransaction::create([
                 'company_id' => $loan->company_id,
@@ -264,22 +296,25 @@ class LoanService
             ]);
 
             $branch = $loan->branch_id;
-            $this->ledger->journal($loan->company_id, 'LOAN RETURN '.$loan->loan_number, [
+            $entry = $this->ledger->journal($loan->company_id, 'LOAN RETURN '.$loan->loan_number, [
                 ['account' => Account::Principal, 'branch' => $branch, 'debit' => $allocation['principal']],
                 ['account' => Account::LoanReceivable, 'branch' => $branch, 'credit' => $allocation['principal']],
                 ['account' => Account::Penalty, 'branch' => $branch, 'debit' => $allocation['penalty']],
-                ['account' => Account::PenaltyIncome, 'branch' => $branch, 'credit' => $allocation['penalty']],
+                ['account' => Account::PenaltyReceivable, 'branch' => $branch, 'credit' => $penaltySplit['accrued']],
+                ['account' => Account::PenaltyIncome, 'branch' => $branch, 'credit' => $penaltySplit['legacy']],
                 ['account' => Account::Interest, 'branch' => $branch, 'debit' => $allocation['interest'] - $reserve],
                 ['account' => Account::Reserve, 'branch' => $branch, 'debit' => $reserve],
-                ['account' => Account::InterestIncome, 'branch' => $branch, 'credit' => $allocation['interest']],
+                ['account' => Account::InterestIncome, 'branch' => $branch, 'credit' => $allocation['interest'] - $reserve],
+                ['account' => Account::InterestReserve, 'branch' => $branch, 'credit' => $reserve],
                 ['account' => Account::Insurance, 'branch' => $branch, 'debit' => $allocation['insurance']],
-                ['account' => Account::InsuranceIncome, 'branch' => $branch, 'credit' => $allocation['insurance']],
+                ['account' => Account::InsuranceReserve, 'branch' => $branch, 'credit' => $allocation['insurance']],
             ], $transaction, $date, $branch, $employee);
+            $transaction->forceFill(['journal_entry_id' => $entry->id])->save();
 
-            $this->settlePenalties($loan, $allocation['penalty'], $date);
+            $this->settlePenalties($loan, $allocation['penalty'], $date, $transaction);
             $this->allocateToSchedules($loan, $allocation['principal'] + $allocation['interest'] + $allocation['insurance']);
 
-            if ($this->outstanding($loan->fresh())['total'] <= 0.5) {
+            if ($this->outstanding($loan)['total'] <= 0.5) {
                 $this->close($loan, $date);
             }
 
@@ -288,13 +323,13 @@ class LoanService
     }
 
     /**
-     * Outstanding balances per component.
+     * Outstanding balances per component (reversed repayments do not count). A loan fee is never part of it (rule 7).
      *
      * @return array{principal: float, penalty: float, interest: float, insurance: float, total: float}
      */
     public function outstanding(Loan $loan): array
     {
-        $paid = $loan->transactions()->where('type', 'deposit')
+        $paid = $loan->transactions()->where('type', 'deposit')->whereNull('reversed_at')
             ->selectRaw('COALESCE(SUM(principal),0) p, COALESCE(SUM(interest),0) i, COALESCE(SUM(insurance),0) s')
             ->first();
 
@@ -332,14 +367,35 @@ class LoanService
         return $allocation + ['excess' => max(0, $remaining)];
     }
 
-    private function settlePenalties(Loan $loan, float $amount, CarbonImmutable $date): void
+    /**
+     * The penalty portion of a repayment split into legacy accrued penalties (PENALTY RECEIVABLE) and cash-basis penalties
+     * (PENALTY INCOME), walking the open penalties in the same order and with the same portions as settlePenalties().
+     *
+     * @return array{accrued: float, legacy: float}
+     */
+    private function penaltySplit(Loan $loan, float $amount): array
     {
-        foreach (Penalty::where('loan_id', $loan->id)->where('is_waived', false)->whereColumn('paid_amount', '<', 'amount')->orderBy('penalty_date')->get() as $penalty) {
+        $split = ['accrued' => 0.0, 'legacy' => 0.0];
+        foreach (Penalty::where('loan_id', $loan->id)->where('is_waived', false)->whereColumn('paid_amount', '<', 'amount')->orderBy('penalty_date')->orderBy('id')->lockForUpdate()->get() as $penalty) {
             if ($amount <= 0) {
                 break;
             }
             $portion = min($amount, (float) $penalty->amount - (float) $penalty->paid_amount);
-            $penalty->payments()->create(['amount' => $portion, 'paid_on' => $date->toDateString()]);
+            $split[$penalty->accrual_journal_entry_id !== null ? 'accrued' : 'legacy'] += $portion;
+            $amount -= $portion;
+        }
+
+        return ['accrued' => round($split['accrued'], 2), 'legacy' => round($split['legacy'], 2)];
+    }
+
+    private function settlePenalties(Loan $loan, float $amount, CarbonImmutable $date, LoanTransaction $transaction): void
+    {
+        foreach (Penalty::where('loan_id', $loan->id)->where('is_waived', false)->whereColumn('paid_amount', '<', 'amount')->orderBy('penalty_date')->orderBy('id')->lockForUpdate()->get() as $penalty) {
+            if ($amount <= 0) {
+                break;
+            }
+            $portion = min($amount, (float) $penalty->amount - (float) $penalty->paid_amount);
+            $penalty->payments()->create(['amount' => $portion, 'paid_on' => $date->toDateString(), 'loan_transaction_id' => $transaction->id]);
             $penalty->increment('paid_amount', $portion);
             $amount -= $portion;
         }
@@ -384,29 +440,14 @@ class LoanService
                     $value = (float) $loan->company->penalty_value;
                     $penalty = $loan->company->penalty_type === 'percentage' ? $overdue * $value / 100 : $value;
                     if ($penalty > 0) {
-                        Penalty::create([
-                            'company_id' => $loan->company_id,
-                            'branch_id' => $loan->branch_id,
-                            'customer_id' => $loan->customer_id,
-                            'loan_id' => $loan->id,
-                            'amount' => round($penalty, 2),
-                            'penalty_date' => $schedule->due_date,
-                        ]);
+                        $this->chargePenalty($loan, round($penalty, 2), CarbonImmutable::parse($schedule->due_date));
                         $summary['penalties']++;
                         $summary['penalty_amount'] += round($penalty, 2);
                     }
                 }
             }
 
-            $oldestDue = $unpaid->min('due_date');
-            $daysPastDue = $oldestDue !== null ? (int) CarbonImmutable::parse($oldestDue)->diffInDays($today) : 0;
-            $status = $loan->status;
-
-            if ($loan->end_date !== null && $loan->end_date->lt($today) && $loan->remaining_amount > 0) {
-                $status = LoanStatus::Default;
-            } elseif ($status !== LoanStatus::Default) {
-                $status = $daysPastDue > 0 ? LoanStatus::Overdue : LoanStatus::Active;
-            }
+            [$status, $daysPastDue] = $this->delinquency($loan, $unpaid, $today, $loan->status);
 
             if ($status === LoanStatus::Default && $loan->status !== LoanStatus::Default) {
                 $summary['defaulted']++;
@@ -422,6 +463,28 @@ class LoanService
         });
 
         return $summary;
+    }
+
+    /**
+     * Days past due (from the oldest unpaid instalment due before today) and the repayable status they imply:
+     * DEFAULT once the end date has passed with a balance (and DEFAULT is sticky), otherwise OVERDUE / ACTIVE.
+     *
+     * @param  Collection<int, LoanSchedule>  $unpaid  instalments due before today that are not fully paid
+     * @return array{0: LoanStatus, 1: int}
+     */
+    private function delinquency(Loan $loan, Collection $unpaid, CarbonImmutable $today, LoanStatus $current): array
+    {
+        $oldestDue = $unpaid->min('due_date');
+        $daysPastDue = $oldestDue !== null ? (int) CarbonImmutable::parse($oldestDue)->diffInDays($today) : 0;
+        $status = $current;
+
+        if ($loan->end_date !== null && $loan->end_date->lt($today) && $loan->remaining_amount > 0) {
+            $status = LoanStatus::Default;
+        } elseif ($status !== LoanStatus::Default) {
+            $status = $daysPastDue > 0 ? LoanStatus::Overdue : LoanStatus::Active;
+        }
+
+        return [$status, $daysPastDue];
     }
 
     /**
@@ -534,35 +597,683 @@ class LoanService
         ];
     }
 
-    public function payPenalty(Penalty $penalty, float $amount, CarbonImmutable $date): void
+    /**
+     * Charge a penalty (rule 14, cash basis — supersedes stream P's D9 accrual): only the penalty row is created, no journal.
+     * The penalty becomes income when its cash is collected (repayment allocation or payPenalty()).
+     */
+    public function chargePenalty(Loan $loan, float $amount, CarbonImmutable $penaltyDate): Penalty
     {
-        DB::transaction(function () use ($penalty, $amount, $date): void {
-            $penalty->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
-            $penalty->increment('paid_amount', $amount);
-            $this->ledger->journal($penalty->company_id, 'PENALTY', [
-                ['account' => Account::Penalty, 'branch' => $penalty->branch_id, 'debit' => $amount],
-                ['account' => Account::PenaltyIncome, 'branch' => $penalty->branch_id, 'credit' => $amount],
-            ], $penalty, $date, $penalty->branch_id);
+        return Penalty::create([
+            'company_id' => $loan->company_id,
+            'branch_id' => $loan->branch_id,
+            'customer_id' => $loan->customer_id,
+            'loan_id' => $loan->id,
+            'amount' => $amount,
+            'penalty_date' => $penaltyDate->toDateString(),
+        ]);
+    }
+
+    /**
+     * Direct penalty payment. The penalty row is locked and its remaining balance re-checked inside the transaction.
+     * Cash basis (rule 14): Dr PENALTY A/C / Cr PENALTY INCOME. A legacy penalty accrued when charged (accrual journal set)
+     * credits PENALTY RECEIVABLE instead — its income was already recognised. A written-off loan's money is a recovery.
+     *
+     * @throws ValidationException
+     */
+    public function payPenalty(Penalty $penalty, float $amount, CarbonImmutable $date, ?Employee $employee = null): void
+    {
+        DB::transaction(function () use ($penalty, $amount, $date, $employee): void {
+            $locked = Penalty::whereKey($penalty->id)->lockForUpdate()->firstOrFail();
+            $remaining = round((float) $locked->amount - (float) $locked->paid_amount, 2);
+
+            if ($locked->is_waived || $remaining <= 0) {
+                throw ValidationException::withMessages(['penart_paid' => 'Penalty is already cleared']);
+            }
+            if ($locked->loan?->status === LoanStatus::WrittenOff) {
+                throw ValidationException::withMessages(['penart_paid' => 'The loan has been written off; record the money as a recovery on the loan instead.']);
+            }
+            if ($amount > $remaining + 0.001) {
+                throw ValidationException::withMessages(['penart_paid' => 'Amount is greater than penalty amount ('.money($remaining).')']);
+            }
+
+            $locked->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
+            $locked->increment('paid_amount', $amount);
+            $this->ledger->journal($locked->company_id, 'PENALTY', [
+                ['account' => Account::Penalty, 'branch' => $locked->branch_id, 'debit' => $amount],
+                ['account' => $locked->accrual_journal_entry_id !== null ? Account::PenaltyReceivable : Account::PenaltyIncome, 'branch' => $locked->branch_id, 'credit' => $amount],
+            ], $locked, $date, $locked->branch_id, $employee, TransactionType::LoanPenaltyPayment);
+            $penalty->setRawAttributes($locked->fresh()->getAttributes(), true);
         });
     }
 
-    public function writeOff(Loan $loan, ?Employee $employee = null): void
+    /**
+     * Waive (forgive) a penalty. The row is locked and re-checked. A cash-basis penalty was never recognised, so no journal is
+     * posted (rule 14). Only a legacy penalty accrued when charged reverses the income of its unpaid remainder, dated today:
+     * Dr PENALTY INCOME / Cr PENALTY RECEIVABLE, linked as waiver_journal_entry_id. Audited as Penalty.waived.
+     *
+     * @throws ValidationException
+     */
+    public function waivePenalty(Penalty $penalty, Employee $employee): Penalty
     {
-        DB::transaction(function () use ($loan, $employee): void {
-            $principal = $this->outstanding($loan)['principal'];
+        return DB::transaction(function () use ($penalty, $employee): Penalty {
+            $locked = Penalty::whereKey($penalty->id)->lockForUpdate()->firstOrFail();
+            if ($locked->is_waived) {
+                throw ValidationException::withMessages(['penalty' => 'This penalty has already been waived.']);
+            }
+
+            $before = $locked->only(['is_waived', 'amount', 'paid_amount']);
+            $remaining = round((float) $locked->amount - (float) $locked->paid_amount, 2);
+            $entry = null;
+            if ($locked->accrual_journal_entry_id !== null && $remaining > 0.004) {
+                $entry = $this->ledger->journal($locked->company_id, 'PENALTY WAIVER '.($locked->loan?->loan_number ?? $locked->loan_id), [
+                    ['account' => Account::PenaltyIncome, 'branch' => $locked->branch_id, 'debit' => $remaining],
+                    ['account' => Account::PenaltyReceivable, 'branch' => $locked->branch_id, 'credit' => $remaining],
+                ], $locked, CarbonImmutable::today(), $locked->branch_id, $employee, TransactionType::PenaltyWaiver);
+            }
+
+            $locked->forceFill(['is_waived' => true, 'waiver_journal_entry_id' => $entry?->id])->save();
+
+            AuditLog::create([
+                'company_id' => $locked->company_id,
+                'employee_id' => $employee->id,
+                'action' => 'Penalty.waived',
+                'auditable_type' => $locked->getMorphClass(),
+                'auditable_id' => $locked->id,
+                'before' => $before,
+                'after' => ['is_waived' => true, 'waived_amount' => $remaining, 'waiver_journal_entry_id' => $entry?->id],
+                'ip_address' => request()?->ip(),
+            ]);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Rule 6 (maker/checker): request the write-off of a repayable loan. Nothing is posted and the loan status is unchanged; a
+     * different user holding loans.write_off approves ({@see approveWriteOff()}) or rejects it. One pending request per loan (the
+     * loan row is locked). Audited as WriteOffRequest.requested and recorded on the loan workflow.
+     *
+     * @throws ValidationException
+     */
+    public function requestWriteOff(Loan $loan, Employee $requester, ?string $reason = null): WriteOffRequest
+    {
+        return DB::transaction(function () use ($loan, $requester, $reason): WriteOffRequest {
+            $loan = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
+            if (! in_array($loan->status, LoanStatus::repayable(), true)) {
+                throw ValidationException::withMessages(['loan' => 'Only active, overdue or default loans can be written off']);
+            }
+            if (WriteOffRequest::where('loan_id', $loan->id)->where('status', WriteOffRequest::PENDING)->exists()) {
+                throw ValidationException::withMessages(['loan' => 'A write-off request for this loan is already waiting for approval.']);
+            }
+
+            $request = WriteOffRequest::create([
+                'company_id' => $loan->company_id,
+                'branch_id' => $loan->branch_id,
+                'loan_id' => $loan->id,
+                'status' => WriteOffRequest::PENDING,
+                'reason' => $reason,
+                'requested_by' => $requester->id,
+            ]);
+            app(LoanWorkflow::class)->record($loan, 'WRITE_OFF_REQUESTED', $loan->status, $requester, [
+                'write_off_request_id' => $request->id,
+                'outstanding' => $this->outstanding($loan),
+                'reason' => $reason,
+            ]);
+
+            return $request;
+        });
+    }
+
+    /**
+     * Approve a pending write-off request and post the write-off ({@see WriteOff()}), in one transaction with the request and
+     * loan rows locked. The approver must not be the requester unless approvals.self_approve is explicitly granted.
+     *
+     * @throws ValidationException
+     */
+    public function approveWriteOff(WriteOffRequest $request, Employee $approver): WriteOff
+    {
+        return DB::transaction(function () use ($request, $approver): WriteOff {
+            $locked = WriteOffRequest::whereKey($request->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== WriteOffRequest::PENDING) {
+                throw ValidationException::withMessages(['request' => 'This write-off request has already been processed.']);
+            }
+            app(SegregationOfDuties::class)->assertCanApprove($locked->requested_by, $approver, 'write-off', workflow: ApprovalPolicy::WRITE_OFFS);
+
+            $loan = Loan::findOrFail($locked->loan_id);
+            $from = $loan->status;
+            $writeOff = $this->writeOff($loan, $approver);
+            $locked->update(['status' => WriteOffRequest::APPROVED, 'approved_by' => $approver->id, 'approved_at' => now(), 'write_off_id' => $writeOff->id]);
+
+            app(LoanWorkflow::class)->record($loan->fresh(), 'WRITTEN_OFF', $from, $approver, [
+                'write_off_request_id' => $locked->id,
+                'amount' => (float) $writeOff->amount,
+                'principal_amount' => (float) $writeOff->principal_amount,
+                'penalty_amount' => (float) $writeOff->penalty_amount,
+                'interest_amount' => (float) $writeOff->interest_amount,
+                'insurance_amount' => (float) $writeOff->insurance_amount,
+            ]);
+
+            return $writeOff;
+        });
+    }
+
+    /**
+     * Reject a pending write-off request: nothing was posted; the row keeps who rejected it, when and why.
+     *
+     * @throws ValidationException
+     */
+    public function rejectWriteOff(WriteOffRequest $request, string $reason, Employee $employee): WriteOffRequest
+    {
+        return DB::transaction(function () use ($request, $reason, $employee): WriteOffRequest {
+            $locked = WriteOffRequest::whereKey($request->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== WriteOffRequest::PENDING) {
+                throw ValidationException::withMessages(['reason' => 'Only pending write-off requests can be rejected.']);
+            }
+
+            $locked->update(['status' => WriteOffRequest::REJECTED, 'rejected_by' => $employee->id, 'rejected_at' => now(), 'rejection_reason' => $reason]);
+            app(LoanWorkflow::class)->record($locked->loan, 'WRITE_OFF_REJECTED', $locked->loan->status, $employee, ['write_off_request_id' => $locked->id, 'reason' => $reason]);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Pending write-off requests of a company (optionally limited to branches), for the Pending Approvals area: count, the
+     * loans' current outstanding total and the rows.
+     *
+     * @param  list<int>|null  $branchIds  null = every branch
+     * @return array{count: int, amount: float, rows: \Illuminate\Support\Collection<int, WriteOffRequest>}
+     */
+    public function pendingWriteOffRequests(int $companyId, ?array $branchIds = null): array
+    {
+        $rows = WriteOffRequest::query()
+            ->where('company_id', $companyId)
+            ->where('status', WriteOffRequest::PENDING)
+            ->when($branchIds !== null, fn ($query) => $query->whereIn('branch_id', $branchIds))
+            ->with(['loan.customer', 'branch', 'requester'])
+            ->latest('id')
+            ->get();
+
+        return [
+            'count' => $rows->count(),
+            'amount' => round((float) $rows->sum(fn (WriteOffRequest $row): float => $row->loan !== null ? $this->outstanding($row->loan)['total'] : 0.0), 2),
+            'rows' => $rows->toBase(),
+        ];
+    }
+
+    /**
+     * Post the write-off of a repayable loan: Dr WRITE-OFF EXPENSE / Cr LOAN RECEIVABLE for the outstanding principal, Cr PENALTY
+     * RECEIVABLE only for unpaid legacy penalties that were accrued when charged (cash-basis penalties were never recognised,
+     * rule 14, so they post nothing). A loan fee that was not deducted is never written off (rule 7: it was never owed).
+     * WriteOff.amount keeps its historical meaning (total remaining: principal + penalty + interest + insurance);
+     * principal_amount / penalty_amount / interest_amount / insurance_amount snapshot the outstanding components, which cap the
+     * later recoveries per component ({@see LoanRecoveryService}). The loan row is locked and its status re-checked inside the
+     * transaction. Called by {@see approveWriteOff()} (maker/checker); never directly from an endpoint.
+     */
+    public function writeOff(Loan $loan, ?Employee $employee = null): WriteOff
+    {
+        return DB::transaction(function () use ($loan, $employee): WriteOff {
+            $loan = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
+            if (! in_array($loan->status, LoanStatus::repayable(), true)) {
+                throw ValidationException::withMessages(['loan' => 'Only active, overdue or default loans can be written off']);
+            }
+
+            $outstanding = $this->outstanding($loan);
+            $accruedPenalties = round((float) Penalty::where('loan_id', $loan->id)->where('is_waived', false)->whereNotNull('accrual_journal_entry_id')
+                ->lockForUpdate()->get()->sum(fn (Penalty $penalty): float => max(0.0, (float) $penalty->amount - (float) $penalty->paid_amount)), 2);
             $this->ledger->journal($loan->company_id, 'WRITE-OFF '.$loan->loan_number, [
-                ['account' => Account::WriteOffExpense, 'branch' => $loan->branch_id, 'debit' => $principal],
-                ['account' => Account::LoanReceivable, 'branch' => $loan->branch_id, 'credit' => $principal],
+                ['account' => Account::WriteOffExpense, 'branch' => $loan->branch_id, 'debit' => $outstanding['principal'] + $accruedPenalties],
+                ['account' => Account::LoanReceivable, 'branch' => $loan->branch_id, 'credit' => $outstanding['principal']],
+                ['account' => Account::PenaltyReceivable, 'branch' => $loan->branch_id, 'credit' => $accruedPenalties],
             ], $loan, null, $loan->branch_id, $employee);
 
-            WriteOff::create([
+            $writeOff = WriteOff::create([
                 'loan_id' => $loan->id,
-                'amount' => $loan->remaining_amount,
+                'amount' => $outstanding['total'],
+                'principal_amount' => $outstanding['principal'],
+                'interest_amount' => $outstanding['interest'],
+                'penalty_amount' => $outstanding['penalty'],
+                'insurance_amount' => $outstanding['insurance'],
                 'employee_id' => $employee?->id,
                 'written_off_on' => now()->toDateString(),
             ]);
             $loan->update(['status' => LoanStatus::WrittenOff, 'days_past_due' => 0]);
+
+            return $writeOff;
         });
+    }
+
+    /**
+     * Why a loan repayment cannot be reversed now, or null when it can (spec §22, §26 Option A — dependent records
+     * block the reversal, nothing is ever partially reversed). reverseRepayment() enforces exactly these checks.
+     */
+    public function repaymentReversalBlocker(LoanTransaction $deposit): ?string
+    {
+        $loan = $deposit->loan;
+        $method = strtoupper((string) $deposit->method);
+
+        if ($deposit->type !== 'deposit' || $loan === null) {
+            return 'Only loan repayments can be reversed.';
+        }
+        if ($deposit->reversed_at !== null) {
+            return 'This repayment has already been reversed.';
+        }
+        if ($loan->status === LoanStatus::WrittenOff) {
+            return 'The loan has been written off; its repayments cannot be reversed.';
+        }
+        if ($method === 'TOPUP' || str_contains(strtoupper((string) $deposit->description), 'TOPUP')) {
+            return 'This repayment settled the loan from a top-up disbursement and must be reversed from its origin (the top-up loan), which is not supported.';
+        }
+        if ($method === 'SAVING') {
+            return 'This repayment came from the customer\'s savings (CLEAR LOAN) and must be reversed from its origin, which is not supported.';
+        }
+        if (! in_array($loan->status, [...LoanStatus::repayable(), LoanStatus::Closed], true)) {
+            return "Repayments cannot be reversed while the loan is {$loan->status->label()}.";
+        }
+
+        $later = LoanTransaction::query()
+            ->where('loan_id', $loan->id)
+            ->where('type', 'deposit')
+            ->whereNull('reversed_at')
+            ->whereKeyNot($deposit->id)
+            ->where(fn ($query) => $query->where('id', '>', $deposit->id)->orWhereDate('transaction_date', '>', $deposit->transaction_date->toDateString()))
+            ->latest('id')
+            ->first();
+        if ($later !== null) {
+            return 'A later repayment of TZS '.money($later->amount).' on '.$later->transaction_date->toDateString().' exists; reverse repayments newest first.';
+        }
+
+        if ($loan->status === LoanStatus::Closed) {
+            $newer = Loan::query()
+                ->where('customer_id', $loan->customer_id)
+                ->where('id', '>', $loan->id)
+                ->whereNotIn('status', LoanStatus::values(LoanStatus::Rejected, LoanStatus::Cancelled))
+                ->latest('id')
+                ->first();
+            if ($newer !== null) {
+                return in_array($newer->status, LoanStatus::disbursed(), true)
+                    ? "The loan was settled and the customer has borrowed again (loan {$newer->loan_number}); the settlement cannot be reversed."
+                    : "The loan was settled and the customer has a newer loan application (loan {$newer->loan_number}) in progress; the settlement cannot be reversed.";
+            }
+        }
+
+        $entry = $this->repaymentEntry($deposit);
+        if ($entry === null) {
+            return 'This repayment has no ledger posting to reverse.';
+        }
+        if ($entry->reversal()->exists()) {
+            return "The journal entry {$entry->reference} of this repayment was already reversed directly in the ledger; the repayment needs a manual correction.";
+        }
+        if (($blocker = $this->distributedPeriodBlocker((int) $loan->company_id, CarbonImmutable::parse($entry->entry_date), 'repayment')) !== null) {
+            return $blocker;
+        }
+
+        $allocation = $deposit->paymentAllocation()->whereNull('reversed_at')->with('payment')->first();
+        if ($allocation?->payment !== null && in_array($allocation->payment->status, [PaymentStatus::Refunded, PaymentStatus::Rejected], true)) {
+            return "The payment {$allocation->payment->receipt_number} of this repayment is {$allocation->payment->status->value}; the money cannot be returned to suspense.";
+        }
+
+        if ((float) $deposit->penalty > 0.004 && $this->penaltyPaymentsFor($deposit) === null) {
+            return 'The penalty payments of this repayment cannot be matched reliably (several payments on the same day); reverse it manually.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Why the viewer cannot reverse this repayment now, or null when they can: the business blockers
+     * ({@see repaymentReversalBlocker()}) and rule 6 — the employee who posted the repayment journal does not reverse it.
+     */
+    public function repaymentReverseBlockedReason(LoanTransaction $deposit, ?Employee $viewer): ?string
+    {
+        $reason = $this->repaymentReversalBlocker($deposit);
+        if ($reason === null && $viewer !== null) {
+            $reason = app(SegregationOfDuties::class)->reverseBlockedReason($this->repaymentEntry($deposit), $viewer);
+        }
+
+        return $reason;
+    }
+
+    /**
+     * Reverse a posted loan repayment (spec §22) in one transaction with the loan row locked:
+     *  - Ledger::reverse() of the repayment entry — principal, penalty, interest (+ reserve) and insurance lines exactly as
+     *    allocated, posted today; a repayment of a closed period without profit distributions is corrected in the current
+     *    open period (spec §26 Option C);
+     *  - the penalty payments of the repayment are removed and the penalties' paid amounts restored (snapshot in the audit log);     *  - instalment paid amounts are rebuilt from the remaining repayments (oldest due first);
+     *  - a loan closed by this repayment reopens (ACTIVE / OVERDUE / DEFAULT for today) and its early-settlement freeze
+     *    decision is cleared (SETTLEMENT_FREEZE_REVERSED);
+     *  - the money returns to SUSPENSE, unallocated, so Finance can re-allocate or refund it: Dr BANK (the payment's bank
+     *    A/C, or the bank clearing account) / Cr SUSPENSE. See PaymentService::returnReversedRepaymentToSuspense().
+     *
+     * @return array{transaction: LoanTransaction, reversal: JournalEntry, payment: Payment, closed_period: string|null}
+     */
+    public function reverseRepayment(LoanTransaction $deposit, string $reason, Employee $employee): array
+    {
+        return DB::transaction(function () use ($deposit, $reason, $employee): array {
+            $loan = Loan::whereKey($deposit->loan_id)->lockForUpdate()->firstOrFail();
+            $deposit = LoanTransaction::whereKey($deposit->id)->lockForUpdate()->firstOrFail();
+            $deposit->setRelation('loan', $loan);
+
+            if (($blocker = $this->repaymentReversalBlocker($deposit)) !== null) {
+                throw ValidationException::withMessages(['reason' => $blocker]);
+            }
+
+            $entry = $this->repaymentEntry($deposit);
+            app(SegregationOfDuties::class)->assertCanReverse($entry, $employee);
+            $closedPeriod = $this->closedPeriodOn((int) $loan->company_id, CarbonImmutable::parse($entry->entry_date));
+            $penaltyPayments = $this->penaltyPaymentsFor($deposit) ?? new Collection;
+            $from = $loan->status;
+            $freeze = $loan->only(['closed_at', 'early_settlement', 'expected_completion_date', 'freeze_started_at', 'freeze_days', 'frozen_until']);
+
+            $reversal = $this->ledger->reverse($entry->loadMissing('lines'), 'REPAYMENT REVERSED: '.$reason);
+
+            foreach ($penaltyPayments as $penaltyPayment) {
+                Penalty::whereKey($penaltyPayment->penalty_id)->lockForUpdate()->firstOrFail()->decrement('paid_amount', (float) $penaltyPayment->amount);
+                $penaltyPayment->delete();
+            }
+
+            $deposit->update([
+                'reversed_at' => now(),
+                'reversed_by' => $employee->id,
+                'reversal_reason' => $reason,
+                'reversal_journal_entry_id' => $reversal->id,
+            ]);
+            $this->rebuildSchedules($loan);
+
+            $payments = app(PaymentService::class);
+            $allocation = $deposit->paymentAllocation()->whereNull('reversed_at')->first();
+            $payment = $allocation !== null
+                ? $payments->returnReversedRepaymentToSuspense($allocation, $employee)
+                : $payments->holdReversedRepayment($deposit, $employee);
+
+            $this->reopenAfterReversal($loan, $from, $freeze, $employee);
+
+            AuditLog::create([
+                'company_id' => $loan->company_id,
+                'employee_id' => $employee->id,
+                'action' => 'LoanTransaction.reversed',
+                'auditable_type' => $deposit->getMorphClass(),
+                'auditable_id' => $deposit->id,
+                'before' => ['reversed_at' => null],
+                'after' => ['reversed_at' => $deposit->reversed_at?->toIso8601String(), 'reversal_journal_entry_id' => $reversal->id],
+                'context' => [
+                    'reason' => $reason,
+                    'penalty_payments_removed' => $penaltyPayments->map(fn (PenaltyPayment $row): array => $row->only(['id', 'penalty_id', 'amount', 'paid_on']))->values()->all(),
+                    'payment_id' => $payment->id,
+                ],
+                'ip_address' => request()?->ip(),
+            ]);
+
+            app(LoanWorkflow::class)->record($loan->fresh(), 'REPAYMENT_REVERSED', $from, $employee, [
+                'transaction_id' => $deposit->id,
+                'amount' => (float) $deposit->amount,
+                'principal' => (float) $deposit->principal,
+                'penalty' => (float) $deposit->penalty,
+                'interest' => (float) $deposit->interest,
+                'reserve' => (float) $deposit->reserve,
+                'insurance' => (float) $deposit->insurance,
+                'reason' => $reason,
+                'journal_reference' => $entry->reference,
+                'reversal_reference' => $reversal->reference,
+                'returned_to_suspense' => $payment->receipt_number,
+                'closed_period_adjustment' => $closedPeriod?->period_start->format('Y-m'),
+            ]);
+
+            return ['transaction' => $deposit, 'reversal' => $reversal, 'payment' => $payment, 'closed_period' => $closedPeriod?->period_start->format('Y-m')];
+        });
+    }
+
+    /**
+     * Why a loan disbursement cannot be reversed now, or null when it can (spec §21: never when downstream records
+     * depend on it). reverseDisbursement() enforces exactly these checks.
+     */
+    public function disbursementReversalBlocker(Loan $loan): ?string
+    {
+        if (! in_array($loan->status, [LoanStatus::Active, LoanStatus::Overdue], true)) {
+            return "Only an active or overdue loan can have its disbursement reversed (the loan is {$loan->status->label()}).";
+        }
+        if ($loan->transactions()->where('type', 'deposit')->whereNull('reversed_at')->exists()) {
+            return 'The loan has repayments; reverse them first (newest first).';
+        }
+        if (Penalty::where('loan_id', $loan->id)->where('is_waived', false)->exists()) {
+            return 'The loan has penalties; its disbursement cannot be reversed.';
+        }
+        if (Payment::where('loan_id', $loan->id)->whereIn('status', PaymentStatus::values(...PaymentStatus::awaitingFinance()))->exists()) {
+            return 'The loan has branch receipts waiting for Finance verification or approval; resolve them first.';
+        }
+        if ($loan->topup_of_loan_id !== null) {
+            return 'This loan is a top-up that settled a previous loan; a top-up disbursement cannot be reversed.';
+        }
+        if (Loan::where('topup_of_loan_id', $loan->id)->whereNotIn('status', LoanStatus::values(LoanStatus::Rejected, LoanStatus::Cancelled))->exists()) {
+            return 'Another loan is a top-up of this loan; its disbursement cannot be reversed.';
+        }
+
+        $entry = $this->disbursementEntry($loan);
+        if ($entry === null) {
+            return 'No disbursement journal entry was found for this loan.';
+        }
+        if ($entry->reversal()->exists()) {
+            return "The disbursement journal entry {$entry->reference} was already reversed directly in the ledger; the loan needs a manual correction.";
+        }
+        if (($blocker = $this->distributedPeriodBlocker((int) $loan->company_id, CarbonImmutable::parse($entry->entry_date), 'disbursement')) !== null) {
+            return $blocker;
+        }
+
+        foreach ($entry->lines()->with('account')->get() as $line) {
+            if ($line->account?->key === Account::LoanFee && (float) $line->debit > 0) {
+                $available = $this->ledger->balance($loan->company_id, Account::LoanFee, $line->account->branch_id);
+                if ($available + 0.005 < (float) $line->debit) {
+                    return 'The LOAN FEE A/C no longer holds the loan fee (available TZS '.money($available).', required TZS '.money($line->debit).').';
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Why the viewer cannot reverse this loan's disbursement now, or null when they can: the business blockers
+     * ({@see disbursementReversalBlocker()}) and rule 6 — the employee who posted the disbursement journal does not reverse it.
+     */
+    public function disbursementReverseBlockedReason(Loan $loan, ?Employee $viewer): ?string
+    {
+        $reason = $this->disbursementReversalBlocker($loan);
+        if ($reason === null && $viewer !== null) {
+            $reason = app(SegregationOfDuties::class)->reverseBlockedReason($this->disbursementEntry($loan), $viewer);
+        }
+
+        return $reason;
+    }
+
+    /**
+     * Reverse a loan disbursement (spec §21, §23) in one transaction with the loan row locked: Ledger::reverse() of the
+     * disbursement entry (Dr the source PRINCIPAL A/C or bank / Cr LOAN RECEIVABLE, and the deducted fee Dr FEE INCOME /
+     * Cr LOAN FEE A/C or bank), the disbursement batch and the withdrawal transaction are marked reversed (never deleted),
+     * and the loan becomes CANCELLED with the reason. Schedules are kept (derived rows of a cancelled loan are excluded
+     * wherever cancelled loans are). The money is assumed returned to the source account by the customer/provider.
+     */
+    public function reverseDisbursement(Loan $loan, string $reason, Employee $employee): Loan
+    {
+        return DB::transaction(function () use ($loan, $reason, $employee): Loan {
+            $loan = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
+
+            if (($blocker = $this->disbursementReversalBlocker($loan)) !== null) {
+                throw ValidationException::withMessages(['reason' => $blocker]);
+            }
+
+            $entry = $this->disbursementEntry($loan);
+            app(SegregationOfDuties::class)->assertCanReverse($entry, $employee);
+            $from = $loan->status;
+            $reversal = $this->ledger->reverse($entry->loadMissing('lines'), 'DISBURSEMENT REVERSED: '.$reason);
+            $marks = ['reversed_at' => now(), 'reversed_by' => $employee->id, 'reversal_reason' => $reason, 'reversal_journal_entry_id' => $reversal->id];
+
+            $disbursement = LoanDisbursement::where('loan_id', $loan->id)->where('journal_entry_id', $entry->id)->lockForUpdate()->first();
+            $disbursement?->update($marks);
+            $loan->transactions()->where('type', 'withdrawal')->whereNull('reversed_at')->update($marks);
+
+            $loan->update(['status' => LoanStatus::Cancelled, 'decision_reason' => $reason, 'days_past_due' => 0]);
+
+            $customer = $loan->customer;
+            if (! $customer->loans()->status(...LoanStatus::repayable())->exists()) {
+                $customer->update(['status' => $customer->loans()->status(LoanStatus::Closed)->exists() ? 'close' : 'pending']);
+            }
+
+            AuditLog::create([
+                'company_id' => $loan->company_id,
+                'employee_id' => $employee->id,
+                'action' => 'Loan.disbursement_reversed',
+                'auditable_type' => $loan->getMorphClass(),
+                'auditable_id' => $loan->id,
+                'before' => ['status' => $from->value],
+                'after' => ['status' => LoanStatus::Cancelled->value, 'reversal_journal_entry_id' => $reversal->id],
+                'context' => ['reason' => $reason, 'loan_disbursement_id' => $disbursement?->id],
+                'ip_address' => request()?->ip(),
+            ]);
+            app(LoanWorkflow::class)->record($loan, 'DISBURSEMENT_REVERSED', $from, $employee, [
+                'reason' => $reason,
+                'batch_id' => $disbursement?->batch_id,
+                'amount' => (float) $loan->amount_approved,
+                'journal_reference' => $entry->reference,
+                'reversal_reference' => $reversal->reference,
+            ]);
+
+            return $loan;
+        });
+    }
+
+    /**
+     * The journal entry a repayment posted (linked, or found by its source for rows posted before the link existed).
+     */
+    private function repaymentEntry(LoanTransaction $deposit): ?JournalEntry
+    {
+        return $deposit->journal_entry_id !== null
+            ? JournalEntry::find($deposit->journal_entry_id)
+            : JournalEntry::where('source_type', $deposit->getMorphClass())->where('source_id', $deposit->id)->whereNull('reversal_of_id')->oldest('id')->first();
+    }
+
+    /**
+     * The disbursement journal entry: the successful batch's entry, else (loans posted before batches kept it) the
+     * loan-sourced LOAN DISBURSEMENT entry.
+     */
+    private function disbursementEntry(Loan $loan): ?JournalEntry
+    {
+        $entryId = LoanDisbursement::where('loan_id', $loan->id)->where('status', LoanDisbursement::SUCCESS)->whereNotNull('journal_entry_id')->latest('id')->value('journal_entry_id');
+
+        return $entryId !== null
+            ? JournalEntry::find($entryId)
+            : JournalEntry::where('source_type', $loan->getMorphClass())->where('source_id', $loan->id)->whereNull('reversal_of_id')->where('description', 'like', 'LOAN DISBURSEMENT%')->oldest('id')->first();
+    }
+
+    public function closedPeriodOn(int $companyId, CarbonImmutable $date): ?AccountingPeriod
+    {
+        return AccountingPeriod::query()
+            ->where('company_id', $companyId)
+            ->closed()
+            ->whereDate('period_start', '<=', $date->toDateString())
+            ->whereDate('period_end', '>=', $date->toDateString())
+            ->first();
+    }
+
+    /**
+     * A transaction of a closed period whose profit was already distributed (dividend declaration, commission calculated or
+     * commission allocation) cannot be reversed: that would leave commission / reinvestment / dividend based on the old profit
+     * (spec §25).
+     */
+    public function distributedPeriodBlocker(int $companyId, CarbonImmutable $date, string $what): ?string
+    {
+        $period = $this->closedPeriodOn($companyId, $date);
+        if ($period === null) {
+            return null;
+        }
+
+        $distributions = array_filter([
+            DividendDeclaration::where('company_id', $companyId)->whereBetween('period', [$period->period_start->toDateString(), $period->period_end->toDateString()])->exists() ? 'dividend declaration' : null,
+            CommissionAllocation::where('accounting_period_id', $period->id)->exists() ? 'commission allocation' : ($period->commission_calculated_at !== null ? 'commission calculation' : null),
+        ]);
+
+        return $distributions === []
+            ? null
+            : "Profit for the closed period {$period->period_start->format('Y-m')} has already been distributed (".implode(' and ', $distributions)."); this {$what} cannot be reversed.";
+    }
+
+    /**
+     * The penalty payments a repayment created: linked rows, or — for repayments posted before the link existed — the
+     * unlinked penalty payments of the loan on the repayment date when they add up to its penalty portion and no other
+     * repayment that day paid penalty. Null when they cannot be matched reliably.
+     *
+     * @return Collection<int, PenaltyPayment>|null
+     */
+    private function penaltyPaymentsFor(LoanTransaction $deposit): ?Collection
+    {
+        $penalty = round((float) $deposit->penalty, 2);
+        $linked = PenaltyPayment::where('loan_transaction_id', $deposit->id)->get();
+
+        if ($linked->isNotEmpty()) {
+            return abs(round((float) $linked->sum('amount'), 2) - $penalty) < 0.005 ? $linked : null;
+        }
+        if ($penalty <= 0.004) {
+            return new Collection;
+        }
+
+        $sameDay = LoanTransaction::where('loan_id', $deposit->loan_id)->where('type', 'deposit')->whereNull('reversed_at')->whereKeyNot($deposit->id)
+            ->whereDate('transaction_date', $deposit->transaction_date->toDateString())->where('penalty', '>', 0)->exists();
+        if ($sameDay) {
+            return null;
+        }
+
+        $candidates = PenaltyPayment::whereNull('loan_transaction_id')
+            ->whereDate('paid_on', $deposit->transaction_date->toDateString())
+            ->whereHas('penalty', fn ($query) => $query->where('loan_id', $deposit->loan_id))
+            ->get();
+
+        return abs(round((float) $candidates->sum('amount'), 2) - $penalty) < 0.005 ? $candidates : null;
+    }
+
+    /**
+     * Instalment paid amounts rebuilt deterministically from the non-reversed repayments' principal + interest +
+     * insurance, filling instalments oldest due first (the order deposit() fills them).
+     */
+    private function rebuildSchedules(Loan $loan): void
+    {
+        $paid = round((float) $loan->transactions()->where('type', 'deposit')->whereNull('reversed_at')
+            ->selectRaw('COALESCE(SUM(principal + interest + insurance), 0) v')->value('v'), 2);
+
+        foreach ($loan->schedules()->orderBy('id')->lockForUpdate()->get() as $schedule) {
+            $portion = round(max(0.0, min($paid, (float) $schedule->amount)), 2);
+            if (abs((float) $schedule->paid_amount - $portion) > 0.004) {
+                $schedule->update(['paid_amount' => $portion]);
+            }
+            $paid = round($paid - $portion, 2);
+        }
+    }
+
+    /**
+     * After a repayment reversal: a loan closed by it reopens with today's arrears status and loses its settlement
+     * freeze decision; otherwise its arrears status and days past due are refreshed.
+     *
+     * @param  array<string, mixed>  $freeze  the settlement / freeze fields before the reversal
+     */
+    private function reopenAfterReversal(Loan $loan, LoanStatus $from, array $freeze, Employee $employee): void
+    {
+        $today = CarbonImmutable::today();
+        $unpaid = $loan->schedules()->whereDate('due_date', '<', $today->toDateString())->whereColumn('paid_amount', '<', 'amount')->get();
+        $wasClosed = $from === LoanStatus::Closed;
+        [$status, $daysPastDue] = $this->delinquency($loan, $unpaid, $today, $wasClosed ? LoanStatus::Active : $from);
+
+        $attributes = ['status' => $status, 'days_past_due' => $daysPastDue];
+        if ($wasClosed) {
+            $attributes += ['closed_at' => null, 'early_settlement' => null, 'expected_completion_date' => null, 'freeze_started_at' => null, 'freeze_days' => null, 'frozen_until' => null];
+        }
+        $loan->update($attributes);
+
+        if ($wasClosed) {
+            app(LoanWorkflow::class)->record($loan, 'SETTLEMENT_FREEZE_REVERSED', $from, $employee, collect($freeze)
+                ->map(fn (mixed $value): mixed => $value instanceof CarbonInterface ? $value->toIso8601String() : $value)
+                ->all());
+        }
+        if ($wasClosed || ($status === LoanStatus::Default && $from !== LoanStatus::Default)) {
+            $loan->customer->update(['status' => $status === LoanStatus::Default ? 'out' : 'open']);
+        }
     }
 
     private function newLoanNumber(): string

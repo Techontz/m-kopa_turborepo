@@ -16,6 +16,7 @@ use App\Services\Ledger;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
 class LoanFreezeTimeApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private const MESSAGE = 'Customer fully settled the previous loan early. Re-borrowing is frozen until 01 October 2026.';
 
@@ -44,6 +46,9 @@ class LoanFreezeTimeApiTest extends TestCase
         config(['integrations.vodacom.driver' => 'test', 'integrations.bank_mandate.driver' => 'test', 'integrations.vodacom.test_outcome' => 'success']);
         $this->travelTo('2026-09-01 10:00:00');
         $this->admin = $this->signInAdmin();
+        // Rule 6 (initiator ≠ approver, stage separation) is covered by SegregationOfDutiesTest; these fixtures drive every
+        // loan stage as one admin, so the company grants self-approval explicitly.
+        $this->grantSelfApproval($this->admin);
         $this->customerType = CustomerCategory::factory()->create(['company_id' => $this->admin->company_id]);
         $this->customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255754000123', 'customer_category_id' => $this->customerType->id]);
         $this->category = $this->category(['freeze_time_days' => 30, 'topup_percent' => 0]);

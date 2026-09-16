@@ -14,6 +14,7 @@ use App\Models\PenaltyPayment;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvancePayment;
 use App\Models\Saving;
+use App\Services\Reports\Financial\CashAccounts;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -30,21 +31,17 @@ use Illuminate\Support\Facades\DB;
  *   repayments less their penalty portion, which is reported under PENALTY), AGENT (agent transactions), SAVING DEPOSIT,
  *   DEBT PENDING (salary advance repayments), LOAN FEE (loan fee ledger inflow), PENALTY (penalty payments).
  * - Money out: LOAN WITHDRAWAL, SAVING WITHDRAWAL, DEBT PENDING (salary advances issued), EXPENSES
- *   (accepted expense requests), BANK (branch → bank transfers), TRANSFER (approved float sent).
+ *   (approved and paid expense requests by approval date, excluding those whose ledger posting was reversed), BANK (branch → bank transfers), TRANSFER (approved float sent).
  * Reversed records (reversal markers) are excluded.
  */
 class DailyReport
 {
     /**
-     * Asset accounts that are not cash in hand.
+     * Asset accounts that are not cash in hand: the non-money assets of {@see CashAccounts} plus bank accounts.
      *
      * @var list<Account>
      */
-    public const NON_CASH_ASSETS = [
-        Account::Bank, Account::LoanReceivable, Account::LoanArrears, Account::LoanDefault, Account::SalaryAdvanceReceivable,
-        Account::StaffLoanReceivable, Account::StaffAdvanceReceivable, Account::Offset, Account::OutstandingInterest,
-        Account::MotorVehicles, Account::Equipment, Account::FurnitureFixtures, Account::Buildings, Account::Land, Account::OtherFixedAssets,
-    ];
+    public const NON_CASH_ASSETS = [...CashAccounts::NON_CASH_ASSETS, Account::Bank];
 
     /**
      * @return array{in: array<string, float>, out: array<string, float>, total_in: float, total_out: float, opening: float, closing: float}
@@ -74,27 +71,31 @@ class DailyReport
             return $query;
         };
         $notReversed = fn (Builder $query): Builder => $query->whereNull($query->getModel()->qualifyColumn('reversed_at'));
-        $floats = fn (string $column): Builder => FloatTransfer::where('company_id', $companyId)->where('status', 'approved')
+        $floats = fn (string $column): Builder => FloatTransfer::where('company_id', $companyId)->where('status', 'approved')->whereNull('reversed_at')
             ->when($branchIds !== null, fn (Builder $query) => $query->whereIn($column, $branchIds ?: [0]), fn (Builder $query) => $query->whereNotNull($column))
             ->whereBetween('transfer_date', $range);
 
         $in = [
-            'CAPITAL' => $allBranches ? (float) Capital::where('company_id', $companyId)->where('pay_method', '!=', 'ASSET')->whereBetween('created_at', $timestamps)->sum('amount') : 0.0,
+            'CAPITAL' => $allBranches ? (float) Capital::where('company_id', $companyId)->active()->where('pay_method', '!=', 'ASSET')->whereBetween('created_at', $timestamps)->sum('amount') : 0.0,
             'TRANSFER' => (float) $floats('to_branch_id')->sum('amount'),
-            'DEPOSIT' => (float) $scoped(LoanTransaction::query())->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum(DB::raw('amount - penalty')),
+            'DEPOSIT' => (float) $notReversed($scoped(LoanTransaction::query()))->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum(DB::raw('amount - penalty')),
             'AGENT' => (float) $notReversed($scoped(AgentTransaction::query()))->whereBetween('transaction_date', $range)->sum('amount'),
             'SAVING DEPOSIT' => (float) $notReversed($scoped(Saving::query()))->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
             'DEBT PENDING' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn (Builder $query) => $notReversed($scoped($query)))->whereBetween('paid_on', $range)->sum('amount'),
             'LOAN FEE' => $this->movement($companyId, $branchIds, Account::LoanFee, $from, $to),
-            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->sum('amount'),
+            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)
+                ->where(fn (Builder $query) => $query->whereNull('loan_transaction_id')->orWhereIn('loan_transaction_id', LoanTransaction::query()->select('id')->whereNull('reversed_at')))
+                ->sum('amount'),
         ];
 
         $out = [
-            'LOAN WITHDRAWAL' => (float) $scoped(LoanTransaction::query())->where('type', 'withdrawal')->whereBetween('transaction_date', $range)->sum('amount'),
+            'LOAN WITHDRAWAL' => (float) $notReversed($scoped(LoanTransaction::query()))->where('type', 'withdrawal')->whereBetween('transaction_date', $range)->sum('amount'),
             'SAVING WITHDRAWAL' => (float) $notReversed($scoped(Saving::query()))->where('type', 'withdrawal')->whereBetween('transaction_date', $range)->sum('amount'),
             'DEBT PENDING' => (float) $notReversed($scoped(SalaryAdvance::query()))->whereNotNull('approved_at')->whereBetween('approved_at', $timestamps)->sum('amount'),
-            'EXPENSES' => (float) $scoped(ExpenseRequest::query())->where('status', 'accepted')->whereBetween('request_date', $range)->sum('amount'),
-            'BANK' => (float) $scoped(BankTransfer::query())->where('type', 'branch_to_bank')->where('status', 'approved')->whereBetween('transfer_date', $range)->sum('amount'),
+            'EXPENSES' => (float) $notReversed($scoped(ExpenseRequest::query()))->where('status', 'accepted')
+                ->whereRaw('DATE(COALESCE(approved_at, request_date)) BETWEEN ? AND ?', [$from->toDateString(), $to->toDateString()])
+                ->whereDoesntHave('journalEntry.reversal')->sum('amount'),
+            'BANK' => (float) $notReversed($scoped(BankTransfer::query()))->where('type', 'branch_to_bank')->where('status', 'approved')->whereBetween('transfer_date', $range)->sum('amount'),
             'TRANSFER' => (float) $floats('from_branch_id')->sum('amount'),
         ];
 
@@ -130,10 +131,7 @@ class DailyReport
      */
     private function cashPosition(int $companyId, ?array $branchIds, CarbonImmutable $until): float
     {
-        $moneyAccounts = array_map(fn (Account $account): string => $account->value, array_values(array_filter(
-            Account::cases(),
-            fn (Account $account): bool => $account->type() === 'asset' && ! in_array($account, self::NON_CASH_ASSETS, true),
-        )));
+        $moneyAccounts = array_map(fn (Account $account): string => $account->value, CashAccounts::moneyAccounts(includeBank: false));
 
         $totals = JournalLine::query()
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')

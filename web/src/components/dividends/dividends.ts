@@ -71,41 +71,6 @@ export function settingsTotal(dividend: string | number, reinvest: string | numb
   return { total, valid: true, message: null };
 }
 
-/** Pool and reinvestment from a profit and the shareholder % — same rounding as the server (half-up to the cent). */
-export function splitProfit(profit: number, dividendPercent: number): { pool: number; reinvest: number } {
-  const profitCents = Math.max(0, toCents(profit) || 0);
-  const basis = Math.round(dividendPercent * 100);
-  const poolCents = Number((BigInt(profitCents) * BigInt(Math.max(0, basis)) + BigInt(5000)) / BigInt(10000));
-  return { pool: poolCents / 100, reinvest: (profitCents - poolCents) / 100 };
-}
-
-/** Entitlements by shares with the largest-remainder rule, summing exactly to the pool (mirrors the server). */
-export function allocateEntitlements(pool: number, holdings: Array<{ id: number; shares: number }>): Map<number, number> {
-  const poolCents = Math.max(0, toCents(pool) || 0);
-  const total = holdings.reduce((sum, row) => sum + Math.max(0, row.shares), 0);
-  const result = new Map<number, number>();
-  if (total <= 0 || poolCents <= 0) {
-    holdings.forEach((row) => result.set(row.id, 0));
-    return result;
-  }
-
-  const rows = holdings.map((row, order) => {
-    const product = BigInt(poolCents) * BigInt(Math.max(0, row.shares));
-    return { row, order, cents: Number(product / BigInt(total)), remainder: Number(product % BigInt(total)) };
-  });
-  let leftover = poolCents - rows.reduce((sum, item) => sum + item.cents, 0);
-  [...rows]
-    .sort((left, right) => right.remainder - left.remainder || left.order - right.order)
-    .forEach((item) => {
-      if (leftover > 0 && item.row.shares > 0) {
-        item.cents += 1;
-        leftover -= 1;
-      }
-    });
-  rows.forEach((item) => result.set(item.row.id, item.cents / 100));
-  return result;
-}
-
 export interface PreviewTableRow extends PreviewRow {
   serial: number;
 }
@@ -309,4 +274,29 @@ export function loadState(input: { isLoading: boolean; error: unknown; count?: n
     return { state: "empty", message: emptyMessage };
   }
   return { state: "ready", message: "" };
+}
+
+export interface ProfitChainStep {
+  label: string;
+  value: string;
+  tone?: "in" | "out";
+}
+
+/**
+ * The profit chain of a closed month as the API computed it (spec §13–14, C1): net distributable profit → commission
+ * already calculated → remaining profit → principal reinvestment / shareholder dividend. While commission is not calculated
+ * nothing is deducted and nothing can be declared (the API blocks it). Empty for an open month.
+ */
+export function profitChain(preview: Pick<DividendPreview, "period_closed" | "distributable_profit" | "commission_amount" | "commission_calculated" | "base_amount" | "reinvestment_amount" | "dividend_pool" | "reinvest_percent" | "dividend_percent"> | undefined): ProfitChainStep[] {
+  if (!preview?.period_closed || preview.distributable_profit === null || preview.distributable_profit === undefined) {
+    return [];
+  }
+
+  return [
+    { label: "Net distributable profit", value: tzs(preview.distributable_profit) },
+    { label: preview.commission_calculated ? "Commission (10%)" : "Commission — not calculated (calculate it before declaring)", value: tzs(preview.commission_amount ?? 0), tone: "out" },
+    { label: "Remaining profit", value: tzs(preview.base_amount ?? 0) },
+    { label: `Principal reinvestment (${preview.reinvest_percent}%)`, value: tzs(preview.reinvestment_amount) },
+    { label: `Shareholder dividend (${preview.dividend_percent}%)`, value: tzs(preview.dividend_pool), tone: "in" },
+  ];
 }

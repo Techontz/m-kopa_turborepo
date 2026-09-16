@@ -6,7 +6,9 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Payments\ReasonRequest;
 use App\Http\Requests\Api\Payments\VerifyDepositRequest;
 use App\Http\Resources\Api\V1\Payments\TellerDepositResource;
+use App\Models\ApprovalPolicy;
 use App\Models\TellerDeposit;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,10 +37,14 @@ class ReconciliationController extends ApiController
         return TellerDepositResource::collection($query->get());
     }
 
-    public function verify(VerifyDepositRequest $request, TellerDeposit $tellerDeposit): JsonResponse
+    /**
+     * Rule 6: the teller who recorded the deposit cannot verify it.
+     */
+    public function verify(VerifyDepositRequest $request, TellerDeposit $tellerDeposit, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('payments.verify');
         $this->assertBranchAccessible((int) $tellerDeposit->branch_id);
+        $duties->assertCanApprove($tellerDeposit->employee_id, $this->currentEmployee(), 'teller deposit', workflow: ApprovalPolicy::TELLER_DEPOSITS);
 
         $deposit = $this->payments->verifyDeposit($tellerDeposit, (float) $request->input('statement_amount'), $request->string('statement_reference')->toString(), $this->currentEmployee());
 
@@ -47,20 +53,28 @@ class ReconciliationController extends ApiController
             : $this->message('Amount mismatch: deposit kept pending for investigation', 200, ['mismatch' => true]);
     }
 
-    public function confirm(TellerDeposit $tellerDeposit): JsonResponse
+    /**
+     * Rule 6: the teller who recorded the deposit cannot confirm (post) it.
+     */
+    public function confirm(TellerDeposit $tellerDeposit, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('payments.verify');
         $this->assertBranchAccessible((int) $tellerDeposit->branch_id);
+        $duties->assertCanApprove($tellerDeposit->employee_id, $this->currentEmployee(), 'teller deposit', workflow: ApprovalPolicy::TELLER_DEPOSITS);
 
         $this->payments->confirmDeposit($tellerDeposit, $this->currentEmployee());
 
         return $this->message('Payment confirmed successfully');
     }
 
-    public function reject(ReasonRequest $request, TellerDeposit $tellerDeposit): JsonResponse
+    /**
+     * Rule 6: the teller who recorded the deposit cannot reject it.
+     */
+    public function reject(ReasonRequest $request, TellerDeposit $tellerDeposit, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('payments.verify');
         $this->assertBranchAccessible((int) $tellerDeposit->branch_id);
+        $duties->assertCanApprove($tellerDeposit->employee_id, $this->currentEmployee(), 'teller deposit', workflow: ApprovalPolicy::TELLER_DEPOSITS);
 
         $this->payments->rejectDeposit($tellerDeposit, $request->string('reason')->toString(), $this->currentEmployee());
 

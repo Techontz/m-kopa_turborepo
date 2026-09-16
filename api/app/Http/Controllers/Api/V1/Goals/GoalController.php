@@ -202,7 +202,7 @@ class GoalController extends ApiController
             ->orWhere(fn (Builder $zone) => $zone->where('scope_type', 'zone')->whereIn('zone_id', $zoneIds))
             ->orWhere(fn (Builder $officer) => $officer->where('scope_type', 'employee')->when(
                 $isHead,
-                fn (Builder $scoped) => $scoped->whereIn('employee_id', Employee::whereIn('branch_id', $branchIds)->select('id')),
+                fn (Builder $scoped) => $scoped->whereIn('employee_id', Employee::staff()->whereIn('branch_id', $branchIds)->select('id')),
                 fn (Builder $own) => $own->where('employee_id', $me->id),
             )));
     }
@@ -216,7 +216,7 @@ class GoalController extends ApiController
 
         match ($data['scope_type']) {
             'branch' => $this->assertBranchAccessible((int) $data['branch_id']),
-            'employee' => abort_unless($this->scoped(Employee::query())->whereKey($data['employee_id'])->exists(), 403, 'You do not have access to this employee.'),
+            'employee' => abort_unless($this->scoped(Employee::query())->staff()->whereKey($data['employee_id'])->exists(), 403, 'You do not have access to this employee.'),
             'zone' => abort_unless($branchIds === null || Branch::where('zone_id', $data['zone_id'])->whereIn('id', $branchIds)->exists(), 403, 'You do not have access to this zone.'),
             default => abort_unless($branchIds === null, 403, 'Only head office can set company-wide goals.'),
         };
@@ -247,6 +247,7 @@ class GoalController extends ApiController
         $base = fn () => LoanTransaction::where('loan_transactions.company_id', $companyId)
             ->whereIn('loan_transactions.branch_id', $branchIds)
             ->where('loan_transactions.type', $type)
+            ->whereNull('loan_transactions.reversed_at')
             ->whereBetween('loan_transactions.transaction_date', [$from->toDateString(), $to->toDateString()]);
 
         return [

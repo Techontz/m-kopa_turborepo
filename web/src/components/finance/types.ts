@@ -1,3 +1,6 @@
+import type { Approvable } from "./Approval";
+import type { Reversible } from "./Reversal";
+
 export type ExpenseScope = "branch" | "hq" | "bank";
 
 export interface ExpenseType {
@@ -6,7 +9,7 @@ export interface ExpenseType {
   name: string;
 }
 
-export interface ExpenseRequest {
+export interface ExpenseRequest extends Reversible, Approvable {
   id: number;
   scope: ExpenseScope;
   branch_id: number | null;
@@ -18,7 +21,7 @@ export interface ExpenseRequest {
   amount: number;
   description: string | null;
   comment: string | null;
-  status: "pending" | "accepted";
+  status: "pending" | "accepted" | "reversed";
   staff: string | null;
   request_date: string;
   paid_from_account: string | null;
@@ -27,9 +30,11 @@ export interface ExpenseRequest {
   approved_at: string | null;
   approval_level: "finance" | "admin";
   can_approve: boolean;
+  approve_blocked_reason?: string | null;
+  journal_reference?: string | null;
 }
 
-export interface BankTransfer {
+export interface BankTransfer extends Reversible, Approvable {
   id: number;
   type: string;
   branch_id: number | null;
@@ -42,7 +47,7 @@ export interface BankTransfer {
   hq_account_label: string | null;
   amount: number;
   charge: number;
-  status: "pending" | "approved";
+  status: "pending" | "approved" | "rejected" | "reversed";
   transfer_date: string;
   reference?: string | null;
   journal_reference?: string | null;
@@ -50,7 +55,7 @@ export interface BankTransfer {
   created_at?: string | null;
 }
 
-export interface HqTransaction {
+export interface HqTransaction extends Reversible, Approvable {
   id: number;
   from_account: string;
   from_account_label: string | null;
@@ -58,7 +63,7 @@ export interface HqTransaction {
   to_account_label: string | null;
   amount: number;
   charge: number;
-  status: "pending" | "approved";
+  status: "pending" | "approved" | "reversed";
   staff: string | null;
   date: string;
   approved_at: string | null;

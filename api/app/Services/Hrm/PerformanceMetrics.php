@@ -48,6 +48,7 @@ class PerformanceMetrics
             ->join('loans', 'loans.id', '=', 'loan_transactions.loan_id')
             ->whereIn('loans.employee_id', $ids)
             ->where('loan_transactions.type', 'deposit')
+            ->whereNull('loan_transactions.reversed_at')
             ->whereDate('loan_transactions.transaction_date', '>=', $fromDate)
             ->whereDate('loan_transactions.transaction_date', '<=', $toDate)
             ->selectRaw('loans.employee_id, COALESCE(SUM(loan_transactions.amount), 0) AS amount')

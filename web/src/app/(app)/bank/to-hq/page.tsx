@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { FilterModal, HeaderButton, sum, type Filters } from "@/components/finance/FilterModal";
 import type { BankTransfer } from "@/components/finance/types";
+import { ApprovalActions, ApprovalStatus, isPending } from "@/components/finance/Approval";
+import { ReverseButton } from "@/components/finance/Reversal";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -52,14 +54,25 @@ export default function BankToHqPage() {
             { key: "bank_account", header: "From Account" },
             { key: "hq_account_label", header: "To Account" },
             { key: "transfer_date", header: "Date" },
-            { key: "action", header: "Action", sortable: false, render: () => null },
+            { key: "status", header: "Status", render: (row) => <ApprovalStatus row={row} /> },
+            {
+              key: "action",
+              header: "Action",
+              sortable: false,
+              render: (row) =>
+                isPending(row) ? (
+                  <ApprovalActions row={row} approvePath={`bank/transfers/${row.id}/approve`} rejectPath={`bank/transfers/${row.id}/reject`} description={`bank ${row.bank_account ?? ""} → ${row.hq_account_label ?? "HQ"} (charge ${money(row.charge)})`} />
+                ) : (
+                  row.status === "approved" && <ReverseButton row={row} path={`bank/transfers/${row.id}/reverse`} description={`bank ${row.bank_account ?? ""} → ${row.hq_account_label ?? "HQ"} (charge ${money(row.charge)} reversed too)`} />
+                ),
+            },
           ]}
           footer={
             <tr>
-              <td>TOTAL:</td>
-              <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
-              <td><b>{money(sum(rows, (row) => row.charge))}</b></td>
-              <td colSpan={4} />
+              <td>TOTAL <small className="text-muted">(posted only)</small>:</td>
+              <td><b>{money(sum(rows, (row) => (row.status === "approved" ? row.amount : 0)))}</b></td>
+              <td><b>{money(sum(rows, (row) => (row.status === "approved" ? row.charge : 0)))}</b></td>
+              <td colSpan={5} />
             </tr>
           }
         />

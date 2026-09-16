@@ -24,7 +24,7 @@ class AccessControl
                 ['name' => $definition['name'], 'is_system' => true],
             );
 
-            $permissions = $definition['permissions'] === ['*'] ? array_keys(config('permissions.permissions')) : $definition['permissions'];
+            $permissions = $definition['permissions'] === ['*'] ? $this->implicitPermissions() : $definition['permissions'];
             foreach ($permissions as $permission) {
                 $role->permissions()->firstOrCreate(['permission' => $permission]);
             }
@@ -33,23 +33,65 @@ class AccessControl
 
     /**
      * Effective permissions: the role's permissions plus the employee's granted overrides minus the revoked ones.
-     * The system Super Admin always holds every permission (overrides do not apply). Unknown keys are ignored.
+     * The system Super Admin always holds every permission except the explicit-only ones (other overrides do not apply). An
+     * explicit-only permission counts for a Super Admin only when it is granted visibly — stored on the Super Admin role or
+     * granted by an employee override (and not revoked by one) — so it always shows in this list and
+     * {@see self::explicitlyGranted()} never honours anything this list does not show. Unknown keys are ignored.
      *
      * @return list<string>
      */
     public function permissionsFor(Employee $employee): array
     {
+        $portal = $this->shareholderPortalPermissionsFor($employee);
+
+        if ($employee->isShareholderAccount()) {
+            return $portal;
+        }
+
         if ($employee->role?->key === 'super_admin') {
-            return array_keys(config('permissions.permissions'));
+            $explicit = $employee->permissionOverrides->whereIn('permission', $this->explicitOnlyPermissions());
+            $granted = $explicit->where('granted', true)->pluck('permission')->all();
+            $revoked = $explicit->where('granted', false)->pluck('permission')->all();
+            $effective = array_diff(array_unique([...$this->rolePermissionsFor($employee), ...$granted]), $revoked);
+
+            return array_values(array_intersect(array_keys(config('permissions.permissions')), [...$effective, ...$portal]));
         }
 
         $overrides = $employee->permissionOverrides;
         $granted = $overrides->where('granted', true)->pluck('permission')->all();
         $revoked = $overrides->where('granted', false)->pluck('permission')->all();
 
-        $effective = array_diff(array_unique([...$this->rolePermissionsFor($employee), ...$granted]), $revoked);
+        $staff = array_diff(array_unique([...$this->rolePermissionsFor($employee), ...$granted]), $revoked, $this->shareholderPortalPermissions());
+        $effective = [...$staff, ...$portal];
 
         return array_values(array_intersect(array_keys(config('permissions.permissions')), $effective));
+    }
+
+    /**
+     * Shareholder Portal permission keys (config permissions.shareholder_portal).
+     *
+     * @return list<string>
+     */
+    public function shareholderPortalPermissions(): array
+    {
+        return array_values(config('permissions.shareholder_portal', []));
+    }
+
+    /**
+     * Portal permissions come only from the link to a shareholder record: every portal key for a linked account (minus
+     * the ones revoked by an employee override), none otherwise — whatever the role or overrides grant.
+     *
+     * @return list<string>
+     */
+    public function shareholderPortalPermissionsFor(Employee $employee): array
+    {
+        if ($employee->shareHolder === null) {
+            return [];
+        }
+
+        $revoked = $employee->permissionOverrides->where('granted', false)->pluck('permission')->all();
+
+        return array_values(array_diff($this->shareholderPortalPermissions(), $revoked));
     }
 
     /**
@@ -64,10 +106,57 @@ class AccessControl
         }
 
         if ($employee->role->key === 'super_admin') {
-            return array_keys(config('permissions.permissions'));
+            $stored = $employee->role->permissions->pluck('permission')->all();
+
+            return array_values(array_filter(
+                array_keys(config('permissions.permissions')),
+                fn (string $permission): bool => ! in_array($permission, $this->shareholderPortalPermissions(), true)
+                    && (! in_array($permission, $this->explicitOnlyPermissions(), true) || in_array($permission, $stored, true)),
+            ));
         }
 
         return $employee->role->permissions->pluck('permission')->values()->all();
+    }
+
+    /**
+     * Permissions that are never implied (not by the Super Admin role, not by default roles): effective only when the
+     * company grants them explicitly.
+     *
+     * @return list<string>
+     */
+    public function explicitOnlyPermissions(): array
+    {
+        return array_values(config('permissions.explicit_only', []));
+    }
+
+    /**
+     * Every permission key except the explicit-only ones (what the Super Admin implicitly holds).
+     *
+     * @return list<string>
+     */
+    public function implicitPermissions(): array
+    {
+        return array_values(array_diff(array_keys(config('permissions.permissions')), $this->explicitOnlyPermissions(), $this->shareholderPortalPermissions()));
+    }
+
+    /**
+     * Whether the permission was configured for this employee explicitly — an employee override granting it, or the
+     * employee's role storing it (and no override revoking it). Never implied by the Super Admin role; used for
+     * explicit-only permissions such as approvals.self_approve. Only a permission the employee effectively holds
+     * ({@see self::permissionsFor()}) can count, so the Super Admin gets nothing that its permission list does not show.
+     */
+    public function explicitlyGranted(Employee $employee, string $permission): bool
+    {
+        if ($employee->isShareholderAccount() || ! $this->can($employee, $permission)) {
+            return false;
+        }
+
+        $override = $employee->permissionOverrides->firstWhere('permission', $permission);
+        if ($override !== null) {
+            return (bool) $override->granted;
+        }
+
+        return $employee->role !== null && $employee->role->permissions->contains('permission', $permission);
     }
 
     /**
@@ -78,13 +167,16 @@ class AccessControl
      */
     public function syncEmployeePermissions(Employee $employee, array $desired): void
     {
-        $role = $this->rolePermissionsFor($employee);
+        $portal = $this->shareholderPortalPermissions();
+        $desired = array_values(array_diff($desired, $portal));
+        $role = array_values(array_diff($this->rolePermissionsFor($employee), $portal));
         $overrides = [
             ...array_fill_keys(array_values(array_diff($desired, $role)), true),
             ...array_fill_keys(array_values(array_diff($role, $desired)), false),
         ];
 
-        $employee->permissionOverrides()->whereNotIn('permission', array_keys($overrides))->delete();
+        // Portal permissions are link-derived and never stored as staff privilege overrides here.
+        $employee->permissionOverrides()->whereNotIn('permission', [...array_keys($overrides), ...$portal])->delete();
         foreach ($overrides as $permission => $granted) {
             $employee->permissionOverrides()->updateOrCreate(['permission' => $permission], ['granted' => $granted]);
         }
@@ -99,6 +191,7 @@ class AccessControl
     public function forgetCachedPermissions(Employee $employee): void
     {
         $employee->unsetRelation('permissionOverrides');
+        $employee->unsetRelation('shareHolder');
         $employee->role?->unsetRelation('permissions');
     }
 
@@ -114,6 +207,10 @@ class AccessControl
      */
     public function branchIds(Employee $employee): ?array
     {
+        if ($employee->isShareholderAccount()) {
+            return [];
+        }
+
         return match ($employee->role?->scope ?? 'branch') {
             'company' => null,
             'zone' => $employee->zone_id ? Branch::where('zone_id', $employee->zone_id)->pluck('id')->all() : [],

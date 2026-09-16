@@ -15,13 +15,15 @@ Route::prefix('bank')->name('bank.')->group(function (): void {
         Route::get('transfers', 'index')->name('transfers.index');
         Route::post('transfers', 'store')->name('transfers.store');
         Route::post('transfers/{bankTransfer}/approve', 'approve')->name('transfers.approve');
+        Route::post('transfers/{bankTransfer}/reject', 'reject')->name('transfers.reject');
         Route::delete('transfers/{bankTransfer}', 'destroy')->name('transfers.destroy');
-        Route::get('to-branch', 'toBranchIndex')->name('to-branch.index');
-        Route::post('to-branch', 'toBranchStore')->name('to-branch.store');
         Route::get('to-hq', 'toHqIndex')->name('to-hq.index');
         Route::post('to-hq', 'toHqStore')->name('to-hq.store');
+        Route::get('reserve-to-investment', 'reserveToInvestmentIndex')->name('reserve-to-investment.index');
+        Route::post('reserve-to-investment', 'reserveToInvestmentStore')->name('reserve-to-investment.store');
         Route::get('company-transfers', 'companyIndex')->name('company-transfers.index');
         Route::post('company-transfers', 'companyStore')->name('company-transfers.store');
+        Route::post('transfers/{bankTransfer}/reverse', 'reverse')->name('transfers.reverse');
     });
 
     Route::controller(PayrollController::class)->group(function (): void {

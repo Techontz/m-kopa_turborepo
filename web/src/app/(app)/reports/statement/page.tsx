@@ -13,6 +13,8 @@ import { useApi } from "@/lib/hooks";
 
 interface StatementRow {
   id: number;
+  /** "deposit" / "withdrawal" loan transactions, or "recovery" (money recovered after write-off). */
+  type?: string;
   date: string;
   loan_number: string | null;
   description: string;
@@ -130,7 +132,7 @@ function StatementReport() {
           <DataTable
             rows={data?.rows}
             loading={isLoading}
-            rowKey={(row) => row.id}
+            rowKey={(row) => `${row.type ?? "transaction"}-${row.id}`}
             pageSize={100}
             columns={[
               { key: "date", header: "Date" },

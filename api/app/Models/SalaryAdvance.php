@@ -2,14 +2,29 @@
 
 namespace App\Models;
 
+use App\Enums\Account;
 use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Customer salary advance. The category fee is income only when collected (C2): {@see self::feeStatus()}.
+ */
 class SalaryAdvance extends Model
 {
+    public const FEE_NONE = 'no_fee';
+
+    public const FEE_NOT_APPROVED = 'not_approved';
+
+    public const FEE_UNCOLLECTED = 'uncollected';
+
+    public const FEE_COLLECTED = 'collected';
+
+    /** Legacy: the fee journal was posted at approval (before C2); it stays as booked and counts as collected. */
+    public const FEE_COLLECTED_AT_APPROVAL = 'collected_at_approval';
+
     use Auditable;
 
     protected $guarded = ['id'];
@@ -24,6 +39,7 @@ class SalaryAdvance extends Model
             'total_payable' => 'decimal:2',
             'approved_at' => 'datetime',
             'reversed_at' => 'datetime',
+            'fee_collected_at' => 'datetime',
         ];
     }
 
@@ -45,6 +61,46 @@ class SalaryAdvance extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function feeCollector(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'fee_collected_by');
+    }
+
+    public function feeJournalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'fee_journal_entry_id');
+    }
+
+    /**
+     * LEGACY detection: an approval journal of this advance (source = the advance, no fee_journal_entry_id link) that credits
+     * FEE INCOME — approvals before C2 posted Dr LOAN FEE A/C / Cr FEE INCOME together with the advance itself.
+     */
+    public function feePostedAtApproval(): bool
+    {
+        return JournalEntry::query()
+            ->where('source_type', $this->getMorphClass())
+            ->where('source_id', $this->id)
+            ->whereNull('reversal_of_id')
+            ->when($this->fee_journal_entry_id !== null, fn ($query) => $query->whereKeyNot($this->fee_journal_entry_id))
+            ->whereHas('lines', fn ($lines) => $lines->where('credit', '>', 0)->whereHas('account', fn ($account) => $account->where('key', Account::FeeIncome->value)))
+            ->exists();
+    }
+
+    /**
+     * Fee collection status: no fee, not approved yet (pending), uncollected, collected (with its journal) or collected at
+     * approval (legacy). A reversed advance keeps the status it had (its fee journal, if any, is reversed with it).
+     */
+    public function feeStatus(): string
+    {
+        return match (true) {
+            (float) $this->fee <= 0 => self::FEE_NONE,
+            $this->fee_journal_entry_id !== null => self::FEE_COLLECTED,
+            $this->approved_at !== null && $this->feePostedAtApproval() => self::FEE_COLLECTED_AT_APPROVAL,
+            $this->status === 'pending' || $this->approved_at === null => self::FEE_NOT_APPROVED,
+            default => self::FEE_UNCOLLECTED,
+        };
     }
 
     public function payments(): HasMany

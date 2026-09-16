@@ -8,11 +8,13 @@ use App\Models\Employee;
 use App\Models\HqTransaction;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class HqTransactionApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     public function test_balances_list_hq_accounts_with_total_and_as_at_date(): void
     {
@@ -34,6 +36,9 @@ class HqTransactionApiTest extends TestCase
         $admin = $this->signInAdmin();
         $ledger = app(Ledger::class);
         $ledger->openingBalance($admin->company_id, Account::HqInterest, 100000);
+        // Rule 6: an Admin requests, so the initiator is not the Super Admin (who approves their own items).
+        $requester = $this->secondApprover($admin, 'admin');
+        $this->actingAs($requester);
 
         $this->postJson('/api/v1/hq/transactions', [
             'from_account' => Account::HqInterest->value, 'to_account' => Account::HqDisbursement->value, 'amount' => 60000, 'charge' => 1000,
@@ -42,11 +47,14 @@ class HqTransactionApiTest extends TestCase
         $transaction = HqTransaction::firstOrFail();
         $this->getJson('/api/v1/hq/transactions')->assertOk()->assertJsonPath('data.0.from_account_label', 'INTEREST ACCOUNT')->assertJsonPath('total_charge', 1000);
 
-        $this->postJson("/api/v1/hq/transactions/{$transaction->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully');
+        // Rule 6: the requester cannot approve; a second authorised user does.
+        $this->postJson("/api/v1/hq/transactions/{$transaction->id}/approve")->assertForbidden();
+        $approver = $this->secondApprover($admin);
+        $this->asApprover($requester, fn () => $this->postJson("/api/v1/hq/transactions/{$transaction->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully'), $approver);
 
         $transaction->refresh();
         $this->assertSame('approved', $transaction->status);
-        $this->assertSame($admin->id, $transaction->approved_by);
+        $this->assertSame($approver->id, $transaction->approved_by);
         $this->assertSame(39000.0, $ledger->balance($admin->company_id, Account::HqInterest));
         $this->assertSame(60000.0, $ledger->balance($admin->company_id, Account::HqDisbursement));
 

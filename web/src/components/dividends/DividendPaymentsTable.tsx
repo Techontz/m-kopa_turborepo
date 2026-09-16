@@ -84,19 +84,22 @@ export function DividendPaymentsTable({ rows, isLoading, error, single, pageSize
               sortable: false,
               render: (row: DividendPayment) =>
                 row.status === "posted" && (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-danger"
-                    disabled={reverse.isPending}
-                    onClick={async () => {
-                      const reason = await promptReason(`Reverse ${tzs(row.amount)} paid to ${row.share_holder ?? "shareholder"}?`);
-                      if (reason) {
-                        reverse.mutate({ id: row.id, reason });
-                      }
-                    }}
-                  >
-                    <i className="icon-action-undo" /> Reverse
-                  </button>
+                  <span title={row.can_reverse === false ? row.reverse_blocked_reason ?? "" : "Reverse this payment"} className="d-inline-block">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      disabled={row.can_reverse === false || reverse.isPending}
+                      style={row.can_reverse === false ? { pointerEvents: "none" } : undefined}
+                      onClick={async () => {
+                        const reason = await promptReason(`Reverse ${tzs(row.amount)} paid to ${row.share_holder ?? "shareholder"}?`);
+                        if (reason) {
+                          reverse.mutate({ id: row.id, reason });
+                        }
+                      }}
+                    >
+                      <i className="icon-action-undo" /> Reverse
+                    </button>
+                  </span>
                 ),
             }]
           : []),

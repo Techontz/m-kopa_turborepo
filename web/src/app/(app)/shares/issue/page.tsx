@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ApprovalActions, ApprovalStatus, type Approvable } from "@/components/finance/Approval";
 import { SharesAccess } from "@/components/shares/SharesAccess";
 import { SharesNav } from "@/components/shares/SharesNav";
 import { parseAmount, projectIssuance, sharesLabel } from "@/components/shares/shares";
 import type { ShareHolderRow, SharesOverview } from "@/components/shares/types";
 import { Card } from "@/components/ui/Card";
+import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { FileField } from "@/components/ui/FileField";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -37,9 +39,59 @@ const EMPTY: IssueForm = { share_holder_id: "", type: "issuance", payment_treatm
 const DOCUMENT_EXTENSIONS = ["pdf", "jpg", "jpeg", "png", "webp"];
 const DOCUMENT_ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
 
+/** A paid share issuance awaiting approval (C6 maker/checker): nothing is posted until another authorised user approves it. */
+interface IssuanceRequestRow extends Approvable {
+  share_holder: string | null;
+  shares: number;
+  price_per_share: number;
+  issue_date: string | null;
+  pay_method: string;
+  bank_account: string | null;
+  requested_at: string | null;
+  share_transaction_reference: string | null;
+}
+
+function PendingIssuances() {
+  const { data: rows, isLoading } = useApi<IssuanceRequestRow[]>("shares/issuance-requests", { status: "all" });
+
+  return (
+    <Card title="Paid Share Issuances — Approval">
+      <DataTable
+        rows={rows}
+        loading={isLoading}
+        rowKey={(row) => row.id}
+        emptyMessage="No paid share issuance requests"
+        columns={[
+          { key: "requested_at", header: "Requested" },
+          { key: "share_holder", header: "Shareholder" },
+          { key: "shares", header: "Shares", render: (row) => sharesLabel(row.shares) },
+          { key: "price_per_share", header: "Price / Share", render: (row) => money(row.price_per_share) },
+          { key: "amount", header: "Amount", render: (row) => money(row.amount) },
+          { key: "pay_method", header: "Pay Method", render: (row) => `${row.pay_method}${row.bank_account ? ` — ${row.bank_account}` : ""}` },
+          { key: "status", header: "Status", render: (row) => <><ApprovalStatus row={row} />{row.share_transaction_reference && <div className="small text-muted">{row.share_transaction_reference}</div>}</> },
+          {
+            key: "action",
+            header: "Action",
+            sortable: false,
+            render: (row) => (
+              <ApprovalActions
+                row={row}
+                approvePath={`shares/issuance-requests/${row.id}/approve`}
+                rejectPath={`shares/issuance-requests/${row.id}/reject`}
+                description={`${sharesLabel(row.shares)} shares to ${row.share_holder ?? ""} (Dr ${row.pay_method === "BANK" ? "BANK" : "COMPANY ACCOUNT"} / Cr CAPITAL ACCOUNT, dated the approval date)`}
+              />
+            ),
+          },
+        ]}
+      />
+    </Card>
+  );
+}
+
 /**
  * Shares → Issue Shares. New shares increase total issued shares and dilute every holder. A paid issuance is recorded
  * as a capital contribution: Dr COMPANY ACCOUNT (cash) or the receiving bank / Cr CAPITAL ACCOUNT (share capital).
+ * C6 maker/checker: a paid issuance is only requested here; another authorised user approves it (posted then) or rejects it.
  */
 export default function IssueSharesPage() {
   const { can } = useAuth();
@@ -61,8 +113,10 @@ export default function IssueSharesPage() {
   const projection = projectIssuance(holders.map((row) => ({ id: row.id, name: row.name, shares: row.shares })), holderId, shares, currentValue);
   const overLimit = overview?.available_shares !== null && overview?.available_shares !== undefined && shares > overview.available_shares;
 
+  const requestsApproval = form.type === "issuance" && form.payment_treatment === "paid";
+
   const submit = async () => {
-    if (!(await confirmAction("Issue shares?", `${sharesLabel(shares)} shares to ${holders.find((row) => row.id === holderId)?.name ?? ""}${amount > 0 ? ` for ${money(amount)}` : ""}.`))) {
+    if (!(await confirmAction(requestsApproval ? "Request share issuance?" : "Issue shares?", `${sharesLabel(shares)} shares to ${holders.find((row) => row.id === holderId)?.name ?? ""}${amount > 0 ? ` for ${money(amount)}` : ""}.`))) {
       return;
     }
     const body = new FormData();
@@ -189,7 +243,7 @@ export default function IssueSharesPage() {
                 {form.type === "bonus_issuance"
                   ? "Bonus shares are issued without cash: no journal entry is posted."
                   : form.payment_treatment === "paid"
-                    ? "Posting: Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT (share capital), recorded as a capital contribution linked to this issuance."
+                    ? "Pending approval: nothing is posted and ownership does not change until another authorised user approves it. On approval (dated the approval date): Dr receiving account (COMPANY ACCOUNT or the bank) / Cr CAPITAL ACCOUNT (share capital), recorded as a capital contribution linked to this issuance."
                     : "The selected contribution was already posted to the ledger; no second journal entry is posted."}
               </small>
             </p>
@@ -214,11 +268,12 @@ export default function IssueSharesPage() {
             )}
 
             <div className="text-center m-t-20">
-              <button type="submit" className="btn btn-primary" disabled={issue.isPending || overLimit}><i className="icon-drawer" /> Issue Shares</button>
+              <button type="submit" className="btn btn-primary" disabled={issue.isPending || overLimit}><i className="icon-drawer" /> {requestsApproval ? "Request Share Issuance" : "Issue Shares"}</button>
             </div>
           </form>
         </Card>
       )}
+      <PendingIssuances />
     </SharesAccess>
   );
 }

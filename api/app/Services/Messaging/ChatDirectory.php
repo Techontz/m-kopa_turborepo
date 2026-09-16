@@ -62,7 +62,7 @@ class ChatDirectory
      */
     public function contacts(Employee $employee): Builder
     {
-        $query = Employee::query()
+        $query = Employee::query()->staff()
             ->where('company_id', $employee->company_id)
             ->where('status', 'active')
             ->whereKeyNot($employee->id);
@@ -96,7 +96,7 @@ class ChatDirectory
      */
     public function headIdsAbove(Employee $employee, string $level): array
     {
-        $active = fn (): Builder => Employee::where('company_id', $employee->company_id)->where('status', 'active')->whereKeyNot($employee->id);
+        $active = fn (): Builder => Employee::staff()->where('company_id', $employee->company_id)->where('status', 'active')->whereKeyNot($employee->id);
         $zoneId = $employee->zone_id ?? Branch::whereKey($employee->branch_id)->value('zone_id');
 
         if ($level === self::STAFF && $employee->branch_id) {
@@ -154,7 +154,7 @@ class ChatDirectory
      */
     public function audienceMemberIds(Employee $sender, string $type, ?int $id): array
     {
-        $query = Employee::where('company_id', $sender->company_id)->where('status', 'active');
+        $query = Employee::staff()->where('company_id', $sender->company_id)->where('status', 'active');
 
         match ($type) {
             'branch' => $query->where('branch_id', $id)

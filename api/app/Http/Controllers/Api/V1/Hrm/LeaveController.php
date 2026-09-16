@@ -41,7 +41,7 @@ class LeaveController extends HrmController
     {
         $this->authorizeAny('hrm.manage');
 
-        $employee = Employee::findOrFail($request->integer('empl_id'));
+        $employee = Employee::staff()->findOrFail($request->integer('empl_id'));
         $this->ensureVisible($employee);
 
         Leave::create([

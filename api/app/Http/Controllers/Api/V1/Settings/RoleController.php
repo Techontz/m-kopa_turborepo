@@ -85,6 +85,8 @@ class RoleController extends ApiController
         $role = $request->selectedRole();
 
         abort_if($employee->id === $current->id, 403, 'You cannot change your own role.');
+        abort_if($employee->isShareholderAccount(), 422, 'Shareholder portal accounts cannot be given a staff role.');
+        abort_if($role->key === 'shareholder', 422, 'The Shareholder role is assigned only by creating a shareholder login (Capital → Shareholders).');
         abort_if(($role->key === 'super_admin' || $employee->role?->key === 'super_admin') && $current->role?->key !== 'super_admin', 403, 'Only a Super Admin can assign the Super Admin role.');
 
         $before = ['role_id' => $employee->role_id, 'zone_id' => $employee->zone_id];

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BranchStaffFields, FilterModal, HeaderButton, statusTone, sum, type Filters } from "@/components/hrm/common";
 import type { StaffAdvance } from "@/components/hrm/types";
 import { Badge } from "@/components/ui/Badge";
+import { BlockedApproveButton } from "@/components/finance/Approval";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -84,10 +85,13 @@ export default function StaffSalaryAdvancePage() {
               className: "text-nowrap",
               render: (row) => (
                 <>
-                  {row.status === "pending" && hr && (
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className="icon-like" /></button>
+                  {!row.can_approve && row.approve_blocked_reason && ((row.status === "pending" && hr) || (row.status === "approved" && finance)) && (
+                    <BlockedApproveButton reason={row.approve_blocked_reason} label={row.status === "pending" ? "Approve" : "Disburse"} />
                   )}
-                  {row.status === "approved" && finance && (
+                  {row.status === "pending" && hr && row.can_approve !== false && (
+                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" disabled={act.isPending} onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className={act.isPending && act.variables?.id === row.id && act.variables.action === "approve" ? "fa fa-spinner fa-spin" : "icon-like"} /></button>
+                  )}
+                  {row.status === "approved" && finance && row.can_approve !== false && (
                     <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Disburse" onClick={() => setDisbursing(row)}><i className="icon-wallet" /></button>
                   )}
                   {hr && (

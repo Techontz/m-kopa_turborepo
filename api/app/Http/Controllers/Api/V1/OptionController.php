@@ -31,7 +31,7 @@ class OptionController extends ApiController
 
     public function employees(Request $request): JsonResponse
     {
-        $employees = $this->scoped(Employee::query())
+        $employees = $this->scoped(Employee::query())->staff()
             ->where('status', 'active')
             ->when($request->filled('branch_id'), fn ($query) => $query->where('branch_id', $request->integer('branch_id')))
             ->orderBy('first_name')

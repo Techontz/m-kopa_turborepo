@@ -157,7 +157,7 @@ class GoalProgress
      */
     private function transactions(Goal $goal, string $type): Builder
     {
-        $query = LoanTransaction::query()->where('company_id', $goal->company_id)->where('type', $type);
+        $query = LoanTransaction::query()->where('company_id', $goal->company_id)->where('type', $type)->whereNull('reversed_at');
 
         return match ($goal->scope_type) {
             'branch' => $query->where('branch_id', $goal->branch_id),

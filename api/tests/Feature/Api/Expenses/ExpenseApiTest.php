@@ -13,11 +13,13 @@ use App\Models\ExpenseType;
 use App\Models\LedgerAccount;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class ExpenseApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -115,6 +117,8 @@ class ExpenseApiTest extends TestCase
         $type = $this->type('hq', 'MAFUTA');
         $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 100000, branch: $this->admin->branch_id);
         $this->ledger->openingBalance($this->admin->company_id, Account::HqInterest, 50000);
+        $requester = $this->employeeWithRole('admin');
+        $this->actingAs($requester);
 
         $this->postJson('/api/v1/expenses/requests', [
             'scope' => 'hq', 'blanch_id' => $this->admin->branch_id, 'ex_id' => $type->id, 'req_amount' => 20000, 'req_description' => 'gari',
@@ -123,12 +127,14 @@ class ExpenseApiTest extends TestCase
         $this->assertSame($this->admin->branch_id, $request->branch_id);
 
         $this->actingAs($this->employeeWithRole('finance'));
-        $this->getJson('/api/v1/expenses/requests?scope=hq')->assertOk()->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.staff', $this->admin->full_name);
+        $this->getJson('/api/v1/expenses/requests?scope=hq')->assertOk()->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.staff', $requester->full_name);
         $this->postJson("/api/v1/expenses/requests/{$request->id}/accept")->assertForbidden();
 
-        $this->actingAs($this->admin);
+        $this->actingAs($requester);
         $this->postJson("/api/v1/expenses/requests/{$request->id}/accept", ['from_account' => Account::Interest->value])->assertUnprocessable()->assertJsonValidationErrors('from_account');
-        $this->postJson("/api/v1/expenses/requests/{$request->id}/accept", ['from_account' => Account::HqInterest->value])->assertOk();
+        // Rule 6: the requesting admin cannot accept it; another admin does.
+        $this->postJson("/api/v1/expenses/requests/{$request->id}/accept", ['from_account' => Account::HqInterest->value])->assertForbidden();
+        $this->approveAsSecondUser($requester, "/api/v1/expenses/requests/{$request->id}/accept", ['from_account' => Account::HqInterest->value]);
 
         $this->assertSame(30000.0, $this->ledger->balance($this->admin->company_id, Account::HqInterest));
         $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
@@ -155,7 +161,7 @@ class ExpenseApiTest extends TestCase
         $this->postJson('/api/v1/expenses/requests', ['scope' => 'bank', 'ac_id' => $bank->id, 'exp_id' => $type->id, 'amount' => 6200, 'comment' => 'mshahara'])->assertCreated();
         $request = ExpenseRequest::firstOrFail();
 
-        $this->postJson("/api/v1/expenses/requests/{$request->id}/accept")->assertOk();
+        $this->approveAsSecondUser($this->admin, "/api/v1/expenses/requests/{$request->id}/accept");
         $this->assertSame(10000.0, $bank->balance());
         $this->getJson('/api/v1/expenses/requests?scope=bank&status=all')->assertOk()->assertJsonPath('data.0.bank_account', 'NMB');
     }

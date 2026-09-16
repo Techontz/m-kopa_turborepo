@@ -37,7 +37,7 @@ class StaffFundController extends HrmController
             'reason' => ['required', 'string', 'max:1000'],
         ]);
 
-        $this->fund->withdraw(Employee::findOrFail($validated['empl_id']), (float) $validated['amount'], $validated['reason'], $this->currentEmployee());
+        $this->fund->withdraw(Employee::staff()->findOrFail($validated['empl_id']), (float) $validated['amount'], $validated['reason'], $this->currentEmployee());
 
         return $this->message('Staff Fund Withdrawal saved successfully');
     }

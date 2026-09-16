@@ -25,6 +25,9 @@ Route::prefix('shares')->name('shares.')->group(function (): void {
         Route::get('transactions/{shareTransaction}/document', 'document')->name('transactions.document');
         Route::post('transactions/{shareTransaction}/reverse', 'reverse')->name('transactions.reverse');
         Route::post('issuances', 'issue')->name('issuances.store');
+        Route::get('issuance-requests', 'issuanceRequests')->name('issuance-requests.index');
+        Route::post('issuance-requests/{issuanceRequest}/approve', 'approveIssuanceRequest')->whereNumber('issuanceRequest')->name('issuance-requests.approve');
+        Route::post('issuance-requests/{issuanceRequest}/reject', 'rejectIssuanceRequest')->whereNumber('issuanceRequest')->name('issuance-requests.reject');
         Route::post('transfers', 'transfer')->name('transfers.store');
         Route::post('cancellations', 'cancel')->name('cancellations.store');
         Route::post('adjustments', 'adjust')->name('adjustments.store');

@@ -25,6 +25,7 @@ class CommissionController extends HrmController
         if ($branchIds !== null) {
             $report['branches'] = array_values(array_filter($report['branches'], fn (array $branch): bool => in_array((int) $branch['branch_id'], $branchIds, true)));
             $report['zone_managers'] = [];
+            $report['summary'] = $this->commission->summary($report['branches']);
         }
 
         return response()->json(['data' => $report + ['month' => $this->month($request)->format('Y-m')]]);
@@ -35,7 +36,7 @@ class CommissionController extends HrmController
         $this->authorizeAny('payroll.approve');
         $request->validate(['period' => ['required', 'date_format:Y-m']]);
 
-        $rows = $this->commission->calculate($this->companyId(), $this->month($request));
+        $rows = $this->commission->calculate($this->companyId(), $this->month($request), $this->currentEmployee());
 
         return $this->message('Commission Calculated successfully', 200, ['data' => ['total' => round((float) $rows->sum('amount'), 2)]]);
     }

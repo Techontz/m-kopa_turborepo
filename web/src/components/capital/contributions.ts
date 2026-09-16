@@ -21,8 +21,29 @@ export interface Contribution {
   asset_code?: string | null;
   asset_name?: string | null;
   reversed?: boolean;
+  /** "pending" (awaiting approval by another user, not counted anywhere), "posted", "rejected" or "reversed". */
+  status?: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  rejected_by?: string | null;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
+  /** Rule 6: false for the employee who recorded it; approve_blocked_reason then says why. */
+  can_approve?: boolean;
+  approve_blocked_reason?: string | null;
+  can_reject?: boolean;
+  reversed_at?: string | null;
+  reversed_by?: string | null;
   reversal_reason?: string | null;
+  reversal_reference?: string | null;
+  /** Whether the signed-in user may reverse this CASH / BANK contribution now (capital.manage + accounting.reverse). */
+  can_reverse?: boolean;
+  reverse_blocked_reason?: string | null;
   created_at: string | null;
+  /** "shareholder_portal" when the shareholder submitted it from the Shareholder Portal; null when staff recorded it. */
+  source?: string | null;
+  source_label?: string;
+  cancelled_at?: string | null;
 }
 
 export interface ContributionHistory {

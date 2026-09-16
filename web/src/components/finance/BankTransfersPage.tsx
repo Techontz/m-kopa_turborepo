@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -14,6 +13,8 @@ import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
 import { FilterModal, HeaderButton, sum, type Filters } from "./FilterModal";
+import { ApprovalActions, ApprovalStatus } from "./Approval";
+import { isReversed, ReverseButton } from "./Reversal";
 import type { BankTransfer } from "./types";
 
 interface TransferForm {
@@ -32,7 +33,6 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
   const [form, setForm] = useState<TransferForm>(EMPTY);
   const { data: rows, isLoading } = useApi<BankTransfer[]>("bank/transfers", { status: approved ? "approved" : "pending", ...filters });
   const create = useAction<TransferForm>("post", "bank/transfers");
-  const approve = useAction<{ id: number }>("post", (body) => `bank/transfers/${body.id}/approve`);
   const remove = useAction<{ id: number }>("delete", (body) => `bank/transfers/${body.id}`);
 
   return (
@@ -52,7 +52,7 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
             { key: "branch_account_label", header: "From A/c" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "bank_account", header: "To A/C" },
-            { key: "status", header: "status", render: (row) => (row.status === "approved" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">PENDING</Badge>) },
+            { key: "status", header: "status", render: (row) => <ApprovalStatus row={row} /> },
             { key: "transfer_date", header: "Date" },
             {
               key: "action",
@@ -60,20 +60,22 @@ export function BankTransfersPage({ approved }: { approved: boolean }) {
               sortable: false,
               className: "text-nowrap",
               render: (row) =>
-                row.status === "pending" && (
+                row.status === "pending" ? (
                   <>
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
-                    <button type="button" className="btn btn-sm btn-icon btn-danger" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
+                    <ApprovalActions row={row} approvePath={`bank/transfers/${row.id}/approve`} description={`${row.branch ?? ""} ${row.branch_account_label ?? ""} → ${row.bank_account ?? "bank"}`} />
+                    <button type="button" className="btn btn-sm btn-icon btn-danger ml-1" title="Delete request" disabled={remove.isPending} onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                   </>
+                ) : (
+                  row.status === "approved" && <ReverseButton row={row} path={`bank/transfers/${row.id}/reverse`} description={`${row.branch ?? ""} ${row.branch_account_label ?? ""} → ${row.bank_account ?? "bank"}`} />
                 ),
             },
           ]}
           footer={
             <tr>
-              <td>TOTAL:</td>
+              <td>TOTAL{approved && <small className="text-muted"> (excl. reversed)</small>}:</td>
               <td />
               <td />
-              <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
+              <td><b>{money(sum(rows, (row) => (isReversed(row) ? 0 : row.amount)))}</b></td>
               <td colSpan={4} />
             </tr>
           }

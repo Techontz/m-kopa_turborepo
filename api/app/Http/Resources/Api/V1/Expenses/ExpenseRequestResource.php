@@ -3,8 +3,12 @@
 namespace App\Http\Resources\Api\V1\Expenses;
 
 use App\Enums\Account;
+use App\Models\ApprovalPolicy;
+use App\Models\Employee;
 use App\Models\ExpenseRequest;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\ExpenseApproval;
+use App\Services\TransferReversal;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Gate;
@@ -19,7 +23,17 @@ class ExpenseRequestResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $required = app(ExpenseApproval::class)->requiredPermissions($this->resource, (float) $this->amount);
+        $approval = app(ExpenseApproval::class);
+        $required = $approval->requiredPermissions($this->resource, (float) $this->amount);
+        $mayApprove = collect($required)->contains(fn (string $permission): bool => Gate::allows($permission));
+        $viewer = $request->user() instanceof Employee ? $request->user() : null;
+        $duties = app(SegregationOfDuties::class);
+        $reverseBlocked = match (true) {
+            $this->status !== 'accepted', ! $mayApprove || ! Gate::allows('accounting.reverse') => null,
+            default => $approval->reverseBlockedReason($this->resource)
+                ?? ($viewer === null ? null : $duties->reverseBlockedReason(app(TransferReversal::class)->postedEntry($this->resource), $viewer)),
+        };
+        $approvalFlags = $duties->flags($this->employee_id, $viewer, $this->status === 'pending', $mayApprove, workflow: ApprovalPolicy::EXPENSES);
 
         return [
             'id' => $this->id,
@@ -41,7 +55,14 @@ class ExpenseRequestResource extends JsonResource
             'approved_by' => $this->approver?->full_name,
             'approved_at' => $this->approved_at?->toDateString(),
             'approval_level' => in_array('expenses.approve_branch', $required, true) ? 'finance' : 'admin',
-            'can_approve' => $this->status === 'pending' && collect($required)->contains(fn (string $permission): bool => Gate::allows($permission)),
+            ...$approvalFlags,
+            'journal_reference' => $this->whenLoaded('journalEntry', fn () => $this->journalEntry?->reference),
+            'reversed_at' => $this->reversed_at?->toDateTimeString(),
+            'reversed_by' => $this->whenLoaded('reversedBy', fn () => $this->reversedBy?->full_name),
+            'reversal_reason' => $this->reversal_reason,
+            'reversal_reference' => $this->whenLoaded('reversalJournalEntry', fn () => $this->reversalJournalEntry?->reference),
+            'can_reverse' => $this->status === 'accepted' && $mayApprove && Gate::allows('accounting.reverse') && $reverseBlocked === null,
+            'reverse_blocked_reason' => $reverseBlocked,
         ];
     }
 }

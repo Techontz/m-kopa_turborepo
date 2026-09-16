@@ -15,6 +15,8 @@ enum Account: string
     // Assets — money and receivables
     case Company = 'company_cash';
     case Bank = 'bank';
+    /** Investment RESERVE A/C: interest reserve HQ has sent to the company Investment (company level, no branch). */
+    case InvestmentReserve = 'investment_reserve';
     case Principal = 'principal';
     case Interest = 'interest';
     case LoanFee = 'loan_fee';
@@ -23,6 +25,8 @@ enum Account: string
     case Agent = 'agent';
     case Insurance = 'insurance';
     case TellerCash = 'teller_cash';
+    /** Branch PETTY CASH A/C: branch spending money sent by HQ — the only money a branch holds. */
+    case PettyCash = 'petty_cash';
     case HqSalaryAdvance = 'hq_salary_advance';
     case HqDisbursement = 'hq_disbursement';
     case HqPenalty = 'hq_penalty';
@@ -41,6 +45,8 @@ enum Account: string
     case Offset = 'offset';
     /** ACCOUNT OVERVIEW 19: interest due but not yet paid. */
     case OutstandingInterest = 'outstanding_interest';
+    /** Penalties charged on overdue loans and not yet paid (accrued income, user decision D9). Not money. */
+    case PenaltyReceivable = 'penalty_receivable';
 
     // Assets — fixed (non-cash) assets, e.g. contributed as capital (config/assets.php maps asset types to these)
     case MotorVehicles = 'motor_vehicles';
@@ -56,10 +62,18 @@ enum Account: string
     case StaffPayable = 'staff_payable';
     case StaffFund = 'staff_fund';
     case DividendPayable = 'dividend_payable';
+    /** Commission allocated from a closed month's profit, not yet recognised in an approved payroll (D1). */
+    case CommissionPayable = 'commission_payable';
 
     // Equity
     case Capital = 'capital';
     case RetainedProfit = 'retained_profit';
+    /** Profit reinvested into branch principal by a dividend declaration — not stakeholder capital (spec §15, Rule 13, D4). */
+    case ReinvestedProfit = 'reinvested_profit';
+    /** Reserve cut from loan interest (spec §6, D6): equity, never income. */
+    case InterestReserve = 'interest_reserve';
+    /** Insurance income moved out of distributable profit at month end (D7). */
+    case InsuranceReserve = 'insurance_reserve';
 
     // Income
     case InterestIncome = 'interest_income';
@@ -79,8 +93,8 @@ enum Account: string
     public function type(): string
     {
         return match ($this) {
-            self::Suspense, self::SavingsDeposits, self::StaffPayable, self::StaffFund, self::DividendPayable => 'liability',
-            self::Capital, self::RetainedProfit => 'equity',
+            self::Suspense, self::SavingsDeposits, self::StaffPayable, self::StaffFund, self::DividendPayable, self::CommissionPayable => 'liability',
+            self::Capital, self::RetainedProfit, self::ReinvestedProfit, self::InterestReserve, self::InsuranceReserve => 'equity',
             self::InterestIncome, self::FeeIncome, self::PenaltyIncome, self::InsuranceIncome, self::RecoveryIncome => 'income',
             self::OperatingExpense, self::SalaryExpense, self::CommissionExpense, self::AllowanceExpense, self::WriteOffExpense, self::BankCharges => 'expense',
             default => 'asset',
@@ -98,19 +112,20 @@ enum Account: string
     public function code(): string
     {
         return match ($this) {
-            self::Company => '1000', self::Bank => '1010', self::Principal => '1100', self::Interest => '1110',
+            self::Company => '1000', self::Bank => '1010', self::InvestmentReserve => '1020', self::Principal => '1100', self::Interest => '1110',
             self::LoanFee => '1120', self::Penalty => '1130', self::Reserve => '1140', self::Agent => '1150',
-            self::Insurance => '1160', self::TellerCash => '1170', self::HqSalaryAdvance => '1200',
+            self::Insurance => '1160', self::TellerCash => '1170', self::PettyCash => '1180', self::HqSalaryAdvance => '1200',
             self::HqDisbursement => '1210', self::HqPenalty => '1220', self::HqInterest => '1230',
             self::HqReserve => '1240', self::HqLoanFee => '1250', self::HqSaving => '1260',
             self::LoanReceivable => '1300', self::LoanArrears => '1310', self::LoanDefault => '1320',
             self::SalaryAdvanceReceivable => '1330', self::StaffLoanReceivable => '1340', self::StaffAdvanceReceivable => '1350', self::StaffFundCash => '1360',
-            self::Offset => '1370', self::OutstandingInterest => '1380',
+            self::Offset => '1370', self::OutstandingInterest => '1380', self::PenaltyReceivable => '1390',
             self::MotorVehicles => '1500', self::Equipment => '1510', self::FurnitureFixtures => '1520',
             self::Buildings => '1530', self::Land => '1540', self::OtherFixedAssets => '1550',
             self::Suspense => '2000', self::SavingsDeposits => '2010', self::StaffPayable => '2020',
-            self::StaffFund => '2030', self::DividendPayable => '2040',
-            self::Capital => '3000', self::RetainedProfit => '3100',
+            self::StaffFund => '2030', self::DividendPayable => '2040', self::CommissionPayable => '2050',
+            self::Capital => '3000', self::ReinvestedProfit => '3010', self::InterestReserve => '3020', self::InsuranceReserve => '3030',
+            self::RetainedProfit => '3100',
             self::InterestIncome => '4000', self::FeeIncome => '4010', self::PenaltyIncome => '4020',
             self::InsuranceIncome => '4030', self::RecoveryIncome => '4040',
             self::OperatingExpense => '5000', self::SalaryExpense => '5100', self::CommissionExpense => '5110',
@@ -129,6 +144,7 @@ enum Account: string
             self::Agent => 'AGENT A/C',
             self::Insurance => 'INSURANCE A/C',
             self::TellerCash => 'TELLER CASH A/C',
+            self::PettyCash => 'PETTY CASH A/C',
             self::Bank => 'BANK',
             self::HqSalaryAdvance => 'SALARY ADVANCE ACCOUNT',
             self::HqDisbursement => 'DISBURSEMENT ACCOUNT',
@@ -138,6 +154,7 @@ enum Account: string
             self::HqLoanFee => 'LOAN FEE ACCOUNT',
             self::HqSaving => 'SAVING ACCOUNT',
             self::Company => 'COMPANY ACCOUNT',
+            self::InvestmentReserve => 'INVESTMENT RESERVE A/C',
             self::LoanReceivable => 'LOAN RECEIVABLE',
             self::LoanArrears => 'LOAN ARREARS',
             self::LoanDefault => 'DEFAULT LOANS',
@@ -147,6 +164,7 @@ enum Account: string
             self::StaffFundCash => 'STAFF FUND A/C',
             self::Offset => 'OFFSET ACCOUNT',
             self::OutstandingInterest => 'OUTSTANDING INTEREST',
+            self::PenaltyReceivable => 'PENALTY RECEIVABLE',
             self::MotorVehicles => 'MOTOR VEHICLES',
             self::Equipment => 'EQUIPMENT & ELECTRONICS',
             self::FurnitureFixtures => 'FURNITURE & FIXTURES',
@@ -158,7 +176,11 @@ enum Account: string
             self::StaffPayable => 'STAFF PAYABLE',
             self::StaffFund => 'STAFF FUND',
             self::DividendPayable => 'DIVIDEND ACCOUNT',
+            self::CommissionPayable => 'COMMISSION PAYABLE',
             self::Capital => 'CAPITAL ACCOUNT',
+            self::ReinvestedProfit => 'REINVESTED PROFIT',
+            self::InterestReserve => 'INTEREST RESERVE',
+            self::InsuranceReserve => 'INSURANCE RESERVE',
             self::RetainedProfit => 'PROFIT ACCOUNT',
             self::InterestIncome => 'INTEREST INCOME',
             self::FeeIncome => 'FEE INCOME',

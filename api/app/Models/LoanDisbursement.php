@@ -40,6 +40,7 @@ class LoanDisbursement extends Model
             'callback_payload' => 'array',
             'requested_at' => 'datetime',
             'completed_at' => 'datetime',
+            'reversed_at' => 'datetime',
         ];
     }
 

@@ -22,6 +22,7 @@ interface ConsolidatedPnl {
   expenses: Line[];
   total_expenses: number;
   net_profit: number;
+  insurance_income?: Line & { note?: string; legacy_income_amount?: number; reserve_amount?: number };
   months: Array<{ month: string; income: number; expenses: number; net_profit: number }>;
 }
 
@@ -80,7 +81,7 @@ export default function ConsolidatedProfitLossPage() {
                 ))}
                 <tr>
                   <td />
-                  <td className={styles.indent}>LESS: RESERVE (CUT FROM INTEREST)</td>
+                  <td className={styles.indent}>LESS: INTEREST RESERVE (CUT FROM INTEREST, NOT INCOME)</td>
                   <td>({money(data.reserve_amount)})</td>
                 </tr>
                 <tr className={styles.total}>
@@ -119,6 +120,20 @@ export default function ConsolidatedProfitLossPage() {
                   <td>NET PROFIT</td>
                   <td className={data.net_profit < 0 ? styles.out : undefined}>{money(data.net_profit)}</td>
                 </tr>
+                {data.insurance_income && (
+                  <tr>
+                    <td>{data.insurance_income.code}</td>
+                    <td className={styles.indent}>
+                      {data.insurance_income.label} <small className="text-muted">({data.insurance_income.note ?? "Not distributable: closed to INSURANCE RESERVE at month end."})</small>
+                      {data.insurance_income.legacy_income_amount !== undefined && (
+                        <small className="d-block text-muted">
+                          Legacy insurance income {money(data.insurance_income.legacy_income_amount)} · Collected to insurance reserve {money(data.insurance_income.reserve_amount ?? 0)}
+                        </small>
+                      )}
+                    </td>
+                    <td>{money(data.insurance_income.amount)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

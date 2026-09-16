@@ -61,6 +61,7 @@ export default function AgentTransactionsPage() {
                     type="button"
                     className="btn btn-sm btn-icon btn-danger"
                     title="Reverse"
+                    disabled={reverse.isPending}
                     onClick={async () => {
                       const reason = await promptReason("Reason for reversal");
                       if (reason) {
@@ -68,7 +69,7 @@ export default function AgentTransactionsPage() {
                       }
                     }}
                   >
-                    <i className="icon-action-undo" />
+                    <i className={reverse.isPending && reverse.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-action-undo"} />
                   </button>
                 ) : null,
             },

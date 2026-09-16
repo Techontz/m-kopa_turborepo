@@ -62,7 +62,7 @@ class InstalmentBehaviour
         $deposits = collect();
         foreach (array_chunk($loanIds, 1000) as $chunk) {
             $schedules = $schedules->concat(DB::table('loan_schedules')->whereIn('loan_id', $chunk)->orderBy('due_date')->orderBy('id')->get(['id', 'loan_id', 'due_date', 'amount']));
-            $deposits = $deposits->concat(DB::table('loan_transactions')->whereIn('loan_id', $chunk)->where('type', 'deposit')
+            $deposits = $deposits->concat(DB::table('loan_transactions')->whereIn('loan_id', $chunk)->where('type', 'deposit')->whereNull('reversed_at')
                 ->orderBy('transaction_date')->orderBy('id')->get(['loan_id', 'transaction_date', 'amount', 'penalty']));
         }
         $depositsByLoan = $deposits->groupBy('loan_id');

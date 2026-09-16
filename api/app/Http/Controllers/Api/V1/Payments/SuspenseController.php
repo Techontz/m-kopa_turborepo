@@ -6,12 +6,14 @@ use App\Enums\LoanStatus;
 use App\Enums\PaymentStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Payments\AllocateSuspenseRequest;
+use App\Http\Requests\Api\Payments\ConfirmedPaymentRequest;
 use App\Http\Requests\Api\Payments\ReasonRequest;
 use App\Http\Requests\Api\Payments\UnmatchedPaymentRequest;
 use App\Http\Resources\Api\V1\Payments\PaymentResource;
 use App\Models\Loan;
 use App\Models\Payment;
 use App\Services\AccessControl;
+use App\Services\LoanRecoveryService;
 use App\Services\LoanService;
 use App\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
@@ -63,6 +65,23 @@ class SuspenseController extends ApiController
         return $this->message('Payment saved to suspense successfully', 201, ['data' => new PaymentResource($payment)]);
     }
 
+    /**
+     * POST /payments/confirmed — Finance-entered payment, single step (C6): CONFIRMED, received into suspense and allocated to
+     * the loan (repayment, or recovery for a written-off loan) in one transaction.
+     */
+    public function storeConfirmed(ConfirmedPaymentRequest $request): JsonResponse
+    {
+        $this->authorizeAny('payments.suspense');
+        $loan = Loan::findOrFail($request->integer('loan_id'));
+        $this->assertBranchAccessible((int) $loan->branch_id);
+
+        $payment = $this->payments->recordConfirmed($loan, $request->validated(), $this->currentEmployee());
+
+        return $this->message($loan->status === LoanStatus::WrittenOff ? 'Payment confirmed and recorded as write-off recovery' : 'Payment confirmed and allocated successfully', 201, [
+            'data' => new PaymentResource($payment->load(['customer', 'branch', 'employee', 'loan', 'verifier', 'allocations.loan', 'allocations.loanTransaction'])),
+        ]);
+    }
+
     public function allocate(AllocateSuspenseRequest $request, Payment $payment): JsonResponse
     {
         $this->authorizeAny('payments.suspense');
@@ -72,7 +91,7 @@ class SuspenseController extends ApiController
 
         $this->payments->allocateSuspense($payment, $loan, (float) $request->input('amount'), $this->currentEmployee());
 
-        return $this->message('Payment allocated successfully');
+        return $this->message($loan->status === LoanStatus::WrittenOff ? 'Payment allocated successfully and recorded as write-off recovery (principal → penalty → interest → insurance)' : 'Payment allocated successfully');
     }
 
     public function flag(ReasonRequest $request, Payment $payment): JsonResponse
@@ -96,21 +115,40 @@ class SuspenseController extends ApiController
     }
 
     /**
-     * Repayable loans as {value,label} with outstanding balance, for the allocation modal.
+     * Repayable loans as {value,label} with outstanding balance, and written-off loans with an unrecovered write-off balance whose
+     * component split is known (money allocated to them is recorded as a write-off recovery, Principal → Penalty → Interest →
+     * Insurance), for the allocation and confirmed-payment modals.
      */
-    public function loanOptions(Request $request): JsonResponse
+    public function loanOptions(Request $request, LoanRecoveryService $recoveries): JsonResponse
     {
         $this->authorizeAny('payments.suspense');
 
         $loans = $this->scoped(Loan::query())
-            ->whereIn('status', LoanStatus::values(...LoanStatus::repayable()))
+            ->whereIn('status', [...LoanStatus::values(...LoanStatus::repayable()), LoanStatus::WrittenOff->value])
             ->when($request->filled('customer_id'), fn ($query) => $query->where('customer_id', $request->integer('customer_id')))
             ->with('customer')
             ->latest('id')
             ->limit(500)
             ->get();
 
-        return response()->json(['data' => $loans->map(function (Loan $loan): array {
+        return response()->json(['data' => $loans->map(function (Loan $loan) use ($recoveries): ?array {
+            if ($loan->status === LoanStatus::WrittenOff) {
+                $position = $recoveries->position($loan);
+                if ($position['unrecovered'] <= 0.004 || $position['components_status'] === LoanRecoveryService::COMPONENTS_AMBIGUOUS) {
+                    return null;
+                }
+
+                return [
+                    'value' => (string) $loan->id,
+                    'label' => $loan->customer->full_name.' / '.($loan->reference_number ?? $loan->loan_number).' — WRITTEN OFF, unrecovered '.money($position['unrecovered']),
+                    'customer_id' => $loan->customer_id,
+                    'phone' => $loan->customer->phone,
+                    'written_off' => true,
+                    'recovery' => $position,
+                    'outstanding' => [...array_map(fn (array $component): float => $component['remaining'], $position['components']), 'total' => $position['unrecovered']],
+                ];
+            }
+
             $outstanding = $this->loans->outstanding($loan);
 
             return [
@@ -118,9 +156,10 @@ class SuspenseController extends ApiController
                 'label' => $loan->customer->full_name.' / '.($loan->reference_number ?? $loan->loan_number).' — '.money($outstanding['total']),
                 'customer_id' => $loan->customer_id,
                 'phone' => $loan->customer->phone,
+                'written_off' => false,
                 'outstanding' => $outstanding,
             ];
-        })]);
+        })->filter()->values()]);
     }
 
     private function assertPaymentAccessible(Payment $payment): void

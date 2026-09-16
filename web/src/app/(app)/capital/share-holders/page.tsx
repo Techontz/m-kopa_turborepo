@@ -6,13 +6,16 @@ import { ContributionHistoryModal } from "@/components/capital/ContributionHisto
 import Link from "next/link";
 
 import { ownershipLabel } from "@/components/capital/contributions";
+import { CredentialsModal } from "@/components/shareholders/CredentialsModal";
+import { credentialsFrom, type CredentialEntry } from "@/components/shareholders/credentials";
+import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PassportPhotoField } from "@/components/ui/PassportPhotoField";
-import { confirmAction } from "@/components/ui/notify";
+import { confirmAction, notifySuccess } from "@/components/ui/notify";
 import { backendUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
@@ -37,6 +40,35 @@ interface ShareHolder {
   ownership_percent: number;
   holding_value: number;
   contributions_count: number;
+  login?: HolderLogin;
+}
+
+interface HolderLogin {
+  linked: boolean;
+  account_id: number | null;
+  account_type: "staff" | "shareholder" | null;
+  status: string | null;
+  must_change_password: boolean;
+  login: string | null;
+}
+
+interface AccountsOverview {
+  totals: { total: number; linked: number; not_linked: number; missing_phone: number; invalid_phone: number; missing_email: number; phone_conflicts: number; must_change_password: number; eligible: number };
+  share_holders: Array<{ id: number; name: string; mobile: string | null; linked: boolean; conflict: string | null; will: string | null; eligible: boolean }>;
+}
+
+/** Login status badge of a shareholder (Shareholder Portal account). */
+function LoginBadge({ login }: { login?: HolderLogin }) {
+  if (!login?.linked) {
+    return <Badge tone="default">NOT LINKED</Badge>;
+  }
+  if (login.account_type === "staff") {
+    return <Badge tone="info">STAFF LOGIN</Badge>;
+  }
+  if (login.status !== "active") {
+    return <Badge tone="danger">DEACTIVATED</Badge>;
+  }
+  return login.must_change_password ? <Badge tone="warning">MUST CHANGE PASSWORD</Badge> : <Badge tone="success">ACTIVE</Badge>;
 }
 
 interface HolderForm {
@@ -123,7 +155,24 @@ export default function ShareHoldersPage() {
   const [editForm, setEditForm] = useState<HolderForm>(EMPTY);
   const [historyOf, setHistoryOf] = useState<number | null>(null);
 
-  const create = useAction<FormData>("post", "capital/share-holders");
+  const [credentials, setCredentials] = useState<CredentialEntry[] | null>(null);
+  const { data: accounts } = useApi<AccountsOverview>(can(["users.manage", "capital.manage"]) ? "capital/share-holders/accounts" : null);
+  const noNotice = () => "";
+  const create = useAction<FormData, { message: string; account?: { outcome: string; message: string }; credentials?: unknown; data: ShareHolder }>("post", "capital/share-holders", noNotice);
+  const provision = useAction<{ id: number; name: string }>("post", (body) => `capital/share-holders/${body.id}/account`, noNotice);
+  const resetPassword = useAction<{ id: number; name: string }>("post", (body) => `capital/share-holders/${body.id}/account/reset-password`, noNotice);
+  const loginStatus = useAction<{ id: number; active: boolean }>("post", (body) => `capital/share-holders/${body.id}/account/status`);
+  const generate = useAction<{ all: boolean }>("post", "capital/share-holders/accounts/generate", noNotice);
+  const canUsers = can("users.manage");
+  const canAccounts = can(["users.manage", "capital.manage"]);
+  const showCredentials = (result: unknown, name: string, fallback: string) => {
+    const entries = credentialsFrom(result, name);
+    if (entries) {
+      setCredentials(entries);
+    } else {
+      notifySuccess((result as { message?: string })?.message ?? fallback);
+    }
+  };
   const update = useAction<FormData>("post", () => `capital/share-holders/${editing?.id}`);
   const remove = useAction<{ id: number }>("delete", (body) => `capital/share-holders/${body.id}`);
   const canManage = can("capital.manage");
@@ -138,7 +187,14 @@ export default function ShareHoldersPage() {
             key={formKey}
             onSubmit={(e) => {
               e.preventDefault();
-              create.mutate(toFormData(form, "POST"), { onSuccess: () => { setForm(EMPTY); setFormKey((key) => key + 1); } });
+              const name = [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(" ");
+              create.mutate(toFormData(form, "POST"), {
+                onSuccess: (result) => {
+                  setForm(EMPTY);
+                  setFormKey((key) => key + 1);
+                  showCredentials(result, name, `${result.message} — ${result.account?.message ?? ""}`);
+                },
+              });
             }}
           >
             <HolderFields form={form} setForm={setForm} fieldError={create.fieldError} />
@@ -146,6 +202,43 @@ export default function ShareHoldersPage() {
               <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-drawer" />Save</button>
             </div>
           </form>
+        </Card>
+      )}
+
+      {canAccounts && accounts && (
+        <Card
+          title="Shareholder login accounts"
+          actions={
+            accounts.totals.eligible > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={generate.isPending}
+                onClick={async () =>
+                  (await confirmAction("Generate login accounts?", `${accounts.totals.eligible} shareholder(s) with a valid phone get a login (staff phones are linked). Temporary passwords are shown once.`)) &&
+                  generate.mutate({ all: true }, { onSuccess: (result) => showCredentials(result, "", (result as { message?: string }).message ?? "Done") })
+                }
+              >
+                <i className="icon-key" /> Generate accounts ({accounts.totals.eligible})
+              </button>
+            )
+          }
+        >
+          <div className="d-flex flex-wrap" style={{ gap: 8 }} data-testid="accounts-totals">
+            <Badge tone="primary">Shareholders: {accounts.totals.total}</Badge>
+            <Badge tone="success">Linked: {accounts.totals.linked}</Badge>
+            <Badge tone="default">Not linked: {accounts.totals.not_linked}</Badge>
+            <Badge tone="warning">Missing phone: {accounts.totals.missing_phone}</Badge>
+            <Badge tone="warning">Invalid phone: {accounts.totals.invalid_phone}</Badge>
+            <Badge tone="warning">Missing email: {accounts.totals.missing_email}</Badge>
+            <Badge tone="danger">Phone matches staff / conflicts: {accounts.totals.phone_conflicts}</Badge>
+            <Badge tone="info">Must change password: {accounts.totals.must_change_password}</Badge>
+          </div>
+          {accounts.share_holders.some((row) => !row.linked && row.conflict) && (
+            <ul className="small text-muted mt-2 mb-0">
+              {accounts.share_holders.filter((row) => !row.linked && row.conflict).map((row) => <li key={row.id}>{row.name}: {row.conflict}</li>)}
+            </ul>
+          )}
         </Card>
       )}
 
@@ -178,6 +271,31 @@ export default function ShareHoldersPage() {
             { key: "total_contributed", header: "Total Contributed Capital", className: "text-right", render: (row) => <b>{money(row.total_contributed)}</b> },
             { key: "shares", header: "Shares", render: (row) => row.shares.toLocaleString("en-US") },
             { key: "ownership_percent", header: "Ownership % (share register)", render: (row) => ownershipLabel(row.ownership_percent) },
+            {
+              key: "login",
+              header: "Login",
+              value: (row) => (row.login?.linked ? `${row.login.status} ${row.login.login}` : "not linked"),
+              render: (row) => (
+                <>
+                  <LoginBadge login={row.login} />
+                  {canAccounts && !row.login?.linked && (
+                    <button type="button" className="btn btn-sm btn-link p-0 ml-1" disabled={provision.isPending} onClick={async () => (await confirmAction("Generate a login for this shareholder?")) && provision.mutate({ id: row.id, name: row.name }, { onSuccess: (result) => showCredentials(result, row.name, "Linked to the existing staff login") })}>
+                      Generate
+                    </button>
+                  )}
+                  {canUsers && row.login?.account_type === "shareholder" && (
+                    <div className="text-nowrap">
+                      <button type="button" className="btn btn-sm btn-link p-0 mr-2" disabled={resetPassword.isPending} onClick={async () => (await confirmAction("Reset the login password?", "A new temporary password is shown once and all sessions are signed out.")) && resetPassword.mutate({ id: row.id, name: row.name }, { onSuccess: (result) => showCredentials(result, row.name, "Password reset") })}>
+                        Reset password
+                      </button>
+                      <button type="button" className="btn btn-sm btn-link p-0" disabled={loginStatus.isPending} onClick={async () => (await confirmAction(row.login?.status === "active" ? "Deactivate this login?" : "Activate this login?")) && loginStatus.mutate({ id: row.id, active: row.login?.status !== "active" })}>
+                        {row.login?.status === "active" ? "Deactivate" : "Activate"}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ),
+            },
             {
               key: "action",
               header: "Action",
@@ -245,6 +363,7 @@ export default function ShareHoldersPage() {
       </Modal>
 
       <ContributionHistoryModal shareHolderId={historyOf} onClose={() => setHistoryOf(null)} />
+      <CredentialsModal entries={credentials} onClose={() => setCredentials(null)} />
     </>
   );
 }

@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { FilterModal, HeaderButton, sum, type Filters } from "@/components/finance/FilterModal";
+import { ApprovalActions, ApprovalStatus, isPending } from "@/components/finance/Approval";
+import { ReverseButton } from "@/components/finance/Reversal";
 import type { BankTransfer } from "@/components/finance/types";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -35,6 +37,7 @@ const DIRECTION_LABELS: Record<string, string> = { company_to_bank: "Company Cas
 /**
  * Bank → Company Cash ↔ Bank Transfer: internal company fund movements between the COMPANY ACCOUNT (company cash) and a
  * company bank account. Each is a ledger transfer (Dr receiving account / Cr sending account) — totals never change.
+ * Rule 6: a transfer is requested as PENDING and posted when another authorised user approves it.
  */
 export default function CompanyTransfersPage() {
   const [filters, setFilters] = useState<Filters>({});
@@ -78,12 +81,24 @@ export default function CompanyTransfersPage() {
             { key: "journal_reference", header: "Journal Ref", render: (row) => row.journal_reference ?? "—" },
             { key: "employee", header: "Recorded By", render: (row) => row.employee ?? "—" },
             { key: "created_at", header: "Date / Time" },
+            { key: "status", header: "Status", render: (row) => <ApprovalStatus row={row} /> },
+            {
+              key: "action",
+              header: "Action",
+              sortable: false,
+              render: (row) =>
+                isPending(row) ? (
+                  <ApprovalActions row={row} approvePath={`bank/transfers/${row.id}/approve`} rejectPath={`bank/transfers/${row.id}/reject`} description={DIRECTION_LABELS[row.type] ?? row.type} />
+                ) : (
+                  row.status === "approved" && <ReverseButton row={row} path={`bank/transfers/${row.id}/reverse`} description={DIRECTION_LABELS[row.type] ?? row.type} />
+                ),
+            },
           ]}
           footer={
             <tr>
-              <td colSpan={4}>TOTAL:</td>
-              <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
-              <td colSpan={4} />
+              <td colSpan={4}>TOTAL <small className="text-muted">(posted only)</small>:</td>
+              <td><b>{money(sum(rows, (row) => (row.status === "approved" ? row.amount : 0)))}</b></td>
+              <td colSpan={6} />
             </tr>
           }
         />
@@ -117,7 +132,7 @@ export default function CompanyTransfersPage() {
           </Field>
           <div className="col-12">
             <small className="text-muted">
-              Posting: Dr {form.direction === "company_to_bank" ? "BANK" : "COMPANY ACCOUNT"} / Cr {form.direction === "company_to_bank" ? "COMPANY ACCOUNT" : "BANK"}. Company Cash available: {money(data?.company_cash_balance)}.
+              Posted after approval by another authorised user: Dr {form.direction === "company_to_bank" ? "BANK" : "COMPANY ACCOUNT"} / Cr {form.direction === "company_to_bank" ? "COMPANY ACCOUNT" : "BANK"}. Company Cash available: {money(data?.company_cash_balance)}.
             </small>
           </div>
         </div>

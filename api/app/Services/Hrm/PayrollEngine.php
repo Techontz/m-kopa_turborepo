@@ -27,7 +27,8 @@ use Illuminate\Validation\ValidationException;
  *
  * Workflow: HR generates and approves (payroll.approve) → Finance pays (payroll.pay).
  *
- * Approval (salary recognition):  Dr Salary / Commission / Allowance Expense   Cr Staff Payable
+ * Approval (salary recognition):  Dr Salary / Allowance Expense, Dr Commission Payable (allocated commission, D1)
+ *                                  or Commission Expense (legacy)   Cr Staff Payable
  * Payment:                          Dr Staff Payable   Cr Staff Fund, Staff Advance, Staff Loan, paying account
  *
  * Branch staff and zone managers are paid from the INTEREST A/C of their branch, HQ staff from the
@@ -61,7 +62,7 @@ class PayrollEngine
             ->groupBy('employee_id')
             ->pluck('total', 'employee_id');
 
-        $employees = Employee::where('company_id', $companyId)
+        $employees = Employee::staff()->where('company_id', $companyId)
             ->where('status', 'active')
             ->whereHas('salaryInfo', fn ($query) => $query->where('salary', '>', 0))
             ->with([
@@ -92,7 +93,7 @@ class PayrollEngine
         return DB::transaction(function () use ($companyId, $month, $preparer, $existing): PayrollRun {
             $period = $this->commission->closedPeriod($companyId, $month);
             if ($period !== null && ! $this->commission->isLocked($period)) {
-                $this->commission->calculate($companyId, $month);
+                $this->commission->calculate($companyId, $month, $preparer);
             }
 
             $run = $existing ?? PayrollRun::create(['company_id' => $companyId, 'period' => $month->startOfMonth()->toDateString(), 'status' => PayrollRun::STATUS_DRAFT]);
@@ -121,6 +122,10 @@ class PayrollEngine
 
     /**
      * STEP 3 salary recognition: Dr expenses / Cr Staff Payable per employee. Values are frozen afterwards.
+     *
+     * Commission that was allocated from profit by a journal (user decision D1) is already a liability: Dr COMMISSION PAYABLE
+     * (the exact branch/employee accounts the allocation credited). Commission without an allocation journal (legacy, e.g.
+     * June 2026) keeps Dr COMMISSION EXPENSE.
      */
     public function approve(PayrollRun $run, Employee $approver): void
     {
@@ -133,15 +138,27 @@ class PayrollEngine
 
         DB::transaction(function () use ($run, $approver): void {
             $run->load('items.employee');
+            $payable = $this->allocatedCommissionPayable($run);
 
             foreach ($run->items as $item) {
                 $branchId = $this->payingAccount($item)['branch'];
-                $this->ledger->journal($run->company_id, 'Salary recognition '.$run->period->format('F Y').' - '.$item->employee->full_name, [
+                $commission = round((float) $item->commission, 2);
+                $lines = [
                     ['account' => Account::SalaryExpense, 'branch' => $branchId, 'debit' => (float) $item->base_salary],
-                    ['account' => Account::CommissionExpense, 'branch' => $branchId, 'debit' => (float) $item->commission],
-                    ['account' => Account::AllowanceExpense, 'branch' => $branchId, 'debit' => (float) $item->allowance],
-                    ['account' => Account::StaffPayable, 'employee' => $item->employee_id, 'credit' => (float) $item->gross],
-                ], $run, null, $branchId, $approver);
+                ];
+                foreach ($payable[$item->employee_id] ?? [] as $allocationBranchId => $credited) {
+                    $portion = round(min($credited, $commission), 2);
+                    if ($portion <= 0) {
+                        continue;
+                    }
+                    $lines[] = ['account' => Account::CommissionPayable, 'branch' => $allocationBranchId, 'employee' => $item->employee_id, 'debit' => $portion];
+                    $commission = round($commission - $portion, 2);
+                }
+                $lines[] = ['account' => Account::CommissionExpense, 'branch' => $branchId, 'debit' => $commission];
+                $lines[] = ['account' => Account::AllowanceExpense, 'branch' => $branchId, 'debit' => (float) $item->allowance];
+                $lines[] = ['account' => Account::StaffPayable, 'employee' => $item->employee_id, 'credit' => (float) $item->gross];
+
+                $this->ledger->journal($run->company_id, 'Salary recognition '.$run->period->format('F Y').' - '.$item->employee->full_name, $lines, $run, null, $branchId, $approver);
             }
 
             $run->update(['status' => PayrollRun::STATUS_APPROVED, 'approved_by' => $approver->id, 'approved_at' => now()]);
@@ -177,6 +194,33 @@ class PayrollEngine
 
             return $run->items->count();
         });
+    }
+
+    /**
+     * Commission credited to COMMISSION PAYABLE by the standing allocation journals of the run's closed month, per employee
+     * and allocation branch. Empty for a month without journal-posted allocations (legacy expense recognition).
+     *
+     * @return array<int, array<int, float>> employee id → branch id → amount
+     */
+    private function allocatedCommissionPayable(PayrollRun $run): array
+    {
+        $period = $this->commission->closedPeriod((int) $run->company_id, CarbonImmutable::parse($run->period->toDateString()));
+        if ($period === null) {
+            return [];
+        }
+
+        $payable = [];
+        foreach ($this->commission->allocationJournals($period) as $entry) {
+            foreach ($entry->lines as $line) {
+                if ($line->account?->key === Account::CommissionPayable && $line->account->employee_id !== null) {
+                    $employeeId = (int) $line->account->employee_id;
+                    $branchId = (int) $line->account->branch_id;
+                    $payable[$employeeId][$branchId] = round(($payable[$employeeId][$branchId] ?? 0) + (float) $line->credit - (float) $line->debit, 2);
+                }
+            }
+        }
+
+        return $payable;
     }
 
     /**

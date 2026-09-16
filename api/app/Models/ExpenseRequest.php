@@ -20,6 +20,7 @@ class ExpenseRequest extends Model
         return [
             'request_date' => 'date',
             'amount' => 'decimal:2',
+            'reversed_at' => 'datetime',
             'approved_at' => 'datetime',
         ];
     }
@@ -52,5 +53,20 @@ class ExpenseRequest extends Model
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
+    }
+
+    public function reversedBy(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'reversed_by');
+    }
+
+    public function reversalJournalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'reversal_journal_entry_id');
+    }
+
+    public function isReversed(): bool
+    {
+        return $this->status === 'reversed';
     }
 }

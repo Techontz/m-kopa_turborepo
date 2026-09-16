@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\Account;
+use App\Enums\TransactionType;
 use App\Models\AccountingPeriod;
 use App\Models\BankAccount;
 use App\Models\Branch;
@@ -32,6 +33,9 @@ use InvalidArgumentException;
  *   ['account' => Account, 'debit' => float, 'credit' => float,
  *    'branch' => Branch|int|null, 'bank' => BankAccount|int|null,
  *    'employee' => Employee|int|null, 'expense_type' => ExpenseType|int|null]
+ *
+ * Every entry carries a {@see TransactionType} (the business event). Callers may pass it; otherwise it is
+ * inferred centrally from the source model, description and accounts ({@see TransactionType::infer()}).
  */
 class Ledger
 {
@@ -46,6 +50,7 @@ class Ledger
         ?CarbonInterface $date = null,
         Branch|int|null $branch = null,
         Employee|int|null $employee = null,
+        ?TransactionType $type = null,
     ): JournalEntry {
         $companyId = $this->id($company);
         $lines = array_values(array_filter($lines, fn (array $line): bool => round((float) ($line['debit'] ?? 0), 2) > 0 || round((float) ($line['credit'] ?? 0), 2) > 0));
@@ -59,13 +64,21 @@ class Ledger
 
         $this->assertPeriodOpen($companyId, $date ?? now());
 
-        return DB::transaction(function () use ($companyId, $description, $lines, $source, $date, $branch, $employee): JournalEntry {
+        $type ??= TransactionType::infer(
+            $source?->getMorphClass(),
+            $description,
+            array_values(array_map(fn (array $line): string => $line['account']->value, array_filter($lines, fn (array $line): bool => round((float) ($line['debit'] ?? 0), 2) > 0))),
+            array_values(array_map(fn (array $line): string => $line['account']->value, array_filter($lines, fn (array $line): bool => round((float) ($line['credit'] ?? 0), 2) > 0))),
+        );
+
+        return DB::transaction(function () use ($companyId, $description, $lines, $source, $date, $branch, $employee, $type): JournalEntry {
             $entry = JournalEntry::create([
                 'company_id' => $companyId,
                 'branch_id' => $this->id($branch),
                 'employee_id' => $this->id($employee) ?? auth()->id(),
                 'reference' => $this->newReference(),
                 'description' => $description,
+                'transaction_type' => $type?->value,
                 'source_type' => $source?->getMorphClass(),
                 'source_id' => $source?->getKey(),
                 'entry_date' => ($date ?? now())->toDateString(),
@@ -91,7 +104,7 @@ class Ledger
      * @param  array{account: Account, branch?: Branch|int|null, bank?: BankAccount|int|null, employee?: Employee|int|null, expense_type?: ExpenseType|int|null}  $from
      * @param  array{account: Account, branch?: Branch|int|null, bank?: BankAccount|int|null, employee?: Employee|int|null, expense_type?: ExpenseType|int|null}  $to
      */
-    public function transfer(Company|int $company, array $from, array $to, float $amount, string $description, ?Model $source = null, float $charge = 0, ?CarbonInterface $date = null): JournalEntry
+    public function transfer(Company|int $company, array $from, array $to, float $amount, string $description, ?Model $source = null, float $charge = 0, ?CarbonInterface $date = null, ?TransactionType $type = null): JournalEntry
     {
         $lines = [
             $to + ['debit' => $amount],
@@ -102,7 +115,7 @@ class Ledger
             $lines[] = ['account' => Account::BankCharges, 'branch' => $from['branch'] ?? null, 'debit' => $charge];
         }
 
-        return $this->journal($company, $description, $lines, $source, $date, $to['branch'] ?? $from['branch'] ?? null);
+        return $this->journal($company, $description, $lines, $source, $date, $to['branch'] ?? $from['branch'] ?? null, type: $type);
     }
 
     /**
@@ -117,8 +130,9 @@ class Ledger
         ?Model $reference = null,
         BankAccount|int|null $bankAccount = null,
         ?CarbonInterface $date = null,
+        ?TransactionType $type = null,
     ): JournalEntry {
-        return $this->transfer($company, ['account' => Account::Capital], ['account' => $account, 'branch' => $branch, 'bank' => $bankAccount], $amount, $description, $reference, date: $date);
+        return $this->transfer($company, ['account' => Account::Capital], ['account' => $account, 'branch' => $branch, 'bank' => $bankAccount], $amount, $description, $reference, date: $date, type: $type ?? TransactionType::OpeningBalance);
     }
 
     /**
@@ -142,6 +156,7 @@ class Ledger
                 'employee_id' => auth()->id(),
                 'reference' => $this->newReference(),
                 'description' => 'REVERSAL: '.$entry->description,
+                'transaction_type' => TransactionType::Reversal->value,
                 'source_type' => $entry->source_type,
                 'source_id' => $entry->source_id,
                 'entry_date' => now()->toDateString(),

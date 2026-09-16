@@ -32,6 +32,7 @@ class OperationalReports
     public function cash(ReportScope $scope): array
     {
         $rows = $scope->between($scope->apply(LoanTransaction::query(), 'loan_transactions'), 'transaction_date')
+            ->whereNull('loan_transactions.reversed_at')
             ->with('customer:id,first_name,middle_name,last_name')
             ->orderBy('transaction_date')
             ->orderBy('id')
@@ -57,6 +58,8 @@ class OperationalReports
      * every cashed-out loan, received = every repayment). With dates: receivable = instalments due in the range split
      * in the loan's principal:interest proportion (inferred), received = repayments in the range.
      * Total Pending = receivable − received excluding the penalty part (penalties are not part of the receivable).
+     * Written-off loans are not pending: their unpaid receivable is reported in its own "written_off" column (the principal
+     * has been expensed by the write-off).
      *
      * @return array{rows: list<array<string, mixed>>, totals: array<string, float>}
      */
@@ -69,6 +72,7 @@ class OperationalReports
                 ->whereIn('loans.status', $statuses)
                 ->groupBy('loans.branch_id')
                 ->selectRaw('loans.branch_id as branch_id, SUM(loan_schedules.amount) as total')
+                ->selectRaw('SUM(CASE WHEN loans.status = ? THEN loan_schedules.amount ELSE 0 END) as written_off', [LoanStatus::WrittenOff->value])
                 ->selectRaw('SUM(CASE WHEN loans.total_payable + loans.insurance > 0 THEN loan_schedules.amount * loans.amount_approved / (loans.total_payable + loans.insurance) ELSE 0 END) as principal')
                 ->selectRaw('SUM(CASE WHEN loans.total_payable + loans.insurance > 0 THEN loan_schedules.amount * loans.interest_amount / (loans.total_payable + loans.insurance) ELSE 0 END) as interest')
                 ->get()
@@ -78,14 +82,17 @@ class OperationalReports
                 ->whereIn('status', $statuses)
                 ->groupBy('branch_id')
                 ->selectRaw('branch_id, SUM(total_payable) as total, SUM(amount_approved) as principal, SUM(interest_amount) as interest')
+                ->selectRaw('SUM(CASE WHEN status = ? THEN total_payable ELSE 0 END) as written_off', [LoanStatus::WrittenOff->value])
                 ->get()
                 ->keyBy('branch_id');
         }
 
         $received = $scope->between($scope->apply(LoanTransaction::query(), 'loan_transactions'), 'transaction_date')
             ->where('type', 'deposit')
+            ->whereNull('reversed_at')
             ->groupBy('branch_id')
             ->selectRaw('branch_id, SUM(amount) as total, SUM(principal) as principal, SUM(interest) as interest, SUM(penalty) as penalty, SUM(reserve) as reserve')
+            ->selectRaw('SUM(CASE WHEN loan_id IN (SELECT id FROM loans WHERE status = ?) THEN amount - penalty ELSE 0 END) as written_off', [LoanStatus::WrittenOff->value])
             ->get()
             ->keyBy('branch_id');
 
@@ -97,6 +104,8 @@ class OperationalReports
                 $paid = $received->get($branch->id);
                 $total = round((float) ($due->total ?? 0), 2);
                 $receivedTotal = round((float) ($paid->total ?? 0), 2);
+                $writtenOffDue = (float) ($due->written_off ?? 0);
+                $writtenOffPaid = (float) ($paid->written_off ?? 0);
 
                 return [
                     'branch_id' => $branch->id,
@@ -107,12 +116,13 @@ class OperationalReports
                     'received' => $receivedTotal,
                     'received_principal' => round((float) ($paid->principal ?? 0), 2),
                     'received_interest' => round((float) ($paid->interest ?? 0), 2),
-                    'pending' => round(max(0.0, $total - ($receivedTotal - (float) ($paid->penalty ?? 0))), 2),
+                    'pending' => round(max(0.0, ($total - $writtenOffDue) - ($receivedTotal - (float) ($paid->penalty ?? 0) - $writtenOffPaid)), 2),
+                    'written_off' => round(max(0.0, $writtenOffDue - $writtenOffPaid), 2),
                     'reserve' => round((float) ($paid->reserve ?? 0), 2),
                 ];
             });
 
-        return ['rows' => $rows->values()->all(), 'totals' => $this->sums($rows, ['receivable', 'receivable_principal', 'receivable_interest', 'received', 'received_principal', 'received_interest', 'pending', 'reserve'])];
+        return ['rows' => $rows->values()->all(), 'totals' => $this->sums($rows, ['receivable', 'receivable_principal', 'receivable_interest', 'received', 'received_principal', 'received_interest', 'pending', 'written_off', 'reserve'])];
     }
 
     /**
@@ -131,6 +141,7 @@ class OperationalReports
 
         $deposits = $scope->apply(LoanTransaction::query(), 'loan_transactions')
             ->where('type', 'deposit')
+            ->whereNull('reversed_at')
             ->whereNotNull('loan_id')
             ->whereBetween('transaction_date', ["{$year}-01-01", "{$year}-12-31"])
             ->when($statusValue, fn (Builder $query, array $values) => $query->whereHas('loan', fn (Builder $loan) => $loan->whereIn('status', LoanStatus::values(...$values))))
@@ -215,6 +226,7 @@ class OperationalReports
     {
         $thisMonth = LoanTransaction::query()
             ->where('type', 'deposit')
+            ->whereNull('reversed_at')
             ->whereBetween('transaction_date', [$today->startOfMonth()->toDateString(), $today->endOfMonth()->toDateString()])
             ->groupBy('loan_id')
             ->selectRaw('loan_id, SUM(amount) as amount');
@@ -231,15 +243,18 @@ class OperationalReports
     }
 
     /**
-     * Write-off Loan (open write-offs) / Bad Debt Done (written-off debt fully recovered; inferred).
+     * Write-off Loan (open write-offs) / Bad Debt Done (written-off debt fully recovered; inferred). Recovered = standing
+     * recoveries after write-off ({@see WriteOff::recoveredSql()}); net unrecovered = written off − recovered.
      *
-     * @return array{rows: list<array<string, mixed>>, totals: array{amount: float, recovered_amount: float}}
+     * @return array{rows: list<array<string, mixed>>, totals: array{amount: float, recovered_amount: float, net_unrecovered: float}}
      */
     public function writeOff(ReportScope $scope, bool $recovered): array
     {
         $rows = WriteOff::query()
             ->whereHas('loan', fn (Builder $query) => $scope->apply($query, 'loans'))
-            ->when($recovered, fn (Builder $query) => $query->whereColumn('recovered_amount', '>=', 'amount'), fn (Builder $query) => $query->whereColumn('recovered_amount', '<', 'amount'))
+            ->select('write_offs.*')
+            ->selectRaw(WriteOff::recoveredSql().' AS recovered_total')
+            ->when($recovered, fn (Builder $query) => $query->whereRaw(WriteOff::recoveredSql().' >= write_offs.amount'), fn (Builder $query) => $query->whereRaw(WriteOff::recoveredSql().' < write_offs.amount'))
             ->when($scope->dated(), fn (Builder $query) => $scope->between($query, 'written_off_on'))
             ->with(['loan.customer:id,first_name,middle_name,last_name,phone', 'loan.branch:id,name', 'employee:id,first_name,middle_name,last_name'])
             ->orderBy('written_off_on')
@@ -256,7 +271,8 @@ class OperationalReports
                 'duration' => $writeOff->loan->duration->label(),
                 'sessions' => $writeOff->loan->sessions,
                 'amount' => (float) $writeOff->amount,
-                'recovered_amount' => (float) $writeOff->recovered_amount,
+                'recovered_amount' => round((float) $writeOff->recovered_total, 2),
+                'net_unrecovered' => max(0.0, round((float) $writeOff->amount - (float) $writeOff->recovered_total, 2)),
                 'start_date' => $writeOff->loan->withdrawn_at?->toDateString(),
                 'end_date' => $writeOff->loan->end_date?->toDateString(),
                 'written_off_on' => $writeOff->written_off_on?->toDateString(),
@@ -264,7 +280,7 @@ class OperationalReports
                 'description' => $writeOff->description,
             ]);
 
-        return ['rows' => $rows->values()->all(), 'totals' => $this->sums($rows, ['amount', 'recovered_amount'])];
+        return ['rows' => $rows->values()->all(), 'totals' => $this->sums($rows, ['amount', 'recovered_amount', 'net_unrecovered'])];
     }
 
     /**
@@ -338,6 +354,7 @@ class OperationalReports
     {
         $rows = $scope->between($scope->apply(LoanTransaction::query(), 'loan_transactions'), 'transaction_date')
             ->where('type', 'deposit')
+            ->whereNull('reversed_at')
             ->with(['customer:id,first_name,middle_name,last_name,phone', 'branch:id,name', 'loan:id,duration,total_payable', 'employee:id,first_name,middle_name,last_name'])
             ->orderBy('transaction_date')
             ->orderBy('id')
@@ -422,7 +439,7 @@ class OperationalReports
                 'remain' => $latest ? round((float) $latest->out_total - (float) $latest->out_penalty, 2) : 0.0,
                 'salary_advance' => round($salaryAdvance, 2),
                 'penalty' => round((float) $loans->sum('out_penalty'), 2),
-                'recovery' => round((float) WriteOff::whereIn('loan_id', $loans->modelKeys() ?: [0])->sum('recovered_amount'), 2),
+                'recovery' => round((float) WriteOff::whereIn('loan_id', $loans->modelKeys() ?: [0])->selectRaw('COALESCE(SUM('.WriteOff::recoveredSql().'), 0) AS recovered')->value('recovered'), 2),
                 'status' => $latest?->status->label(),
                 'status_badge' => $latest?->status->badge(),
             ],

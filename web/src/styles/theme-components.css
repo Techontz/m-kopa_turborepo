@@ -36,11 +36,19 @@
 :root[data-theme="dark"] .custom-control-label::before { background-color: var(--mf-input-bg); border-color: var(--mf-input-border); }
 :root[data-theme="dark"] .form-check-label, :root[data-theme="dark"] .fancy-checkbox span { color: var(--mf-text); }
 :root[data-theme="dark"] input[type="checkbox"], :root[data-theme="dark"] input[type="radio"] { accent-color: var(--mf-blue); }
-/* Native date/time pickers and file inputs follow color-scheme; keep the calendar glyph visible */
+/* Native date/time pickers: force the calendar/clock glyph to near-white (brightness(0) first, so it no longer depends on whether
+   color-scheme already lightened it — inverting an already light glyph made it dark and invisible). */
 :root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator,
 :root[data-theme="dark"] input[type="month"]::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="week"]::-webkit-calendar-picker-indicator,
 :root[data-theme="dark"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
-:root[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(.85); }
+:root[data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator { filter: brightness(0) invert(.9); opacity: 1; cursor: pointer; }
+:root[data-theme="dark"] input[type="date"]:hover::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="month"]:hover::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator,
+:root[data-theme="dark"] input[type="time"]:hover::-webkit-calendar-picker-indicator { filter: brightness(0) invert(1); }
+/* Yellow stat tiles keep white icons/text readable */
+:root[data-theme="dark"] .dashboard-stat.bg-warning { background-color: var(--mf-btn-warning) !important; }
 :root[data-theme="dark"] input[type="file"]::file-selector-button { color: var(--mf-input-text); background: var(--mf-surface-strong); border: 1px solid var(--mf-input-border); }
 :root[data-theme="dark"] input:-webkit-autofill,
 :root[data-theme="dark"] input:-webkit-autofill:focus { -webkit-text-fill-color: var(--mf-input-text); box-shadow: 0 0 0 1000px var(--mf-input-bg) inset; }

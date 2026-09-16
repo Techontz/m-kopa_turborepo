@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Loans\LoanController;
+use App\Http\Controllers\Api\V1\Loans\LoanRecoveryController;
 use App\Http\Controllers\Api\V1\Loans\LoanSecurityController;
 use App\Http\Controllers\Api\V1\Loans\LoanWorkflowController;
 use Illuminate\Support\Facades\Route;
@@ -44,7 +45,18 @@ Route::prefix('loans')->name('loans.')->group(function (): void {
         Route::post('{loan}/cash-out', 'cashOut')->name('cash-out');
         Route::post('{loan}/close', 'close')->name('close');
         Route::post('{loan}/write-off', 'writeOff')->name('write-off');
+        Route::get('write-off-requests', 'writeOffRequests')->name('write-off-requests.index');
+        Route::post('write-off-requests/{writeOffRequest}/approve', 'approveWriteOff')->whereNumber('writeOffRequest')->name('write-off-requests.approve');
+        Route::post('write-off-requests/{writeOffRequest}/reject', 'rejectWriteOff')->whereNumber('writeOffRequest')->name('write-off-requests.reject');
+        Route::post('{loan}/transactions/{loanTransaction}/reverse', 'reverseRepayment')->whereNumber(['loan', 'loanTransaction'])->name('transactions.reverse');
+        Route::post('{loan}/reverse-disbursement', 'reverseDisbursement')->whereNumber('loan')->name('reverse-disbursement');
         Route::post('{loan}/comments', 'comment')->name('comments');
         Route::post('{loan}/agreement', 'uploadAgreement')->name('agreement');
+    });
+
+    Route::controller(LoanRecoveryController::class)->group(function (): void {
+        Route::get('{loan}/recoveries', 'index')->whereNumber('loan')->name('recoveries.index');
+        Route::post('{loan}/recoveries', 'store')->whereNumber('loan')->name('recoveries.store');
+        Route::post('{loan}/recoveries/{recovery}/reverse', 'reverse')->whereNumber(['loan', 'recovery'])->name('recoveries.reverse');
     });
 });

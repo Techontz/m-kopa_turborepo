@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 
-import { DepositHistoryModal } from "@/components/finance-b/SalaryAdvanceModals";
+import { CollectFeeModal, DepositHistoryModal, FeeCell } from "@/components/finance-b/SalaryAdvanceModals";
 import type { SalaryAdvance } from "@/components/finance-b/types";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { money, percent } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/hooks";
 
 export default function SalaryAdvanceRepaymentsPage() {
+  const { can } = useAuth();
   const [history, setHistory] = useState<SalaryAdvance | null>(null);
+  const [collecting, setCollecting] = useState<SalaryAdvance | null>(null);
   const { data: advances, isLoading } = useApi<SalaryAdvance[]>("salary-advance/repayments");
 
   return (
@@ -32,6 +35,7 @@ export default function SalaryAdvanceRepaymentsPage() {
             { key: "paid_amount", header: "Paid Amount", render: (row) => money(row.paid_amount) },
             { key: "remaining_amount", header: "Remain Amount", render: (row) => money(row.remaining_amount) },
             { key: "status", header: "Status", render: (row) => row.status.toUpperCase() },
+            { key: "fee", header: "Fee", render: (row) => <FeeCell advance={row} canCollect={can("salary_advance.manage")} onCollect={setCollecting} /> },
             { key: "created_at", header: "Date" },
             {
               key: "action",
@@ -46,6 +50,7 @@ export default function SalaryAdvanceRepaymentsPage() {
       </Card>
 
       <DepositHistoryModal advance={history} onClose={() => setHistory(null)} />
+      <CollectFeeModal advance={collecting} onClose={() => setCollecting(null)} />
     </>
   );
 }

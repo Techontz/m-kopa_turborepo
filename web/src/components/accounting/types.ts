@@ -40,6 +40,9 @@ export interface JournalEntry {
   reference: string;
   entry_date: string;
   description: string;
+  /** Business event (TransactionType), e.g. "loan_repayment"; null only for untyped legacy rows. */
+  transaction_type: string | null;
+  transaction_type_label: string | null;
   branch_id: number | null;
   branch: string;
   employee: string | null;
@@ -52,6 +55,9 @@ export interface JournalEntry {
   reversal_reason: string | null;
   reversed_by: string | null;
   is_reversed: boolean;
+  /** Whether the generic journal reversal is allowed (manual entries only); the reason explains a block. */
+  can_reverse: boolean;
+  reverse_blocked_reason: string | null;
   created_at: string | null;
   lines?: JournalLine[];
 }

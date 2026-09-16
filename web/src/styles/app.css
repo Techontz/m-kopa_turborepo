@@ -184,3 +184,26 @@ body.font-ubuntu,
 .mf-cell-clip { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .mf-row-actions { display: inline-flex; gap: 4px; }
 .mf-row-actions .btn { padding: 2px 7px; line-height: 1.5; }
+
+/* Disabled action buttons that must not look clickable (e.g. Calculate Commission while the period is open). */
+.btn.mf-btn-disabled,
+.btn.mf-btn-disabled:hover,
+.btn.mf-btn-disabled:focus,
+.btn.mf-btn-disabled:active {
+  color: var(--mf-muted);
+  background-color: var(--mf-surface-strong);
+  border-color: var(--mf-border-strong);
+  opacity: .65;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+  transition: none;
+}
+:root[data-theme="dark"] .btn.mf-btn-disabled,
+:root[data-theme="dark"] .btn.mf-btn-disabled:hover,
+:root[data-theme="dark"] .btn.mf-btn-disabled:focus,
+:root[data-theme="dark"] .btn.mf-btn-disabled:active {
+  color: var(--mf-muted);
+  background-color: var(--mf-surface-strong);
+  border-color: var(--mf-border-strong);
+}

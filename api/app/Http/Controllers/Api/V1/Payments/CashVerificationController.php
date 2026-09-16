@@ -6,8 +6,10 @@ use App\Enums\PaymentStatus;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Payments\ReasonRequest;
 use App\Http\Resources\Api\V1\Payments\PaymentResource;
+use App\Models\ApprovalPolicy;
 use App\Models\Payment;
 use App\Models\Zone;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\PaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -44,12 +46,16 @@ class CashVerificationController extends ApiController
         ]);
     }
 
-    public function reject(ReasonRequest $request, Payment $payment): JsonResponse
+    /**
+     * Rule 6: rejecting a teller cash receipt reverses its posting, so the teller who recorded it cannot reject it.
+     */
+    public function reject(ReasonRequest $request, Payment $payment, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('payments.verify');
         if ($payment->branch_id !== null) {
             $this->assertBranchAccessible((int) $payment->branch_id);
         }
+        $duties->assertCanApprove($payment->employee_id, $this->currentEmployee(), 'cash receipt', SegregationOfDuties::REVERSER_MESSAGE, workflow: ApprovalPolicy::TELLER_DEPOSITS);
 
         $this->payments->rejectCash($payment, $request->string('reason')->toString(), $this->currentEmployee());
 

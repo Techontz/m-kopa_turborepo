@@ -17,7 +17,7 @@ type Amount = Exclude<keyof PeriodResult, "branch_id" | "branch" | "hq_hold_perc
 
 const AMOUNT_COLUMNS: Array<[Amount, string]> = [
   ["interest_income", "Interest (after Reserve)"],
-  ["reserve_amount", "Reserve Cut"],
+  ["reserve_amount", "Interest Reserve (not income)"],
   ["fee_income", "Loan Fee"],
   ["penalty_income", "Penalty"],
   ["recovery_income", "Recoveries"],
@@ -56,7 +56,7 @@ export default function PeriodClosePage() {
   const manage = can("accounting.close_period");
 
   const askClose = async (target: AccountingPeriod) => {
-    if (await confirmAction(`Close ${target.month}?`, "Income and expenses will be moved to the Profit Account and no more entries can be posted in this month.")) {
+    if (await confirmAction(`Close ${target.month}?`, "Income and expenses will be moved to the Profit Account (insurance income to INSURANCE RESERVE, reserve still inside interest to INTEREST RESERVE) and no more entries can be posted in this month.")) {
       close.mutate({ id: target.id });
     }
   };
@@ -77,7 +77,8 @@ export default function PeriodClosePage() {
               </div>
             </div>
             <small className="text-muted">
-              Total Income = Interest (reserve already cut) + Loan Fee + Penalty + Recoveries. Net Profit = Gross Profit − Loss brought forward. HQ holds 2% of a positive Net Profit; the rest is the distributable profit used for commission.
+              Total Income = Interest (reserve already cut) + Loan Fee + Penalty + Recoveries. Net Profit = Gross Profit − Loss brought forward. HQ holds 2% of a positive Net Profit; the rest is the distributable profit (10% commission, then 70% reinvestment / 30% dividends).
+              {" "}The interest reserve is equity (INTEREST RESERVE) and insurance income is not distributable (closed to INSURANCE RESERVE).
             </small>
           </form>
         </Card>

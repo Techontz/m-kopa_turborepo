@@ -5,10 +5,13 @@ import {
   computeTotal,
   emptyAssetForm,
   eventChange,
+  eventLabel,
   findType,
   formatDecimal,
   formLayout,
   identifierSummary,
+  isAwaitingApproval,
+  isTerminal,
   labelLines,
   registryRow,
   statusTone,
@@ -110,6 +113,16 @@ describe("registry mapping and label", () => {
     expect(identifierSummary(asset.identifiers)).toBe("IMEI: 35-1 · Serial Number: SN-9");
     expect(statusTone("written_off")).toBe("danger");
     expect(statusTone("under_maintenance")).toBe("warning");
+    expect(statusTone("pending")).toBe("warning");
+    expect(statusTone("rejected")).toBe("danger");
+  });
+
+  it("treats a pending contribution as awaiting approval and a rejected one as terminal", () => {
+    expect(isAwaitingApproval("pending")).toBe(true);
+    expect(isAwaitingApproval("active")).toBe(false);
+    expect(isTerminal("rejected")).toBe(true);
+    expect(isTerminal("pending")).toBe(false);
+    expect(eventLabel("contribution_rejected")).toBe("Contribution rejected");
   });
 
   it("builds label lines preferring serial / registration identifiers", () => {

@@ -4,6 +4,7 @@ namespace App\Http\Resources\Api\V1\Accounting;
 
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
+use App\Services\Accounting\JournalReversalGuard;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
@@ -18,11 +19,15 @@ class JournalEntryResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $reverseBlockedReason = app(JournalReversalGuard::class)->blockedReason($this->resource);
+
         return [
             'id' => $this->id,
             'reference' => $this->reference,
             'entry_date' => $this->entry_date?->toDateString(),
             'description' => $this->description,
+            'transaction_type' => $this->transaction_type?->value,
+            'transaction_type_label' => $this->transaction_type?->label(),
             'branch_id' => $this->branch_id,
             'branch' => $this->whenLoaded('branch', fn () => $this->branch?->name) ?? 'HQ',
             'employee' => $this->whenLoaded('employee', fn () => $this->employee?->full_name),
@@ -35,6 +40,8 @@ class JournalEntryResource extends JsonResource
             'reversal_reason' => $this->reversal_reason,
             'reversed_by' => $this->whenLoaded('reversal', fn () => $this->reversal?->reference),
             'is_reversed' => $this->whenLoaded('reversal', fn () => $this->reversal !== null),
+            'can_reverse' => $reverseBlockedReason === null,
+            'reverse_blocked_reason' => $reverseBlockedReason,
             'created_at' => $this->created_at?->toDateTimeString(),
             'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(fn (JournalLine $line): array => [
                 'id' => $line->id,

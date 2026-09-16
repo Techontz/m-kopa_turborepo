@@ -12,11 +12,13 @@ use App\Services\PeriodClose;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class PeriodCloseApiTest extends TestCase
 {
     use AccountingTestHelpers, RefreshDatabase;
+    use UsesSecondApprover;
 
     public function test_monthly_profit_is_calculated_per_branch_with_reserve_cut_hq_hold_and_eligibility(): void
     {
@@ -83,8 +85,9 @@ class PeriodCloseApiTest extends TestCase
         $until = CarbonImmutable::parse('2026-08-31');
         $this->assertSame(0.0, $ledger->balance($admin->company_id, Account::InterestIncome, $admin->branch_id, until: $until));
         $this->assertSame(0.0, $ledger->balance($admin->company_id, Account::OperatingExpense, allBranches: true, until: $until));
-        // Branch profit 80,000 less HQ 2% hold of the 70,000 commission profit (interest after reserve − expenses).
-        $this->assertSame(78600.0, $ledger->balance($admin->company_id, Account::RetainedProfit, $admin->branch_id));
+        // D6: the legacy reserve (10,000) is closed to INTEREST RESERVE, not profit; branch profit 70,000 less the HQ 2% hold.
+        $this->assertSame(68600.0, $ledger->balance($admin->company_id, Account::RetainedProfit, $admin->branch_id));
+        $this->assertSame(10000.0, $ledger->balance($admin->company_id, Account::InterestReserve, $admin->branch_id));
         $this->assertSame(1400.0, $ledger->balance($admin->company_id, Account::RetainedProfit));
         $this->assertSame($admin->id, $period->fresh()->closed_by);
         $this->assertDatabaseHas('audit_logs', ['action' => 'AccountingPeriod.closed', 'auditable_id' => $period->id]);
@@ -101,7 +104,7 @@ class PeriodCloseApiTest extends TestCase
         $period = app(PeriodClose::class)->calculate($admin->company_id, CarbonImmutable::parse('2026-08-01'));
         app(PeriodClose::class)->close($period, $admin);
 
-        $this->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'Wrong amount'])->assertOk();
+        $this->approveAsSecondUser($admin, "/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'Wrong amount']);
         $this->assertSame(now()->toDateString(), JournalEntry::where('reversal_of_id', $entry->id)->firstOrFail()->entry_date->toDateString());
 
         $this->postJson('/api/v1/accounting/periods', ['month' => '2026-08'])->assertUnprocessable()->assertJsonValidationErrors('month');

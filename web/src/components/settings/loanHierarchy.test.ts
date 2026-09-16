@@ -129,6 +129,7 @@ describe("loan category form and list", () => {
       "Penalty",
       "Reserve Setting",
       "Dividend Settings",
+      "Approval Policy",
       "Roles & Permissions",
     ]);
     expect(JSON.stringify(menu)).not.toMatch(/main-categories|Main Loan Categor/);

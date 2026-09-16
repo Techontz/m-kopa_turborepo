@@ -156,7 +156,7 @@ class StaffPrivilegesApiTest extends TestCase
         $hr = $this->staff($superAdmin, 'hr');
         $teller = $this->staff($superAdmin, 'teller');
 
-        $this->save($teller, [...$this->rolePermissions('teller'), 'loans.fly'])->assertUnprocessable()->assertJsonValidationErrors('permissions.6');
+        $this->save($teller, [...$this->rolePermissions('teller'), 'loans.fly'])->assertUnprocessable()->assertJsonValidationErrors('permissions.'.count($this->rolePermissions('teller')));
 
         $this->actAs($hr);
         $this->save($teller, [...$this->rolePermissions('teller'), 'capital.manage'])
@@ -180,7 +180,8 @@ class StaffPrivilegesApiTest extends TestCase
         $this->getJson("/api/v1/hrm/staff/{$admin->id}/privileges")->assertOk()->assertJsonPath('data.can_edit', false);
         $this->save($superAdmin->fresh(), ['dashboard.view'])->assertUnprocessable();
 
-        $this->assertSame(array_keys(config('permissions.permissions')), app(AccessControl::class)->permissionsFor($superAdmin->fresh()));
+        $this->assertSame(app(AccessControl::class)->implicitPermissions(), app(AccessControl::class)->permissionsFor($superAdmin->fresh()));
+        $this->assertNotContains('approvals.self_approve', app(AccessControl::class)->permissionsFor($superAdmin->fresh()), 'rule 6: self-approval is never implied');
     }
 
     public function test_staff_of_another_company_are_not_found(): void

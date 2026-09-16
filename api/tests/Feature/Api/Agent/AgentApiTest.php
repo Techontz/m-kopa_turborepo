@@ -12,11 +12,13 @@ use App\Models\PaymentMode;
 use App\Services\AgentTransactionService;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class AgentApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     public function test_payment_modes_can_be_listed_created_and_deleted(): void
     {
@@ -41,6 +43,9 @@ class AgentApiTest extends TestCase
         $admin = $this->signInAdmin();
         $mode = PaymentMode::create(['company_id' => $admin->company_id, 'name' => 'TIGO PESA']);
         $ledger = app(Ledger::class);
+        // Recorded by Finance (not the Super Admin) so the rule 6 reversal block below applies.
+        $recorder = $this->secondApprover($admin, 'finance');
+        $this->actingAs($recorder);
 
         $this->postJson('/api/v1/agent/transactions', [
             'blanch_id' => $admin->branch_id, 'mode_id' => $mode->id, 'agent' => 'JUMA AGENT', 'amount' => 50000, 'date' => today()->toDateString(), 'time' => '10:30',
@@ -58,8 +63,11 @@ class AgentApiTest extends TestCase
 
         $transaction = AgentTransaction::firstOrFail();
         $this->postJson("/api/v1/agent/transactions/{$transaction->id}/reverse", [])->assertUnprocessable()->assertJsonValidationErrors('reason');
-        $this->postJson("/api/v1/agent/transactions/{$transaction->id}/reverse", ['reason' => 'Duplicate'])->assertOk();
-        $this->postJson("/api/v1/agent/transactions/{$transaction->id}/reverse", ['reason' => 'Duplicate'])->assertUnprocessable();
+        // Rule 6: the employee who recorded the transaction does not reverse it.
+        $this->postJson("/api/v1/agent/transactions/{$transaction->id}/reverse", ['reason' => 'Duplicate'])->assertForbidden();
+        $approver = $this->secondApprover($admin);
+        $this->asApprover($recorder, fn () => $this->postJson("/api/v1/agent/transactions/{$transaction->id}/reverse", ['reason' => 'Duplicate'])->assertOk(), $approver);
+        $this->asApprover($recorder, fn () => $this->postJson("/api/v1/agent/transactions/{$transaction->id}/reverse", ['reason' => 'Duplicate'])->assertUnprocessable(), $approver);
 
         $this->assertEquals(0, $ledger->balance($admin->company_id, Account::Agent, $admin->branch_id));
         $this->assertNotNull($transaction->fresh()->reversed_at);

@@ -41,6 +41,8 @@ export function ContributionHistoryModal({ shareHolderId, onClose }: { shareHold
                 <Badge tone={payMethodTone(row.pay_method)}>{row.pay_method}</Badge>
                 {row.asset_id && <> <Link href={`/capital/assets/${row.asset_id}`} title={row.asset_name ?? ""}>{row.asset_code}</Link></>}
                 {row.reversed && <> <Badge tone="danger">REVERSED</Badge></>}
+                {row.status === "pending" && <> <Badge tone="warning">PENDING APPROVAL</Badge></>}
+                {row.status === "rejected" && <> <Badge tone="dark">REJECTED</Badge></>}
               </>
             ),
           },

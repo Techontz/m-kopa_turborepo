@@ -3,14 +3,18 @@
 namespace Tests\Feature\Api\Capital;
 
 use App\Enums\Account;
+use App\Models\AccountingPeriod;
 use App\Models\AuditLog;
 use App\Models\BankAccount;
+use App\Models\BranchPeriodResult;
 use App\Models\DividendAllocation;
 use App\Models\DividendDeclaration;
+use App\Models\DividendDeclarationRequest;
 use App\Models\DividendPayment;
 use App\Models\Employee;
 use App\Models\JournalEntry;
 use App\Models\ShareHolder;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\DividendService;
 use App\Services\Ledger;
 use App\Services\PeriodClose;
@@ -21,6 +25,7 @@ use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Mockery\MockInterface;
 use RuntimeException;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\Feature\Api\Accounting\AccountingTestHelpers;
 use Tests\TestCase;
 
@@ -30,9 +35,9 @@ use Tests\TestCase;
  */
 class DividendApiTest extends TestCase
 {
-    use AccountingTestHelpers, RefreshDatabase;
+    use AccountingTestHelpers, RefreshDatabase, UsesSecondApprover;
 
-    private const PERIOD = '2026-09';
+    private const PERIOD = '2026-08';
 
     private Employee $admin;
 
@@ -60,7 +65,10 @@ class DividendApiTest extends TestCase
 
     public function test_profit_available_is_fetched_from_the_ledger_and_the_month_end_close(): void
     {
-        $this->profit(250000);
+        $this->ledger()->journal($this->admin->company_id, 'EARLIER PROFIT', [
+            ['account' => Account::Interest, 'debit' => 250000, 'branch' => $this->admin->branch_id],
+            ['account' => Account::RetainedProfit, 'credit' => 250000, 'branch' => $this->admin->branch_id],
+        ]);
 
         $this->getJson('/api/v1/capital/dividends/available-profit?period=2026-08')->assertOk()
             ->assertJsonPath('data.profit_available', 250000)
@@ -92,8 +100,8 @@ class DividendApiTest extends TestCase
         $this->declare(['dividend_percent' => 90])->assertUnprocessable()->assertJsonValidationErrors('dividend_percent');
         $this->assertSame(0, DividendDeclaration::count());
 
-        $this->declare()->assertCreated()->assertJsonPath('data.profit_amount', 1000000);
-        $this->assertDatabaseHas('dividend_declarations', ['period' => '2026-09-01', 'profit_amount' => 1000000, 'dividend_amount' => 300000, 'profit_source' => 'profit_account']);
+        $this->declare()->assertOk()->assertJsonPath('data.profit_amount', 1000000);
+        $this->assertDatabaseHas('dividend_declarations', ['period' => '2026-08-01', 'profit_amount' => 1000000, 'dividend_amount' => 300000, 'profit_source' => 'period_close', 'allocation_rule' => 'profit_allocation', 'commission_amount' => 0, 'base_amount' => 1000000]);
     }
 
     public function test_default_split_is_thirty_percent_shareholders_and_seventy_percent_reinvestment(): void
@@ -125,7 +133,7 @@ class DividendApiTest extends TestCase
             ->assertJsonPath('data.dividend_pool', 400000)
             ->assertJsonPath('data.rows.0.entitlement', 240000)
             ->assertJsonPath('data.rows.1.entitlement', 160000);
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
 
         $this->putJson('/api/v1/settings/dividend', ['dividend_percent' => 50, 'reinvest_percent' => 50])->assertOk();
         $this->getJson('/api/v1/capital/dividends')->assertOk()
@@ -169,7 +177,7 @@ class DividendApiTest extends TestCase
         $this->establish([[$this->a, 1], [$this->b, 1], [$this->c, 1]]);
         $this->profit(10000000.01);
 
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
         $declaration = DividendDeclaration::firstOrFail();
         $this->assertSame('10000000.01', $declaration->profit_amount);
         $this->assertSame('3000000.00', $declaration->dividend_amount);
@@ -185,7 +193,7 @@ class DividendApiTest extends TestCase
         $this->establish([[$this->a, 1], [$this->b, 1], [$this->c, 1]]);
         $this->profit(1000000.03);
 
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
         $declaration = DividendDeclaration::firstOrFail();
         $this->assertSame('300000.01', $declaration->dividend_amount);
         $this->assertSame('700000.02', $declaration->reinvest_amount);
@@ -208,7 +216,7 @@ class DividendApiTest extends TestCase
             ->assertJsonPath('data.rows.2.ownership_percent', 20)
             ->assertJsonPath('data.rows.2.entitlement', 600000);
 
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
         $this->assertSame(['1500000.00', '900000.00', '600000.00'], DividendAllocation::orderBy('id')->pluck('amount')->all());
     }
 
@@ -216,7 +224,7 @@ class DividendApiTest extends TestCase
     {
         $this->establish([[$this->a, 500], [$this->b, 300], [$this->c, 200]]);
         $this->profit(10000000);
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
 
         $declaration = DividendDeclaration::firstOrFail();
         $this->assertSame(1000, $declaration->total_shares);
@@ -230,7 +238,7 @@ class DividendApiTest extends TestCase
     {
         $this->establish([[$this->a, 500], [$this->b, 300], [$this->c, 200]]);
         $this->profit(10000000);
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
         $declaration = DividendDeclaration::firstOrFail();
         $before = $this->getJson("/api/v1/capital/dividends/{$declaration->id}/allocations")->assertOk()->json('data');
 
@@ -252,10 +260,10 @@ class DividendApiTest extends TestCase
     {
         $this->establish([[$this->a, 600], [$this->b, 400]]);
         $this->profit(2000000);
-        $this->declare()->assertCreated()->assertJsonPath('message', 'Dividend Declared successfully');
+        $this->declare()->assertOk()->assertJsonPath('message', 'Dividend Declared successfully');
 
         $this->assertDatabaseHas('dividend_declarations', [
-            'company_id' => $this->admin->company_id, 'period' => '2026-09-01', 'profit_amount' => 2000000, 'dividend_percent' => 30,
+            'company_id' => $this->admin->company_id, 'period' => '2026-08-01', 'profit_amount' => 2000000, 'dividend_percent' => 30,
             'dividend_amount' => 600000, 'reinvest_percent' => 70, 'reinvest_amount' => 1400000, 'total_shares' => 1000,
             'as_of_date' => '2026-09-13', 'declared_by' => $this->admin->id,
         ]);
@@ -263,7 +271,7 @@ class DividendApiTest extends TestCase
 
         $this->getJson('/api/v1/capital/dividends')->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.period_label', 'September 2026')
+            ->assertJsonPath('data.0.period_label', 'August 2026')
             ->assertJsonPath('data.0.shareholders', 2)
             ->assertJsonPath('data.0.paid_amount', 0)
             ->assertJsonPath('data.0.outstanding_amount', 600000)
@@ -274,26 +282,142 @@ class DividendApiTest extends TestCase
     {
         $this->establish([[$this->a, 1000]]);
         $this->profit(2000000);
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
 
-        $this->declare()->assertUnprocessable()->assertJsonPath('errors.period.0', 'Dividends for September 2026 have already been declared.');
+        $this->declare()->assertUnprocessable()->assertJsonPath('errors.period.0', 'Dividends for August 2026 have already been declared.');
         $this->getJson('/api/v1/capital/dividends/preview?period='.self::PERIOD)->assertOk()
             ->assertJsonPath('data.already_declared', true)
             ->assertJsonPath('data.can_declare', false);
         $this->assertSame(1, DividendDeclaration::count());
 
         $this->expectException(ValidationException::class);
-        app(DividendService::class)->declare($this->admin->company_id, CarbonImmutable::parse('2026-09-01'), $this->admin);
+        app(DividendService::class)->declare($this->admin->company_id, CarbonImmutable::parse('2026-08-01'), $this->admin);
     }
 
     public function test_declaration_needs_profit_shareholders_and_a_past_or_current_month(): void
     {
-        $this->declare()->assertUnprocessable()->assertJsonPath('errors.period.0', 'There is no profit available to distribute for September 2026.');
+        $this->declare()->assertUnprocessable()->assertJsonPath('errors.period.0', 'August 2026 is not closed. Dividends can only be declared for a closed accounting period.');
+        $this->profit(0);
+        $this->declare()->assertUnprocessable()->assertJsonPath('errors.period.0', 'There is no profit available to distribute for August 2026.');
 
         $this->profit(100000);
         $this->declare()->assertUnprocessable()->assertJsonPath('errors.period.0', 'No shareholder holds shares in the share register to receive a dividend.');
         $this->declare(['period' => '2026-11'])->assertUnprocessable()->assertJsonValidationErrors('period');
         $this->assertSame(0, DividendDeclaration::count());
+    }
+
+    public function test_c1_a_declaration_is_requested_and_posted_only_when_another_user_approves_it(): void
+    {
+        $this->establish([[$this->a, 600], [$this->b, 400]]);
+        $this->profit(1000000);
+        $entries = JournalEntry::count();
+        $requester = $this->requester();
+        $this->actingAs($requester);
+
+        $requestId = $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertCreated()
+            ->assertJsonPath('message', 'Dividend Declaration submitted for approval')
+            ->assertJsonPath('data.status', DividendDeclarationRequest::STATUS_PENDING)
+            ->assertJsonPath('data.profit_amount', 1000000)
+            ->assertJsonPath('data.dividend_amount', 300000)
+            ->assertJsonPath('data.can_approve', false)
+            ->assertJsonPath('data.approve_blocked_reason', SegregationOfDuties::INITIATOR_MESSAGE)
+            ->json('data.id');
+
+        // Pending: nothing posted, nothing declared, the month blocks a second request and shows why.
+        $this->assertSame(0, DividendDeclaration::count());
+        $this->assertSame(0, DividendAllocation::count());
+        $this->assertSame($entries, JournalEntry::count());
+        $this->assertEquals(0, $this->ledger()->balance($this->admin->company_id, Account::DividendPayable));
+        $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertUnprocessable()
+            ->assertJsonPath('errors.period.0', 'A dividend declaration for August 2026 is already awaiting approval.');
+        $this->getJson('/api/v1/capital/dividends/preview?period='.self::PERIOD)->assertOk()
+            ->assertJsonPath('data.can_declare', false)
+            ->assertJsonPath('data.pending_request_id', $requestId);
+        $pending = app(DividendService::class)->pendingDeclarationRequests($this->admin->company_id);
+        $this->assertSame([$requestId], $pending->pluck('id')->all());
+
+        // Rule 6: the initiator cannot approve.
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertForbidden()
+            ->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
+        $this->assertSame(0, DividendDeclaration::count());
+
+        $approver = $this->secondApprover($this->admin);
+        $this->actingAs($approver)->getJson('/api/v1/capital/dividends/requests')->assertOk()
+            ->assertJsonPath('data.0.can_approve', true)
+            ->assertJsonPath('data.0.requested_by', $requester->full_name);
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertOk()->assertJsonPath('message', 'Dividend Declared successfully');
+        $this->actingAs($requester);
+
+        $declaration = DividendDeclaration::sole();
+        $this->assertSame($requester->id, $declaration->declared_by, 'the initiator stays the declarer');
+        $this->assertSame($approver->id, JournalEntry::findOrFail($declaration->journal_entry_id)->employee_id, 'journals are posted by the approver');
+        $this->assertSame('2026-09-13', JournalEntry::findOrFail($declaration->journal_entry_id)->entry_date->toDateString(), 'dated the approval date');
+        $this->assertDatabaseHas('dividend_declaration_requests', ['id' => $requestId, 'status' => 'approved', 'approved_by' => $approver->id, 'dividend_declaration_id' => $declaration->id, 'pending_key' => null]);
+        $this->assertEquals(300000, $this->ledger()->balance($this->admin->company_id, Account::DividendPayable));
+        $this->assertCount(0, app(DividendService::class)->pendingDeclarationRequests($this->admin->company_id));
+
+        // No double distribution: approved again, or a new request.
+        $this->asApprover($requester, fn () => $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertUnprocessable());
+        $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertUnprocessable()
+            ->assertJsonPath('errors.period.0', 'Dividends for August 2026 have already been declared.');
+        $this->assertSame(1, DividendDeclaration::count());
+    }
+
+    public function test_c1_a_rejected_request_posts_nothing_and_frees_the_month(): void
+    {
+        $this->establish([[$this->a, 1000]]);
+        $this->profit(1000000);
+        $requestId = $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertCreated()->json('data.id');
+
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/reject", [])->assertUnprocessable()->assertJsonValidationErrors('reason');
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/reject", ['reason' => 'Wrong month'])->assertOk();
+        $this->assertDatabaseHas('dividend_declaration_requests', ['id' => $requestId, 'status' => 'rejected', 'rejected_by' => $this->admin->id, 'rejection_reason' => 'Wrong month', 'pending_key' => null]);
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertUnprocessable());
+        $this->assertSame(0, DividendDeclaration::count());
+        $this->assertTrue(AuditLog::where('action', 'DividendDeclarationRequest.rejected')->where('auditable_id', $requestId)->exists());
+
+        $this->declare()->assertOk();
+        $this->assertSame(2, DividendDeclarationRequest::count());
+        $this->assertSame(1, DividendDeclaration::count());
+    }
+
+    public function test_c1_approval_re_validates_the_figures_and_self_approval_needs_an_explicit_grant(): void
+    {
+        $this->establish([[$this->a, 1000]]);
+        $this->profit(1000000);
+        $requestId = $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertCreated()->json('data.id');
+
+        // The profit changes after the request (e.g. more closed profit): the approver cannot post different figures.
+        $this->profit(500000);
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertUnprocessable()
+            ->assertJsonValidationErrors('request'));
+        $this->assertSame(0, DividendDeclaration::count());
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/reject", ['reason' => 'Profit changed'])->assertOk();
+
+        // approvals.self_approve explicitly granted: the initiator may approve their own request.
+        $secondId = $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertCreated()->assertJsonPath('data.profit_amount', 1500000)->json('data.id');
+        $this->grantSelfApproval($this->admin);
+        $this->postJson("/api/v1/capital/dividends/requests/{$secondId}/approve")->assertOk();
+        $this->assertEquals(1500000, (float) DividendDeclaration::sole()->profit_amount);
+    }
+
+    public function test_c1_declaration_requests_are_company_scoped_and_need_capital_manage(): void
+    {
+        $this->establish([[$this->a, 1000]]);
+        $this->profit(1000000);
+        $requestId = $this->postJson('/api/v1/capital/dividends', ['period' => self::PERIOD])->assertCreated()->json('data.id');
+
+        $viewer = $this->employeeWithRole($this->admin, 'finance', ['capital.view']);
+        $this->actingAs($viewer);
+        $this->getJson('/api/v1/capital/dividends/requests')->assertOk()->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.can_reject', false);
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertForbidden();
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/reject", ['reason' => 'nope'])->assertForbidden();
+
+        $this->signInAdmin();
+        $this->getJson('/api/v1/capital/dividends/requests')->assertOk()->assertJsonCount(0, 'data');
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/approve")->assertNotFound();
+        $this->postJson("/api/v1/capital/dividends/requests/{$requestId}/reject", ['reason' => 'nope'])->assertNotFound();
+        $this->assertSame(DividendDeclarationRequest::STATUS_PENDING, DividendDeclarationRequest::findOrFail($requestId)->status);
     }
 
     public function test_full_payment_marks_the_allocation_paid(): void
@@ -400,9 +524,16 @@ class DividendApiTest extends TestCase
 
         $this->assertEntry($declaration->journal_entry_id, [
             [Account::RetainedProfit, null, 10000000, 0],
-            [Account::Capital, null, 0, 7000000],
+            [Account::ReinvestedProfit, null, 0, 7000000],
             [Account::DividendPayable, null, 0, 3000000],
         ]);
+        $this->assertEntry($declaration->reinvestment_journal_entry_id, [
+            [Account::Principal, null, 7000000, 0],
+            [Account::Interest, null, 0, 7000000],
+        ]);
+        $this->assertSame(100000000.0, $this->ledger()->balance($companyId, Account::Capital), 'D4: reinvestment is not capital (only the opening balances)');
+        $this->assertSame(7000000.0, $this->ledger()->balance($companyId, Account::ReinvestedProfit));
+        $this->assertSame(7000000.0, $this->ledger()->balance($companyId, Account::Principal, $this->admin->branch_id));
         $this->assertSame(0.0, $this->ledger()->balance($companyId, Account::RetainedProfit, allBranches: true));
         $this->assertSame(3000000.0, $this->ledger()->balance($companyId, Account::DividendPayable));
 
@@ -417,7 +548,7 @@ class DividendApiTest extends TestCase
         $this->assertSame(2600000.0, $this->ledger()->balance($companyId, Account::DividendPayable));
         $this->assertSame($bankBefore - 400000, $this->ledger()->balance($companyId, Account::Bank, bankAccount: $this->bank));
 
-        $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Paid to the wrong account'])->assertOk();
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Paid to the wrong account'])->assertOk());
         $payment->refresh();
         $reversal = JournalEntry::findOrFail($payment->reversal_journal_entry_id);
         $this->assertSame($payment->journal_entry_id, $reversal->reversal_of_id);
@@ -497,7 +628,6 @@ class DividendApiTest extends TestCase
         $this->getJson('/api/v1/settings/dividend')->assertForbidden();
         $this->putJson('/api/v1/settings/dividend', [])->assertForbidden();
         $this->putJson('/api/v1/settings/dividend', ['dividend_percent' => 50, 'reinvest_percent' => 50])->assertForbidden();
-
         $capitalOnly = $this->employeeWithRole($this->admin, 'admin', ['capital.manage']);
         $this->actingAs($capitalOnly);
         $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'test'])->assertForbidden();
@@ -507,6 +637,43 @@ class DividendApiTest extends TestCase
         $this->assertDatabaseHas('companies', ['id' => $this->admin->company_id, 'dividend_shareholder_percent' => 30]);
     }
 
+    public function test_rule_6_the_poster_of_a_payment_does_not_reverse_it_without_an_explicit_grant(): void
+    {
+        $allocation = $this->declaredAllocation();
+        $paymentId = $this->pay($allocation, ['amount' => 400000])->assertCreated()->json('data.id');
+        $payment = DividendPayment::findOrFail($paymentId);
+        $this->assertSame($this->admin->id, JournalEntry::findOrFail($payment->journal_entry_id)->employee_id);
+        $this->assertSame('super_admin', $this->admin->role->key);
+        $entries = JournalEntry::count();
+        $payable = $this->ledger()->balance($this->admin->company_id, Account::DividendPayable);
+
+        $this->getJson('/api/v1/capital/dividends/payments')->assertOk()
+            ->assertJsonPath('data.0.can_reverse', false)
+            ->assertJsonPath('data.0.reverse_blocked_reason', SegregationOfDuties::REVERSER_MESSAGE);
+        $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Paid twice'])->assertForbidden()
+            ->assertJsonPath('message', SegregationOfDuties::REVERSER_MESSAGE);
+        $this->assertSame(DividendPayment::STATUS_POSTED, $payment->fresh()->status);
+        $this->assertNull($payment->fresh()->reversal_journal_entry_id);
+        $this->assertSame($entries, JournalEntry::count());
+        $this->assertSame($payable, $this->ledger()->balance($this->admin->company_id, Account::DividendPayable));
+        $this->assertSame('400000.00', $allocation->fresh()->paid_amount);
+
+        $approver = $this->secondApprover($this->admin);
+        $this->actingAs($approver)->getJson('/api/v1/capital/dividends/payments')->assertOk()
+            ->assertJsonPath('data.0.can_reverse', true)
+            ->assertJsonPath('data.0.reverse_blocked_reason', null);
+        $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Paid twice'])->assertOk();
+        $this->assertSame([DividendPayment::STATUS_REVERSED, $approver->id], [$payment->fresh()->status, $payment->fresh()->reversed_by]);
+        $this->getJson('/api/v1/capital/dividends/payments')->assertJsonPath('data.0.can_reverse', false)->assertJsonPath('data.0.reverse_blocked_reason', null);
+
+        $this->actingAs($this->admin);
+        $secondId = $this->pay($allocation, ['amount' => 100000])->assertCreated()->json('data.id');
+        $this->grantSelfApproval($this->admin);
+        $this->getJson('/api/v1/capital/dividends/payments')->assertJsonPath('data.0.id', $secondId)->assertJsonPath('data.0.can_reverse', true);
+        $this->postJson("/api/v1/capital/dividends/payments/{$secondId}/reverse", ['reason' => 'Paid twice'])->assertOk();
+        $this->assertSame(DividendPayment::STATUS_REVERSED, DividendPayment::findOrFail($secondId)->status);
+    }
+
     public function test_payment_history_is_retained_with_reversals(): void
     {
         $allocation = $this->declaredAllocation();
@@ -514,10 +681,12 @@ class DividendApiTest extends TestCase
         $second = $this->pay($allocation, ['amount' => 400000, 'pay_method' => 'BANK', 'bank_account_id' => $this->bank->id, 'reference' => 'TRX-2'])->json('data.id');
         $this->assertSame(DividendAllocation::STATUS_PAID, $allocation->fresh()->status);
 
-        $this->postJson("/api/v1/capital/dividends/payments/{$second}/reverse", [])->assertUnprocessable()->assertJsonValidationErrors('reason');
-        $this->postJson("/api/v1/capital/dividends/payments/{$second}/reverse", ['reason' => 'Bank transfer bounced'])->assertOk()
-            ->assertJsonPath('message', 'Dividend Payment Reversed successfully');
-        $this->postJson("/api/v1/capital/dividends/payments/{$second}/reverse", ['reason' => 'Again'])->assertUnprocessable();
+        $this->asApprover($this->admin, function () use ($second): void {
+            $this->postJson("/api/v1/capital/dividends/payments/{$second}/reverse", [])->assertUnprocessable()->assertJsonValidationErrors('reason');
+            $this->postJson("/api/v1/capital/dividends/payments/{$second}/reverse", ['reason' => 'Bank transfer bounced'])->assertOk()
+                ->assertJsonPath('message', 'Dividend Payment Reversed successfully');
+            $this->postJson("/api/v1/capital/dividends/payments/{$second}/reverse", ['reason' => 'Again'])->assertUnprocessable();
+        });
 
         $allocation->refresh();
         $this->assertSame(DividendAllocation::STATUS_PARTIALLY_PAID, $allocation->status);
@@ -590,7 +759,7 @@ class DividendApiTest extends TestCase
         $this->getJson($url)->assertJsonPath('data.1.status_label', 'PAID')->assertJsonPath('data.1.balance', 0);
         $this->assertAllocationMatchesPayments($allocation);
 
-        $this->postJson("/api/v1/capital/dividends/payments/{$first}/reverse", ['reason' => 'Wrong shareholder'])->assertOk();
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/dividends/payments/{$first}/reverse", ['reason' => 'Wrong shareholder'])->assertOk());
         $this->getJson($url)->assertJsonPath('data.1.status_label', 'PARTIALLY PAID')->assertJsonPath('data.1.paid_amount', 500000)->assertJsonPath('data.1.balance', 400000);
         $this->assertAllocationMatchesPayments($allocation);
 
@@ -613,7 +782,7 @@ class DividendApiTest extends TestCase
 
         $this->getJson($url)->assertJsonPath('data.1.balance', 699999.75)->assertJsonPath('data.1.last_payment_date', '2026-09-20');
 
-        $this->postJson("/api/v1/capital/dividends/payments/{$late}/reverse", ['reason' => 'Duplicate receipt'])->assertOk();
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/dividends/payments/{$late}/reverse", ['reason' => 'Duplicate receipt'])->assertOk());
         $this->getJson($url)->assertJsonPath('data.1.balance', 750000)->assertJsonPath('data.1.last_payment_date', '2026-09-13');
     }
 
@@ -625,7 +794,7 @@ class DividendApiTest extends TestCase
         $declaration = $allocation->declaration->only(['profit_amount', 'dividend_amount', 'reinvest_amount', 'total_shares']);
 
         $paymentId = $this->pay($allocation, ['amount' => 300000])->json('data.id');
-        $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Test reversal'])->assertOk();
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/dividends/payments/{$paymentId}/reverse", ['reason' => 'Test reversal'])->assertOk());
         $this->payAll($allocation->declaration, 3000000)->assertCreated();
 
         $this->assertSame($before, $snapshot());
@@ -638,7 +807,7 @@ class DividendApiTest extends TestCase
         $this->pay($allocation, ['amount' => 900000])->assertCreated();
 
         $this->getJson("/api/v1/capital/dividends/{$allocation->dividend_declaration_id}/pay-all/preview")->assertOk()
-            ->assertJsonPath('data.period_label', 'September 2026')
+            ->assertJsonPath('data.period_label', 'August 2026')
             ->assertJsonPath('data.shareholders', 2)
             ->assertJsonPath('data.paid_shareholders', 1)
             ->assertJsonPath('data.total_entitlement', 3000000)
@@ -666,7 +835,7 @@ class DividendApiTest extends TestCase
             ->assertJsonPath('data.total_amount', 3000000)
             ->assertJsonPath('data.totals.total_outstanding', 0);
         $batchReference = $response->json('data.batch_reference');
-        $this->assertSame('DIVB-202609-'.str_pad((string) $response->json('data.id'), 6, '0', STR_PAD_LEFT), $batchReference);
+        $this->assertSame('DIVB-202608-'.str_pad((string) $response->json('data.id'), 6, '0', STR_PAD_LEFT), $batchReference);
 
         $payments = DividendPayment::orderBy('dividend_allocation_id')->get();
         $this->assertCount(3, $payments);
@@ -765,7 +934,7 @@ class DividendApiTest extends TestCase
         $this->assertSame($entries, JournalEntry::count());
 
         $this->payAll($declaration, 0)->assertUnprocessable()
-            ->assertJsonPath('errors.expected_total.0', 'All dividends for September 2026 are already paid; there is no outstanding balance.');
+            ->assertJsonPath('errors.expected_total.0', 'All dividends for August 2026 are already paid; there is no outstanding balance.');
         $this->assertSame(3, DividendPayment::count());
         $this->assertSame(1, DB::table('dividend_payment_batches')->count());
     }
@@ -773,10 +942,10 @@ class DividendApiTest extends TestCase
     public function test_pay_all_only_touches_the_selected_declaration(): void
     {
         $this->establish([[$this->a, 500], [$this->b, 300], [$this->c, 200]]);
-        $this->profit(1000000);
-        $this->declare(['period' => '2026-07'])->assertCreated();
-        $this->profit(2000000);
-        $this->declare(['period' => '2026-08'])->assertCreated();
+        $this->profit(1000000, '2026-07');
+        $this->declare(['period' => '2026-07'])->assertOk();
+        $this->profit(2000000, '2026-08');
+        $this->declare(['period' => '2026-08'])->assertOk();
         $july = DividendDeclaration::whereDate('period', '2026-07-01')->firstOrFail();
         $august = DividendDeclaration::whereDate('period', '2026-08-01')->firstOrFail();
 
@@ -903,22 +1072,54 @@ class DividendApiTest extends TestCase
     }
 
     /**
-     * Profit already in the Profit Account (as posted by an earlier close).
+     * A CLOSED month with commission CALCULATED (C1) whose branch distributable profit is $amount (no commission-eligible staff,
+     * so commission is 0), with that profit in the branch Profit Account and its cash in the branch INTEREST A/C (as collected
+     * and closed).
      */
-    private function profit(float $amount): void
+    private function profit(float $amount, string $month = self::PERIOD): void
     {
-        $this->ledger()->journal($this->admin->company_id, 'MONTH END PROFIT', [
-            ['account' => Account::InterestIncome, 'debit' => $amount, 'branch' => $this->admin->branch_id],
-            ['account' => Account::RetainedProfit, 'credit' => $amount, 'branch' => $this->admin->branch_id],
-        ]);
+        if ($amount > 0) {
+            $this->ledger()->journal($this->admin->company_id, 'MONTH END PROFIT', [
+                ['account' => Account::Interest, 'debit' => $amount, 'branch' => $this->admin->branch_id],
+                ['account' => Account::RetainedProfit, 'credit' => $amount, 'branch' => $this->admin->branch_id],
+            ]);
+        }
+
+        $start = CarbonImmutable::parse($month.'-01');
+        $period = AccountingPeriod::firstOrCreate(
+            ['company_id' => $this->admin->company_id, 'period_start' => $start->toDateString()],
+            ['period_end' => $start->endOfMonth()->toDateString(), 'status' => AccountingPeriod::STATUS_CLOSED, 'closed_at' => now(), 'commission_calculated_at' => now()],
+        );
+        $result = BranchPeriodResult::firstOrNew(['accounting_period_id' => $period->id, 'branch_id' => $this->admin->branch_id]);
+        $distributable = round((float) $result->distributable_profit + $amount, 2);
+        $result->fill(['gross_profit' => $distributable, 'net_profit' => $distributable, 'distributable_profit' => $distributable, 'commission_eligible' => $distributable > 0])->save();
     }
 
     /**
+     * Request the declaration (C1 maker/checker) and, when the request is accepted, approve it as a second authorised user —
+     * returning the approval response (or the rejected request response).
+     *
      * @param  array<string, mixed>  $extra
      */
+    /**
+     * A non-exempt initiator: an Admin granted capital.manage by employee override.
+     */
+    private function requester(): Employee
+    {
+        $requester = $this->secondApprover($this->admin, 'admin');
+        $requester->permissionOverrides()->create(['permission' => 'capital.manage', 'granted' => true]);
+
+        return $requester->fresh();
+    }
+
     private function declare(array $extra = []): TestResponse
     {
-        return $this->postJson('/api/v1/capital/dividends', $extra + ['period' => self::PERIOD]);
+        $response = $this->postJson('/api/v1/capital/dividends', $extra + ['period' => self::PERIOD]);
+        if ($response->status() !== 201) {
+            return $response;
+        }
+
+        return $this->asApprover($this->admin, fn () => $this->postJson('/api/v1/capital/dividends/requests/'.$response->json('data.id').'/approve'));
     }
 
     /**
@@ -936,7 +1137,7 @@ class DividendApiTest extends TestCase
     {
         $this->establish([[$this->a, 500], [$this->b, 300], [$this->c, 200]]);
         $this->profit(10000000);
-        $this->declare()->assertCreated();
+        $this->declare()->assertOk();
 
         return DividendAllocation::where('share_holder_id', $this->b->id)->with('declaration')->firstOrFail();
     }

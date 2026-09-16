@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { AssetActionModal, type AssetAction } from "@/components/capital/assets/AssetActionModal";
-import { isTerminal, labelLines, registryRow, type AssetConfig, type AssetRow } from "@/components/capital/assets/assets";
+import { isAwaitingApproval, isTerminal, labelLines, registryRow, type AssetConfig, type AssetRow } from "@/components/capital/assets/assets";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -107,7 +107,8 @@ export default function AssetRegistryPage() {
                   <button type="button" className="btn btn-sm btn-icon btn-info mr-1" title="History" onClick={() => act(row, "history")}><i className="icon-list" /></button>
                   <Link href={`/capital/assets/${row.id}/label`} className="btn btn-sm btn-icon btn-secondary mr-1" title="Print Label"><i className="icon-printer" /></Link>
                   <a href={backendUrl(`${row.qr_endpoint}?download=1`)} className="btn btn-sm btn-icon btn-secondary mr-1" title="Download QR"><i className="icon-cloud-download" /></a>
-                  {canManage && !isTerminal(row.status) && (
+                  {isAwaitingApproval(row.status) && <Link href={`/capital/assets/${row.id}`} className="btn btn-sm btn-outline-warning" title="Awaiting approval by another authorised user">Awaiting approval</Link>}
+                  {canManage && !isTerminal(row.status) && !isAwaitingApproval(row.status) && (
                     <>
                       <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Edit" onClick={() => act(row, "edit")}><i className="icon-pencil" /></button>
                       <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Transfer branch" onClick={() => act(row, "transfer")}><i className="icon-shuffle" /></button>

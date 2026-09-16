@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api\V1\Accounting;
 
 use App\Enums\Account;
+use App\Enums\TransactionType;
 use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\Accounting\ReverseJournalRequest;
 use App\Http\Resources\Api\V1\Accounting\JournalEntryResource;
 use App\Models\AuditLog;
 use App\Models\JournalEntry;
+use App\Services\Accounting\JournalReversalGuard;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Ledger;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use InvalidArgumentException;
 
 /**
@@ -24,6 +28,10 @@ use InvalidArgumentException;
  *
  * Manual adjusting entries are not offered: the Documents require every entry to come from a
  * business transaction and corrections to be reversals only.
+ *
+ * The generic reversal is limited to manual entries ({@see JournalReversalGuard}): an entry posted by a module
+ * (loan, payment, payroll, dividend, capital, month-end close…) must be reversed from that module so its
+ * dependent records are restored in the same transaction (Fund Flow Specification §21, §26).
  */
 class JournalController extends ApiController
 {
@@ -41,6 +49,7 @@ class JournalController extends ApiController
             'account' => ['nullable', 'string'],
             'reference' => ['nullable', 'string', 'max:100'],
             'source' => ['nullable', 'string', 'max:100'],
+            'transaction_type' => ['nullable', Rule::enum(TransactionType::class)],
         ]);
 
         $from = $request->filled('from') ? CarbonImmutable::parse($request->string('from')->toString()) : CarbonImmutable::today()->startOfMonth();
@@ -67,6 +76,9 @@ class JournalController extends ApiController
         if ($request->filled('source')) {
             $source = $request->string('source')->toString();
             $source === 'manual' ? $query->whereNull('source_type') : $query->where('source_type', 'like', '%\\\\'.$source);
+        }
+        if ($request->filled('transaction_type')) {
+            $query->where('transaction_type', $request->string('transaction_type')->toString());
         }
 
         return JournalEntryResource::collection($query->orderByDesc('entry_date')->orderByDesc('id')->limit(self::LIMIT)->get());
@@ -97,15 +109,28 @@ class JournalController extends ApiController
         return response()->json(['data' => $sources]);
     }
 
-    public function reverse(ReverseJournalRequest $request, JournalEntry $journalEntry, Ledger $ledger): JsonResponse
+    /**
+     * Transaction types for the filter dropdown.
+     */
+    public function transactionTypes(): JsonResponse
+    {
+        $this->authorizeAny('accounting.view');
+
+        return response()->json(['data' => TransactionType::options()]);
+    }
+
+    public function reverse(ReverseJournalRequest $request, JournalEntry $journalEntry, Ledger $ledger, JournalReversalGuard $guard): JsonResponse
     {
         $this->authorizeAny('accounting.reverse');
         $entry = $this->findVisible($journalEntry);
         $reason = $request->string('reason')->toString();
 
         try {
-            $reversal = DB::transaction(function () use ($ledger, $entry, $reason, $request): JournalEntry {
-                $reversal = $ledger->reverse($entry, $reason);
+            $reversal = DB::transaction(function () use ($ledger, $guard, $entry, $reason, $request): JournalEntry {
+                $locked = JournalEntry::query()->whereKey($entry->id)->lockForUpdate()->firstOrFail();
+                $guard->assertReversible($locked);
+                app(SegregationOfDuties::class)->assertCanReverse($locked, $this->currentEmployee());
+                $reversal = $ledger->reverse($locked, $reason);
 
                 AuditLog::create([
                     'company_id' => $entry->company_id,

@@ -10,6 +10,8 @@ import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
 import { AcceptExpenseModal } from "./AcceptExpenseModal";
+import { BlockedApproveButton } from "./Approval";
+import { ReversedStatus, ReverseButton } from "./Reversal";
 import { sum } from "./FilterModal";
 import type { ExpenseRequest } from "./types";
 
@@ -37,7 +39,9 @@ export function BranchExpensesTable({ rows, loading }: { rows: ExpenseRequest[] 
             key: "status",
             header: "status",
             render: (row) =>
-              row.status === "accepted" ? (
+              row.status === "reversed" ? (
+                <ReversedStatus row={row} />
+              ) : row.status === "accepted" ? (
                 <Badge tone="success">ACCEPTED</Badge>
               ) : (
                 <span title={row.approval_level === "admin" ? "Requires Admin approval" : "Finance approval"}>
@@ -51,20 +55,26 @@ export function BranchExpensesTable({ rows, loading }: { rows: ExpenseRequest[] 
             sortable: false,
             className: "text-nowrap",
             render: (row) =>
-              row.status === "pending" &&
-              row.can_approve && (
-                <>
-                  <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Accept" onClick={() => setAccepting(row)}><i className="icon-pencil" /></button>
-                  <button type="button" className="btn btn-sm btn-icon btn-danger" title="Reject" onClick={async () => (await confirmAction("Are You Sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
-                </>
+              row.status === "accepted" ? (
+                <ReverseButton row={row} path={`expenses/requests/${row.id}/reverse`} description={`${row.expense ?? "expense"} — ${row.branch ?? ""} (back to INTEREST A/C)`} />
+              ) : (
+                row.status === "pending" &&
+                (row.can_approve ? (
+                  <>
+                    <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Accept" onClick={() => setAccepting(row)}><i className="icon-pencil" /></button>
+                    <button type="button" className="btn btn-sm btn-icon btn-danger" title="Reject" disabled={remove.isPending} onClick={async () => (await confirmAction("Are You Sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
+                  </>
+                ) : (
+                  row.approve_blocked_reason && <BlockedApproveButton reason={row.approve_blocked_reason} label="Accept" />
+                ))
               ),
           },
         ]}
         footer={
           <tr>
-            <td><b>TOTAL</b></td>
+            <td><b>TOTAL</b> <small className="text-muted">(excl. reversed)</small></td>
             <td />
-            <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
+            <td><b>{money(sum(rows, (row) => (row.status === "reversed" ? 0 : row.amount)))}</b></td>
             <td colSpan={5} />
           </tr>
         }

@@ -32,13 +32,16 @@ class ControlReports
      *  - expense type registered for another scope;
      *  - accepted but not posted to the ledger.
      *
+     * Reversed expenses (status "reversed", or their ledger entry reversed) stay listed with `reversed` = true and their
+     * reversal details, but are excluded from every total, grouping and the mis-tag counts.
+     *
      * @return array<string, mixed>
      */
     public function expenses(FinancialScope $scope): array
     {
         $query = ExpenseRequest::query()
             ->where('company_id', $scope->companyId)
-            ->where('status', 'accepted')
+            ->whereIn('status', ['accepted', 'reversed'])
             ->whereRaw('DATE(COALESCE(approved_at, request_date)) BETWEEN ? AND ?', [$scope->from->toDateString(), $scope->to->toDateString()])
             ->with(['branch:id,name', 'expenseType:id,name,scope', 'employee:id,first_name,middle_name,last_name', 'approver:id,first_name,middle_name,last_name', 'journalEntry.reversal'])
             ->orderByRaw('COALESCE(approved_at, request_date)');
@@ -64,8 +67,13 @@ class ControlReports
                 'journal_reference' => $expense->journalEntry?->reference,
                 'mis_tagged' => $flags !== [],
                 'flags' => $flags,
+                'reversed' => $expense->isReversed() || $expense->reversed_at !== null || $expense->journalEntry?->reversal !== null,
+                'reversed_at' => ($expense->reversed_at ?? $expense->journalEntry?->reversal?->created_at)?->format('Y-m-d H:i:s'),
+                'reversal_reason' => $expense->reversal_reason ?? $expense->journalEntry?->reversal?->reversal_reason,
             ];
         });
+        $allRows = $rows;
+        $rows = $rows->where('reversed', false)->values();
 
         $byCategory = $rows->groupBy('expense_type')->map(fn (Collection $group, string $name): array => ['label' => $name ?: 'OTHER', 'count' => $group->count(), 'amount' => round($group->sum('amount'), 2)])->sortByDesc('amount')->values()->all();
         $byBranch = $rows->groupBy(fn (array $row): string => $row['branch'] ?? 'HQ')->map(fn (Collection $group, string $name): array => [
@@ -91,7 +99,9 @@ class ControlReports
         }
 
         return [
-            'rows' => $rows->values()->all(),
+            'rows' => $allRows->values()->all(),
+            'reversed_count' => $allRows->where('reversed', true)->count(),
+            'reversed_total' => round($allRows->where('reversed', true)->sum('amount'), 2),
             'by_category' => $byCategory,
             'by_branch' => $byBranch,
             'months' => $months,
@@ -274,8 +284,6 @@ class ControlReports
         }
         if ($expense->journal_entry_id === null) {
             $flags[] = 'Not posted to ledger';
-        } elseif ($expense->journalEntry?->reversal !== null) {
-            $flags[] = 'Ledger entry reversed';
         }
 
         return $flags;

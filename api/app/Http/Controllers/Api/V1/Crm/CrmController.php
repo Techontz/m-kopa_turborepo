@@ -90,7 +90,7 @@ class CrmController extends ApiController
             ];
         });
 
-        $payments = LoanTransaction::where('customer_id', $customer->id)->where('type', 'deposit')
+        $payments = LoanTransaction::where('customer_id', $customer->id)->where('type', 'deposit')->whereNull('reversed_at')
             ->latest('transaction_date')->latest('id')->limit(10)->get()
             ->map(fn (LoanTransaction $transaction): array => [
                 'id' => $transaction->id,
@@ -115,7 +115,7 @@ class CrmController extends ApiController
             'totals' => [
                 'loans' => $loanRows->count(),
                 'outstanding' => round($loanRows->sum('outstanding'), 2),
-                'paid' => (float) LoanTransaction::where('customer_id', $customer->id)->where('type', 'deposit')->sum('amount'),
+                'paid' => (float) LoanTransaction::where('customer_id', $customer->id)->where('type', 'deposit')->whereNull('reversed_at')->sum('amount'),
             ],
             'loans' => $loanRows->values(),
             'payments' => $payments->values(),

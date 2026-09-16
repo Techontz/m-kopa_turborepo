@@ -5,15 +5,19 @@ namespace Tests\Feature\Api\Accounting;
 use App\Enums\Account;
 use App\Models\AuditLog;
 use App\Models\Branch;
+use App\Models\FloatTransfer;
 use App\Models\JournalEntry;
 use App\Services\Ledger;
+use App\Services\PeriodClose;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class JournalApiTest extends TestCase
 {
     use AccountingTestHelpers, RefreshDatabase;
+    use UsesSecondApprover;
 
     public function test_journal_list_filters_by_date_branch_account_reference_and_source(): void
     {
@@ -56,7 +60,13 @@ class JournalApiTest extends TestCase
         $entry = $ledger->openingBalance($admin->company_id, Account::Principal, 80000, branch: $admin->branch_id, date: CarbonImmutable::parse('2026-08-01'));
 
         $this->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", [])->assertUnprocessable()->assertJsonValidationErrors('reason');
+        // Rule 6: the employee who posted the entry cannot reverse it.
+        $this->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'Posted to wrong branch'])->assertForbidden()
+            ->assertJsonPath('message', 'You posted this transaction, so another authorised user must reverse it.');
 
+        $poster = $admin;
+        $admin = $this->secondApprover($poster);
+        $this->actingAs($admin);
         $this->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'Posted to wrong branch'])
             ->assertOk()->assertJsonPath('message', 'Transaction Reversed successfully');
 
@@ -88,7 +98,6 @@ class JournalApiTest extends TestCase
         $other = Branch::factory()->create(['company_id' => $admin->company_id]);
         $this->postExpense($admin->company_id, $other->id, 3000, '2026-08-12');
         $entry = JournalEntry::firstOrFail();
-
         $adminRole = $this->employeeWithRole($admin, 'admin');
         $this->actingAs($adminRole)->getJson("/api/v1/accounting/journal/{$entry->id}")->assertOk();
         $this->actingAs($adminRole)->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'No right'])->assertForbidden();
@@ -108,5 +117,58 @@ class JournalApiTest extends TestCase
 
         $finance = $this->employeeWithRole($admin, 'finance');
         $this->actingAs($finance)->getJson('/api/v1/accounting/journal?from=2026-08-01&to=2026-08-31')->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    public function test_entries_posted_by_a_module_cannot_be_reversed_from_the_journal(): void
+    {
+        $admin = $this->signInAdmin();
+        $ledger = app(Ledger::class);
+        $ledger->openingBalance($admin->company_id, Account::Company, 500000);
+        $float = $this->postJson('/api/v1/capital/floats', ['amount' => 1000, 'from_account' => Account::Company->value])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($admin, "/api/v1/capital/floats/{$float}/approve");
+        $entry = JournalEntry::where('source_type', (new FloatTransfer)->getMorphClass())->firstOrFail();
+        $entries = JournalEntry::count();
+
+        $this->getJson("/api/v1/accounting/journal/{$entry->id}")->assertOk()
+            ->assertJsonPath('data.can_reverse', false)
+            ->assertJsonPath('data.reverse_blocked_reason', 'This entry was posted by Float Transfer. Reverse it from that module so its dependent records stay consistent.');
+
+        $this->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'Try generic reversal'])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'This entry was posted by Float Transfer. Reverse it from that module so its dependent records stay consistent.');
+
+        $this->assertSame($entries, JournalEntry::count());
+        $this->assertSame(499000.0, $ledger->balance($admin->company_id, Account::Company));
+        $this->assertSame(1000.0, $ledger->balance($admin->company_id, Account::Principal));
+        $this->assertSame(0, AuditLog::where('action', 'JournalEntry.reversed')->count());
+    }
+
+    public function test_month_end_closing_entries_cannot_be_reversed(): void
+    {
+        $admin = $this->signInAdmin();
+        $this->postIncome($admin->company_id, $admin->branch_id, 10000, 1000, 0, 0, '2026-08-10');
+        $period = app(PeriodClose::class)->calculate($admin->company_id, CarbonImmutable::parse('2026-08-01'));
+        app(PeriodClose::class)->close($period, $admin);
+        $closing = JournalEntry::where('transaction_type', 'month_end_closing')->firstOrFail();
+        $entries = JournalEntry::count();
+
+        $this->postJson("/api/v1/accounting/journal/{$closing->id}/reverse", ['reason' => 'Reopen August'])
+            ->assertUnprocessable()->assertJsonValidationErrors('reason')
+            ->assertJsonPath('message', 'Month-end closing entries cannot be reversed: reopening a closed accounting period is not supported.');
+        $this->assertSame($entries, JournalEntry::count());
+    }
+
+    public function test_manual_reversal_is_blocked_when_the_money_has_already_been_used(): void
+    {
+        $admin = $this->signInAdmin();
+        $ledger = app(Ledger::class);
+        $entry = $ledger->openingBalance($admin->company_id, Account::Principal, 80000, branch: $admin->branch_id);
+        $ledger->transfer($admin->company_id, ['account' => Account::Principal, 'branch' => $admin->branch_id], ['account' => Account::Company], 50000, 'MANUAL MOVE');
+
+        $this->postJson("/api/v1/accounting/journal/{$entry->id}/reverse", ['reason' => 'Posted twice'])
+            ->assertUnprocessable()->assertJsonValidationErrors('reason');
+
+        $this->assertFalse(JournalEntry::where('reversal_of_id', $entry->id)->exists());
+        $this->assertSame(30000.0, $ledger->balance($admin->company_id, Account::Principal, $admin->branch_id));
     }
 }

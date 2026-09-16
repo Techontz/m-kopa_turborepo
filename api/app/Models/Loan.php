@@ -118,6 +118,11 @@ class Loan extends Model
         return $this->hasOne(WriteOff::class);
     }
 
+    public function recoveries(): HasMany
+    {
+        return $this->hasMany(LoanRecovery::class);
+    }
+
     public function mandate(): HasOne
     {
         return $this->hasOne(LoanMandate::class)->latestOfMany();
@@ -168,7 +173,7 @@ class Loan extends Model
 
     protected function paidAmount(): Attribute
     {
-        return Attribute::get(fn (): float => (float) $this->transactions()->where('type', 'deposit')->sum('amount'));
+        return Attribute::get(fn (): float => (float) $this->transactions()->where('type', 'deposit')->whereNull('reversed_at')->sum('amount'));
     }
 
     /**

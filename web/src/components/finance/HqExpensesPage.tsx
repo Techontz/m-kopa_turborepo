@@ -16,6 +16,8 @@ import { useAction, useApi } from "@/lib/hooks";
 
 import { AcceptExpenseModal } from "./AcceptExpenseModal";
 import { FilterModal, HeaderButton, sum, type Filters } from "./FilterModal";
+import { BlockedApproveButton } from "./Approval";
+import { ReversedStatus, ReverseButton } from "./Reversal";
 import type { ExpenseRequest } from "./types";
 
 interface RequestForm {
@@ -57,7 +59,7 @@ export function HqExpensesPage({ approved }: { approved: boolean }) {
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "description", header: "Description" },
             { key: "staff", header: "Staff" },
-            { key: "status", header: "status", render: (row) => (row.status === "accepted" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">NOT APPROVED</Badge>) },
+            { key: "status", header: "status", render: (row) => (row.status === "reversed" ? <ReversedStatus row={row} /> : row.status === "accepted" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">NOT APPROVED</Badge>) },
             { key: "request_date", header: "Date" },
             {
               key: "action",
@@ -68,18 +70,22 @@ export function HqExpensesPage({ approved }: { approved: boolean }) {
                 row.status === "pending" && row.can_approve ? (
                   <>
                     <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Accept" onClick={() => setAccepting(row)}><i className="icon-pencil" /></button>
-                    <button type="button" className="btn btn-sm btn-icon btn-danger" title="Reject" onClick={async () => (await confirmAction("Are You Sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
+                    <button type="button" className="btn btn-sm btn-icon btn-danger" title="Reject" disabled={remove.isPending} onClick={async () => (await confirmAction("Are You Sure?")) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
                   </>
                 ) : (
-                  row.paid_from && <small>{row.paid_from}</small>
+                  <>
+                    {row.status === "pending" && row.approve_blocked_reason && <BlockedApproveButton reason={row.approve_blocked_reason} label="Accept" />}
+                    {row.paid_from && <small className="d-block">{row.paid_from}</small>}
+                    {row.status === "accepted" && <ReverseButton row={row} path={`expenses/requests/${row.id}/reverse`} description={`${row.expense ?? "HQ expense"} (back to ${row.paid_from ?? "the paying account"})`} />}
+                  </>
                 ),
             },
           ]}
           footer={
             <tr>
-              <td><b>TOTAL:</b></td>
+              <td><b>TOTAL:</b>{approved && <small className="text-muted d-block">(excl. reversed)</small>}</td>
               <td />
-              <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
+              <td><b>{money(sum(rows, (row) => (row.status === "reversed" ? 0 : row.amount)))}</b></td>
               <td colSpan={5} />
             </tr>
           }

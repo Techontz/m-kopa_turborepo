@@ -17,7 +17,7 @@ class PaymentAllocation extends Model
      */
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2'];
+        return ['amount' => 'decimal:2', 'reversed_at' => 'datetime'];
     }
 
     public function payment(): BelongsTo
@@ -33,6 +33,11 @@ class PaymentAllocation extends Model
     public function loanTransaction(): BelongsTo
     {
         return $this->belongsTo(LoanTransaction::class);
+    }
+
+    public function loanRecovery(): BelongsTo
+    {
+        return $this->belongsTo(LoanRecovery::class);
     }
 
     public function employee(): BelongsTo

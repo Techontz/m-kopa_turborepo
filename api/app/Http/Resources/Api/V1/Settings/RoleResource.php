@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1\Settings;
 
 use App\Models\Role;
+use App\Services\AccessControl;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,7 +18,7 @@ class RoleResource extends JsonResource
     public function toArray(Request $request): array
     {
         $permissions = $this->key === 'super_admin'
-            ? array_keys(config('permissions.permissions'))
+            ? app(AccessControl::class)->implicitPermissions()
             : $this->whenLoaded('permissions', fn () => $this->permissions->pluck('permission')->sort()->values()->all(), []);
 
         return [

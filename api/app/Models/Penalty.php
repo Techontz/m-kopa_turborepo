@@ -38,6 +38,24 @@ class Penalty extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    public function accrualJournal(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'accrual_journal_entry_id');
+    }
+
+    public function waiverJournal(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'waiver_journal_entry_id');
+    }
+
+    /**
+     * Accrued when charged (income recognised with a PENALTY RECEIVABLE); legacy penalties are cash basis.
+     */
+    public function isAccrued(): bool
+    {
+        return $this->accrual_journal_entry_id !== null;
+    }
+
     public function payments(): HasMany
     {
         return $this->hasMany(PenaltyPayment::class);

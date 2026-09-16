@@ -44,6 +44,9 @@ export interface AmountItem {
 
 export interface StaffLoan {
   id: number;
+  /** Rule 6: whether the signed-in user may take the next step (approve / disburse) and, if not, why. */
+  can_approve?: boolean;
+  approve_blocked_reason?: string | null;
   branch: string | null;
   employee_id: number;
   employee: string | null;
@@ -65,6 +68,9 @@ export interface StaffLoan {
 
 export interface StaffAdvance {
   id: number;
+  /** Rule 6: whether the signed-in user may take the next step (approve / disburse) and, if not, why. */
+  can_approve?: boolean;
+  approve_blocked_reason?: string | null;
   branch: string | null;
   employee: string | null;
   category: string | null;

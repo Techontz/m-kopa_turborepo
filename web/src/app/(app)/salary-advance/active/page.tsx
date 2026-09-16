@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { FilterModal, HeaderButton, sum, type Filters } from "@/components/finance-b/FilterModal";
-import { DepositHistoryModal, DepositModal } from "@/components/finance-b/SalaryAdvanceModals";
+import { CollectFeeModal, DepositHistoryModal, DepositModal, FeeCell } from "@/components/finance-b/SalaryAdvanceModals";
 import type { SalaryAdvance } from "@/components/finance-b/types";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -20,6 +20,7 @@ export default function ActiveSalaryAdvancePage() {
   const [filtering, setFiltering] = useState(false);
   const [depositing, setDepositing] = useState<SalaryAdvance | null>(null);
   const [history, setHistory] = useState<SalaryAdvance | null>(null);
+  const [collecting, setCollecting] = useState<SalaryAdvance | null>(null);
   const { data: advances, isLoading } = useApi<SalaryAdvance[]>("salary-advance/active", { ...filters });
 
   const reverse = useAction<{ id: number; reason: string }>("delete", (body) => `salary-advance/advances/${body.id}?reason=${encodeURIComponent(body.reason)}`);
@@ -42,7 +43,7 @@ export default function ActiveSalaryAdvancePage() {
             { key: "paid_amount", header: "Paid Amount", render: (row) => money(row.paid_amount) },
             { key: "remaining_amount", header: "Remain Amount", render: (row) => money(row.remaining_amount) },
             { key: "status", header: "Status", render: () => "ACTIVE" },
-            { key: "fee", header: "charger", render: (row) => money(row.fee) },
+            { key: "fee", header: "charger", render: (row) => <FeeCell advance={row} canCollect={can("salary_advance.manage")} onCollect={setCollecting} /> },
             { key: "created_at", header: "Date" },
             { key: "alert", header: "Alert", render: (row) => (row.alert === "old" ? <Badge tone="info">old</Badge> : <Badge tone="success">New</Badge>) },
             {
@@ -59,6 +60,7 @@ export default function ActiveSalaryAdvancePage() {
                       type="button"
                       className="btn btn-danger btn-sm"
                       title="Delete"
+                      disabled={reverse.isPending}
                       onClick={async () => {
                         if (!(await confirmAction())) {
                           return;
@@ -69,7 +71,7 @@ export default function ActiveSalaryAdvancePage() {
                         }
                       }}
                     >
-                      <i className="icon-trash" />
+                      <i className={reverse.isPending && reverse.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-trash"} />
                     </button>
                   )}
                 </>
@@ -97,6 +99,7 @@ export default function ActiveSalaryAdvancePage() {
 
       <DepositModal advance={depositing} onClose={() => setDepositing(null)} />
       <DepositHistoryModal advance={history} onClose={() => setHistory(null)} />
+      <CollectFeeModal advance={collecting} onClose={() => setCollecting(null)} />
       <FilterModal open={filtering} onClose={() => setFiltering(false)} onApply={setFilters} dates="optional" />
     </>
   );

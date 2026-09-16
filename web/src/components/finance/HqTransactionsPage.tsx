@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
@@ -14,6 +13,8 @@ import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
 import { FilterModal, HeaderButton, sum, type Filters } from "./FilterModal";
+import { ApprovalActions, ApprovalStatus } from "./Approval";
+import { isReversed, ReverseButton } from "./Reversal";
 import type { HqTransaction } from "./types";
 
 interface TransactionForm {
@@ -32,7 +33,6 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
   const [form, setForm] = useState<TransactionForm>(EMPTY);
   const { data: rows, isLoading } = useApi<HqTransaction[]>("hq/transactions", { status: approved ? "approved" : "pending", from: filters.from, to: filters.to });
   const create = useAction<TransactionForm>("post", "hq/transactions");
-  const approve = useAction<{ id: number }>("post", (body) => `hq/transactions/${body.id}/approve`);
   const remove = useAction<{ id: number }>("delete", (body) => `hq/transactions/${body.id}`);
 
   const columns: Column<HqTransaction>[] = [
@@ -40,7 +40,7 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
     { key: "from_account_label", header: "From Account" },
     { key: "amount", header: "Amount", render: (row) => money(row.amount) },
     { key: "to_account_label", header: "To Account" },
-    { key: "status", header: "status", render: (row) => (row.status === "approved" ? <Badge tone="success">APPROVED</Badge> : <Badge tone="danger">PENDING</Badge>) },
+    { key: "status", header: "status", render: (row) => <ApprovalStatus row={row} /> },
     { key: "staff", header: "Staff Name" },
     { key: "charge", header: "Charger", render: (row) => money(row.charge) },
     approved
@@ -48,7 +48,14 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
       : { key: "date", header: "Date" },
   ];
 
-  if (!approved) {
+  if (approved) {
+    columns.push({
+      key: "action",
+      header: "Action",
+      sortable: false,
+      render: (row) => row.status === "approved" && <ReverseButton row={row} path={`hq/transactions/${row.id}/reverse`} description={`${row.from_account_label ?? ""} → ${row.to_account_label ?? ""} (charge ${money(row.charge)} reversed too)`} />,
+    });
+  } else {
     columns.push({
       key: "action",
       header: "Action",
@@ -56,8 +63,8 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
       className: "text-nowrap",
       render: (row) => (
         <>
-          <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" onClick={async () => (await confirmAction()) && approve.mutate({ id: row.id })}><i className="icon-like" /></button>
-          <button type="button" className="btn btn-sm btn-icon btn-danger" onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
+          <ApprovalActions row={row} approvePath={`hq/transactions/${row.id}/approve`} description={`${row.from_account_label ?? ""} → ${row.to_account_label ?? ""} (charge ${money(row.charge)})`} />
+          <button type="button" className="btn btn-sm btn-icon btn-danger ml-1" title="Delete request" disabled={remove.isPending} onClick={async () => (await confirmAction()) && remove.mutate({ id: row.id })}><i className="icon-trash" /></button>
         </>
       ),
     });
@@ -77,14 +84,14 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
           columns={columns}
           footer={
             <tr>
-              <td><b>TOTAL:</b></td>
+              <td><b>TOTAL:</b>{approved && <small className="text-muted d-block">(excl. reversed)</small>}</td>
               <td />
-              <td><b>{money(sum(rows, (row) => row.amount))}</b></td>
+              <td><b>{money(sum(rows, (row) => (isReversed(row) ? 0 : row.amount)))}</b></td>
               <td />
               <td />
               <td />
-              <td><b>{money(sum(rows, (row) => row.charge))}</b></td>
-              <td colSpan={approved ? 1 : 2} />
+              <td><b>{money(sum(rows, (row) => (isReversed(row) ? 0 : row.charge)))}</b></td>
+              <td colSpan={2} />
             </tr>
           }
         />
@@ -95,7 +102,7 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
       <Modal open={modal === "request"} onClose={() => setModal(null)} title="Request Transaction" submitLabel="Request" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
         <div className="row clearfix">
           <Field label="From Account:" required className="col-lg-6" error={create.fieldError("from_account")}>
-            <SelectBox placeholder="Select Account" optionsUrl="hq/options/accounts" value={form.from_account} onChange={(value) => setForm({ ...form, from_account: value ?? "" })} />
+            <SelectBox placeholder="Select Account" optionsUrl="hq/options/accounts" query={{ direction: "from" }} value={form.from_account} onChange={(value) => setForm({ ...form, from_account: value ?? "" })} />
           </Field>
           <Field label="To Account:" required className="col-lg-6" error={create.fieldError("to_account")}>
             <SelectBox placeholder="Select Account" optionsUrl="hq/options/accounts" value={form.to_account} onChange={(value) => setForm({ ...form, to_account: value ?? "" })} />

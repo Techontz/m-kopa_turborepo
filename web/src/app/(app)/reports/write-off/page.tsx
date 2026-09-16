@@ -19,6 +19,7 @@ interface WriteOffRow {
   sessions: number;
   amount: number;
   recovered_amount: number;
+  net_unrecovered?: number;
   start_date: string | null;
   end_date: string | null;
   employee: string | null;
@@ -63,6 +64,8 @@ export default function WriteOffPage() {
     : [
         ...BASE,
         { key: "amount", header: "Write-off Amount", render: (row) => money(row.amount) },
+        { key: "recovered_amount", header: "Recovered", render: (row) => money(row.recovered_amount) },
+        { key: "net_unrecovered", header: "Net Unrecovered", render: (row) => money(row.net_unrecovered ?? row.amount - row.recovered_amount) },
         { key: "start_date", header: "Start date" },
         { key: "end_date", header: "End date" },
       ];
@@ -85,7 +88,7 @@ export default function WriteOffPage() {
                 label={<b>TOTAL:</b>}
                 cells={done
                   ? [...Array(7).fill(""), <b key="a">{money(data.totals.amount)}</b>, <b key="r">{money(data.totals.recovered_amount)}</b>, "", "", "", "", ""]
-                  : [...Array(7).fill(""), <b key="a">{money(data.totals.amount)}</b>, "", ""]}
+                  : [...Array(7).fill(""), <b key="a">{money(data.totals.amount)}</b>, <b key="r">{money(data.totals.recovered_amount)}</b>, <b key="n">{money((data.totals as { net_unrecovered?: number }).net_unrecovered)}</b>, "", ""]}
               />
             )
           }

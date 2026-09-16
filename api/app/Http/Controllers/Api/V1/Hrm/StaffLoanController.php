@@ -52,7 +52,7 @@ class StaffLoanController extends HrmController
         $this->authorizeAny('hrm.manage');
         $this->assertBranchAccessible($request->integer('blanch_id'));
 
-        StaffLoan::create($request->loanData() + ['company_id' => $this->companyId(), 'status' => 'pending']);
+        StaffLoan::create($request->loanData() + ['company_id' => $this->companyId(), 'status' => 'pending', 'requested_by' => $this->currentEmployee()->id]);
 
         return $this->message('Staff Loan Applied successfully', 201);
     }

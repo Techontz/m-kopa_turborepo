@@ -8,6 +8,7 @@ use App\Integrations\BankMandate\BankMandateGateway;
 use App\Integrations\Sms\SmsGateway;
 use App\Integrations\Vodacom\DisbursementCallback;
 use App\Integrations\Vodacom\VodacomGateway;
+use App\Models\ApprovalPolicy;
 use App\Models\AuditLog;
 use App\Models\BankAccount;
 use App\Models\Customer;
@@ -17,6 +18,7 @@ use App\Models\LoanCategory;
 use App\Models\LoanDisbursement;
 use App\Models\LoanMandate;
 use App\Models\SmsLog;
+use App\Services\Approvals\SegregationOfDuties;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -215,6 +217,7 @@ class LoanWorkflow
         if ($approvedAmount > (float) $loan->category->amount_to) {
             throw ValidationException::withMessages(['loan_aprove' => 'Approved loan must not exceed '.money($loan->category->amount_to)]);
         }
+        $this->assertSegregated($loan, $employee, []);
 
         return DB::transaction(function () use ($loan, $approvedAmount, $employee): Loan {
             $loan->amount_approved = $approvedAmount;
@@ -353,6 +356,7 @@ class LoanWorkflow
                 ? 'Verify the customer name and number with Vodacom before approving'
                 : 'Name mismatch: modify or reject the loan']);
         }
+        $this->assertSegregated($loan, $employee, self::MANAGER_STAGE);
 
         return DB::transaction(function () use ($loan, $employee): Loan {
             $loan->update([
@@ -376,6 +380,7 @@ class LoanWorkflow
         return DB::transaction(function () use ($loan, $employee, $source): LoanDisbursement {
             $loan = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($loan, LoanStatus::PendingFinance);
+            $this->assertSegregated($loan, $employee, self::FINANCE_EARLIER_STAGES);
 
             $disbursement = $this->newBatch($loan, 'vodacom', $employee, $source);
             $this->assertSourceFunds($loan, $disbursement);
@@ -397,6 +402,7 @@ class LoanWorkflow
         $disbursement = DB::transaction(function () use ($loan, $employee, $source): LoanDisbursement {
             $locked = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($locked, LoanStatus::AwaitingDisbursement);
+            $this->assertSegregated($locked, $employee, self::FINANCE_EARLIER_STAGES);
             $disbursement = $locked->latestDisbursement()->lockForUpdate()->first();
 
             if ($disbursement === null || $disbursement->channel !== 'vodacom' || $disbursement->status !== LoanDisbursement::PREPARED) {
@@ -476,6 +482,7 @@ class LoanWorkflow
         DB::transaction(function () use ($loan, $employee, $source): void {
             $locked = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($locked, LoanStatus::DisbursementFailed);
+            $this->assertSegregated($locked, $employee, self::FINANCE_EARLIER_STAGES);
 
             if ((int) $locked->disbursement_attempts >= $this->maxAttempts()) {
                 throw ValidationException::withMessages(['loan' => 'Maximum disbursement retries reached']);
@@ -505,6 +512,9 @@ class LoanWorkflow
         return DB::transaction(function () use ($loan, $action, $channel, $reason, $employee, $source): Loan {
             $loan = Loan::lockForUpdate()->findOrFail($loan->id);
             $this->assertStatus($loan, LoanStatus::Escalated);
+            if ($action === 'other_channel') {
+                $this->assertSegregated($loan, $employee, self::FINANCE_EARLIER_STAGES);
+            }
 
             match ($action) {
                 'cancel' => $this->cancel($loan, $reason, $employee),
@@ -535,6 +545,7 @@ class LoanWorkflow
     public function confirmManualDisbursement(Loan $loan, string $reference, Employee $employee): Loan
     {
         $this->assertStatus($loan, LoanStatus::AwaitingDisbursement);
+        $this->assertSegregated($loan, $employee, self::FINANCE_EARLIER_STAGES);
         $disbursement = $loan->latestDisbursement()->first();
 
         if ($disbursement === null || ! in_array($disbursement->channel, ['airtel', 'bank'], true) || $disbursement->status !== LoanDisbursement::REQUESTED) {
@@ -842,6 +853,57 @@ class LoanWorkflow
         $loan->status = $to;
         $loan->save();
         $this->record($loan, $action, $from, $employee, $context);
+    }
+
+    /**
+     * Audit actions of the manager approval stage.
+     *
+     * @var list<string>
+     */
+    public const MANAGER_STAGE = ['MANAGER_APPROVED'];
+
+    /**
+     * Audit actions of the stages before Finance (manager approval, credit approval).
+     *
+     * @var list<string>
+     */
+    public const FINANCE_EARLIER_STAGES = ['MANAGER_APPROVED', 'CREDIT_APPROVED'];
+
+    /**
+     * Why the employee may not approve the loan's current stage, or null when they may (rule 6). The employee who applied
+     * for (or last edited) the application never approves any stage; an approver of an earlier stage (manager approval,
+     * credit approval) does not approve a later one. Only approvals since the latest (re)submission count. Explicit
+     * `approvals.self_approve` lifts both blocks.
+     *
+     * @param  list<string>  $earlierStageActions  audit actions of the earlier approval stages
+     */
+    public function segregationBlockedReason(Loan $loan, Employee $employee, array $earlierStageActions): ?string
+    {
+        $logs = AuditLog::query()
+            ->where('auditable_type', $loan->getMorphClass())
+            ->where('auditable_id', $loan->id)
+            ->whereIn('action', ['APPLIED', 'MODIFIED', 'RESUBMITTED', ...self::FINANCE_EARLIER_STAGES])
+            ->orderBy('id')
+            ->get(['id', 'action', 'employee_id']);
+        $submittedAt = (int) $logs->whereIn('action', ['APPLIED', 'RESUBMITTED'])->max('id');
+
+        $initiators = [$loan->employee_id, ...$logs->whereIn('action', ['APPLIED', 'MODIFIED', 'RESUBMITTED'])->pluck('employee_id')->all()];
+        $earlierApprovers = $logs->where('id', '>', $submittedAt)->whereIn('action', $earlierStageActions)->pluck('employee_id')->all();
+
+        $duties = app(SegregationOfDuties::class);
+
+        return $duties->blockedReason($initiators, $employee, workflow: ApprovalPolicy::LOAN_APPROVALS)
+            ?? $duties->blockedReason($earlierApprovers, $employee, SegregationOfDuties::STAGE_MESSAGE, workflow: ApprovalPolicy::LOAN_APPROVALS);
+    }
+
+    /**
+     * @param  list<string>  $earlierStageActions
+     */
+    private function assertSegregated(Loan $loan, Employee $employee, array $earlierStageActions): void
+    {
+        $reason = $this->segregationBlockedReason($loan, $employee, $earlierStageActions);
+
+        abort_if($reason !== null, 403, (string) $reason);
     }
 
     private function assertStatus(Loan $loan, LoanStatus ...$allowed): void

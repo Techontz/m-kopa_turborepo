@@ -9,6 +9,7 @@ use App\Http\Resources\Api\V1\Savings\SavingResource;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Saving;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Ledger;
 use App\Services\SavingService;
 use Illuminate\Database\Eloquent\Builder;
@@ -86,6 +87,7 @@ class SavingController extends ApiController
         $this->assertBranchAccessible($saving->branch_id);
 
         $data = $request->validate(['reason' => ['required', 'string', 'max:255']], ['reason.required' => 'Please enter the reason for reversal']);
+        app(SegregationOfDuties::class)->assertCanReverseRecord($saving->employee_id, $this->currentEmployee());
 
         $this->service->reverse($saving, $data['reason'], $this->currentEmployee());
 

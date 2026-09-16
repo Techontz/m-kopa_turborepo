@@ -72,13 +72,14 @@ export default function ReconciliationPage() {
                     <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Verify" onClick={() => { setVerifying(row); setForm({ statement_amount: String(row.amount), statement_reference: "" }); }}><i className="icon-pencil" /></button>
                   )}
                   {row.status === "verified" && (
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Confirm" onClick={async () => (await confirmAction("Confirm payment?", "Payments will be posted to the loans and customers notified.")) && confirm.mutate({ id: row.id })}><i className="icon-check" /></button>
+                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Confirm" disabled={confirm.isPending} onClick={async () => (await confirmAction("Confirm payment?", "Payments will be posted to the loans and customers notified.")) && confirm.mutate({ id: row.id })}><i className={confirm.isPending && confirm.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-check"} /></button>
                   )}
                   {row.status !== "confirmed" && row.status !== "rejected" && (
                     <button
                       type="button"
                       className="btn btn-sm btn-icon btn-danger"
                       title="Reject"
+                      disabled={reject.isPending}
                       onClick={async () => {
                         const reason = await promptReason("Reject bank deposit");
                         if (reason) {
@@ -86,7 +87,7 @@ export default function ReconciliationPage() {
                         }
                       }}
                     >
-                      <i className="icon-close" />
+                      <i className={reject.isPending && reject.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-close"} />
                     </button>
                   )}
                 </>

@@ -22,10 +22,31 @@ interface JournalFilters {
   branch_id: string;
   account: string;
   source: string;
+  transaction_type: string;
   reference: string;
 }
 
 const monthStart = () => `${todayIso().slice(0, 8)}01`;
+
+/** Reverse action: shown to users with accounting.reverse; disabled with the API's reason for module-posted entries. */
+function ReverseButton({ entry, pending, onReverse, label }: { entry: JournalEntry; pending: boolean; onReverse: () => void; label?: string }) {
+  const blocked = !entry.can_reverse;
+  const icon = pending ? "fa fa-spinner fa-spin" : "icon-action-undo";
+  return (
+    <span className="d-inline-block" title={blocked ? entry.reverse_blocked_reason ?? "This entry cannot be reversed here." : "Reverse"}>
+      <button
+        type="button"
+        className={`${label ? "btn" : "btn btn-sm btn-icon"} ${blocked ? "btn-secondary" : "btn-danger"}`}
+        style={blocked ? { pointerEvents: "none" } : undefined}
+        disabled={blocked || pending}
+        onClick={onReverse}
+      >
+        <i className={icon} />
+        {label ? ` ${pending ? "Processing..." : label}` : null}
+      </button>
+    </span>
+  );
+}
 
 function StatusBadge({ entry }: { entry: JournalEntry }) {
   if (entry.reversal_of_id) {
@@ -36,7 +57,7 @@ function StatusBadge({ entry }: { entry: JournalEntry }) {
 
 export default function JournalEntriesPage() {
   const { can } = useAuth();
-  const initial: JournalFilters = { from: monthStart(), to: todayIso(), branch_id: "all", account: "", source: "", reference: "" };
+  const initial: JournalFilters = { from: monthStart(), to: todayIso(), branch_id: "all", account: "", source: "", transaction_type: "", reference: "" };
   const [filters, setFilters] = useState<JournalFilters>(initial);
   const [form, setForm] = useState<JournalFilters>(initial);
   const [filtering, setFiltering] = useState(false);
@@ -53,7 +74,7 @@ export default function JournalEntriesPage() {
     }
   };
 
-  const canReverse = (entry: JournalEntry) => can("accounting.reverse") && !entry.is_reversed && !entry.reversal_of_id;
+  const showReverse = (entry: JournalEntry) => can("accounting.reverse") && !entry.is_reversed && !entry.reversal_of_id;
   const total = (entries ?? []).reduce((sum, entry) => sum + entry.total, 0);
 
   return (
@@ -78,6 +99,12 @@ export default function JournalEntriesPage() {
             { key: "reference", header: "Reference" },
             { key: "description", header: "Description" },
             { key: "branch", header: "Branch" },
+            {
+              key: "transaction_type_label",
+              header: "Type",
+              value: (row) => row.transaction_type_label ?? "",
+              render: (row) => (row.transaction_type_label ? <Badge tone={row.transaction_type === "reversal" ? "warning" : row.transaction_type === "manual" ? "dark" : "info"}>{row.transaction_type_label}</Badge> : "-"),
+            },
             { key: "source_label", header: "Source" },
             { key: "total", header: "Amount", render: (row) => money(row.total), className: "text-right" },
             { key: "employee", header: "Posted By", value: (row) => row.employee ?? "SYSTEM", render: (row) => row.employee ?? "SYSTEM" },
@@ -90,16 +117,14 @@ export default function JournalEntriesPage() {
               render: (row) => (
                 <>
                   <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="View" onClick={() => setViewing(row.id)}><i className="icon-eye" /></button>
-                  {canReverse(row) && (
-                    <button type="button" className="btn btn-sm btn-icon btn-danger" title="Reverse" disabled={reverse.isPending} onClick={() => askReverse(row)}><i className="icon-action-undo" /></button>
-                  )}
+                  {showReverse(row) && <ReverseButton entry={row} pending={reverse.isPending && reverse.variables?.id === row.id} onReverse={() => askReverse(row)} />}
                 </>
               ),
             },
           ]}
           footer={
             <tr>
-              <td colSpan={6}><b>TOTAL</b></td>
+              <td colSpan={7}><b>TOTAL</b></td>
               <td className="text-right"><b>{money(total)}</b></td>
               <td colSpan={3} />
             </tr>
@@ -121,10 +146,13 @@ export default function JournalEntriesPage() {
           <Field label="Account:" className="col-md-12">
             <SelectBox placeholder="All accounts" optionsUrl="accounting/account-options" isClearable value={form.account} onChange={(value) => setForm({ ...form, account: value ?? "" })} />
           </Field>
+          <Field label="Transaction Type:" className="col-md-6">
+            <SelectBox placeholder="All types" optionsUrl="accounting/journal-transaction-types" isClearable value={form.transaction_type} onChange={(value) => setForm({ ...form, transaction_type: value ?? "" })} />
+          </Field>
           <Field label="Source:" className="col-md-6">
             <SelectBox placeholder="All sources" optionsUrl="accounting/journal-sources" isClearable value={form.source} onChange={(value) => setForm({ ...form, source: value ?? "" })} />
           </Field>
-          <Field label="Reference:" className="col-md-6">
+          <Field label="Reference:" className="col-md-12">
             <input className="form-control" placeholder="Reference" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} />
           </Field>
         </div>
@@ -139,6 +167,7 @@ export default function JournalEntriesPage() {
               <tbody>
                 <tr><th style={{ width: "25%" }}>Date:</th><td>{detail.entry_date}</td><th style={{ width: "20%" }}>Branch:</th><td>{detail.branch}</td></tr>
                 <tr><th>Description:</th><td>{detail.description}</td><th>Source:</th><td>{detail.source_label}{detail.source_id ? ` #${detail.source_id}` : ""}</td></tr>
+                <tr><th>Transaction Type:</th><td>{detail.transaction_type_label ?? "-"}</td><th>Reference:</th><td>{detail.reference}</td></tr>
                 <tr><th>Posted By:</th><td>{detail.employee ?? "SYSTEM"}</td><th>Status:</th><td><StatusBadge entry={detail} /></td></tr>
                 {detail.reversal_of && <tr><th>Reversal Of:</th><td>{detail.reversal_of}</td><th>Reason:</th><td>{detail.reversal_reason}</td></tr>}
                 {detail.reversed_by && <tr><th>Reversed By Entry:</th><td colSpan={3}>{detail.reversed_by}</td></tr>}
@@ -169,9 +198,10 @@ export default function JournalEntriesPage() {
                 </tfoot>
               </table>
             </div>
-            {canReverse(detail) && (
+            {showReverse(detail) && (
               <div className="text-right">
-                <button type="button" className="btn btn-danger" disabled={reverse.isPending} onClick={() => askReverse(detail)}><i className="icon-action-undo" /> Reverse Entry</button>
+                {!detail.can_reverse && detail.reverse_blocked_reason && <p className="text-muted small mb-2">{detail.reverse_blocked_reason}</p>}
+                <ReverseButton entry={detail} pending={reverse.isPending} onReverse={() => askReverse(detail)} label="Reverse Entry" />
               </div>
             )}
           </>

@@ -104,7 +104,7 @@ class CustomerController extends ApiController
             ->when(! $viewAll, fn ($branches) => $branches->where('id', $actor->branch_id))
             ->values();
 
-        $officers = $this->scoped(Employee::query())
+        $officers = $this->scoped(Employee::query())->staff()
             ->where('status', 'active')
             ->orderBy('first_name')
             ->get()

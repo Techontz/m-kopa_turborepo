@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api\Capital;
 
 use App\Enums\Account;
+use App\Models\ApprovalPolicy;
 use App\Models\Asset;
 use App\Models\AssetDocument;
 use App\Models\AssetEvent;
@@ -14,6 +15,7 @@ use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Models\ShareHolder;
 use App\Models\ShareTransaction;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Assets\AssetRegistry;
 use App\Services\Ledger;
 use Carbon\CarbonImmutable;
@@ -25,11 +27,13 @@ use Illuminate\Testing\TestResponse;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class AssetCapitalContributionTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -197,7 +201,8 @@ class AssetCapitalContributionTest extends TestCase
 
     public function test_contribution_totals_include_assets_but_ownership_comes_only_from_shares(): void
     {
-        $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->holder->id, 'amount' => 20000000, 'pay_method' => 'CASH'])->assertCreated();
+        $cash = $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->holder->id, 'amount' => 20000000, 'pay_method' => 'CASH'])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/capital/capitals/{$cash}/approve");
         $beta = ShareHolder::create(['company_id' => $this->admin->company_id, 'first_name' => 'BETA', 'last_name' => 'HOLDER', 'mobile' => '0777', 'email' => 'beta@example.com', 'date_of_birth' => '1990-01-01']);
         $this->postJson('/api/v1/shares/structure', [
             'capital_basis' => '10,000,000', 'total_shares' => 1000, 'authorised_shares' => 5000, 'established_on' => '2026-09-14',
@@ -337,7 +342,7 @@ class AssetCapitalContributionTest extends TestCase
 
     public function test_a_failure_inside_the_contribution_rolls_back_capital_asset_journal_and_history(): void
     {
-        Event::listen('eloquent.creating: '.AssetEvent::class, fn (AssetEvent $event) => $event->event === 'allocated_to_branch' ? throw new RuntimeException('forced failure') : null);
+        Event::listen('eloquent.creating: '.AssetEvent::class, fn (AssetEvent $event) => $event->event === 'created' ? throw new RuntimeException('forced failure') : null);
 
         $this->withoutExceptionHandling();
         try {
@@ -348,6 +353,93 @@ class AssetCapitalContributionTest extends TestCase
         }
 
         $this->assertSame([0, 0, 0, 0, 0], [Capital::count(), Asset::count(), AssetEvent::count(), JournalEntry::count(), JournalLine::count()]);
+    }
+
+    public function test_a_failure_inside_the_approval_rolls_back_journal_status_and_history(): void
+    {
+        $asset = Asset::findOrFail($this->contribute()->assertCreated()->json('data.id'));
+        Event::listen('eloquent.creating: '.AssetEvent::class, fn (AssetEvent $event) => $event->event === 'allocated_to_branch' ? throw new RuntimeException('forced failure') : null);
+
+        $approver = $this->secondApprover($this->admin);
+        try {
+            app(AssetRegistry::class)->approve($asset, $approver);
+            $this->fail('the forced failure should propagate');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('forced failure', $exception->getMessage());
+        }
+
+        $this->assertSame(['pending', 'pending', null], [$asset->fresh()->status, $asset->capital->fresh()->status, $asset->fresh()->journal_entry_id]);
+        $this->assertSame([0, 0, 1], [JournalEntry::count(), JournalLine::count(), AssetEvent::count()]);
+    }
+
+    public function test_asset_contribution_is_pending_until_another_user_approves_it(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-09-15 11:00:00'));
+        $contributor = $this->contributor();
+        $this->actingAs($contributor);
+        $response = $this->contribute(['contribution_date' => '2026-09-12'])->assertCreated()
+            ->assertJsonPath('data.status', 'pending')->assertJsonPath('data.status_label', 'Pending Approval')
+            ->assertJsonPath('data.can_approve', false)->assertJsonPath('data.approve_blocked_reason', SegregationOfDuties::INITIATOR_MESSAGE)
+            ->assertJsonPath('data.can_reject', true);
+        $asset = Asset::findOrFail($response->json('data.id'));
+        $ledger = app(Ledger::class);
+
+        $this->assertSame([0, 'pending', null], [JournalEntry::count(), $asset->capital->status, $asset->journal_entry_id]);
+        $this->assertSame(0.0, $ledger->balance($this->admin->company_id, Account::Capital));
+        $this->getJson('/api/v1/capital/capitals')->assertJsonPath('data.share_holder_capital', 0)
+            ->assertJsonPath('data.share_holders.0.capitals.0.status', 'pending')
+            ->assertJsonPath('data.share_holders.0.capitals.0.can_approve', false)
+            ->assertJsonPath('data.share_holders.0.capitals.0.approve_blocked_reason', null);
+        $this->getJson("/api/v1/shares/options/contributions?share_holder_id={$this->holder->id}")->assertJsonCount(0, 'data');
+
+        // The initiator is blocked; lifecycle changes wait for approval; the capital page cannot approve it.
+        $this->postJson("/api/v1/capital/assets/{$asset->id}/approve")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
+        $this->postJson("/api/v1/capital/assets/{$asset->id}/revaluations", ['new_value' => 1, 'valuation_date' => '2026-09-15', 'valuation_method' => 'other', 'reason' => 'x'])->assertUnprocessable();
+        $this->postJson("/api/v1/capital/assets/{$asset->id}/reverse", ['reason' => 'Wrong'])->assertUnprocessable();
+        $this->asApprover($contributor, fn () => $this->postJson("/api/v1/capital/capitals/{$asset->capital_id}/approve")->assertUnprocessable());
+        $this->assertSame(0, JournalEntry::count());
+
+        $this->approveAsSecondUser($contributor, "/api/v1/capital/assets/{$asset->id}/approve");
+        $asset->refresh();
+        $entry = JournalEntry::with('lines.account')->findOrFail($asset->journal_entry_id);
+        $this->assertSame(['active', 'posted', '2026-09-15'], [$asset->status, $asset->capital->status, $entry->entry_date->toDateString()]);
+        $this->assertSame([['motor_vehicles', 30000000.0, 0.0], ['capital', 0.0, 30000000.0]], $entry->lines->map(fn (JournalLine $line): array => [$line->account->key->value, (float) $line->debit, (float) $line->credit])->all());
+        $this->assertNotSame($contributor->id, $entry->employee_id, 'posted by the approver');
+        $this->assertSame('2026-09-12', $asset->contributed_on->toDateString(), 'the contribution date snapshot is kept');
+
+        $this->asApprover($contributor, fn () => $this->postJson("/api/v1/capital/assets/{$asset->id}/approve")->assertUnprocessable());
+        $this->assertSame(1, JournalEntry::count(), 'a second approval posts nothing');
+    }
+
+    public function test_rejected_asset_contribution_posts_nothing_and_is_terminal(): void
+    {
+        $asset = Asset::findOrFail($this->contribute()->assertCreated()->json('data.id'));
+
+        $this->asApprover($this->admin, function (): void {
+            $this->postJson('/api/v1/capital/assets/'.Asset::sole()->id.'/reject', [])->assertUnprocessable()->assertJsonValidationErrors('reason');
+            $this->postJson('/api/v1/capital/assets/'.Asset::sole()->id.'/reject', ['reason' => 'Valuation not supported'])->assertOk()
+                ->assertJsonPath('data.status', 'rejected')->assertJsonPath('data.rejection_reason', 'Valuation not supported');
+        });
+
+        $this->assertSame([0, 'rejected', 'rejected'], [JournalEntry::count(), $asset->fresh()->status, $asset->capital->fresh()->status]);
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/assets/{$asset->id}/approve")->assertUnprocessable());
+        $this->postJson("/api/v1/capital/assets/{$asset->id}/transfer", ['to_branch_id' => $this->admin->branch_id, 'transfer_date' => '2026-09-14', 'reason' => 'x'])->assertUnprocessable();
+        $this->assertSame(['created', 'contribution_rejected'], AssetEvent::orderBy('id')->pluck('event')->all());
+        $this->assertSame(0, JournalEntry::count());
+    }
+
+    public function test_initiator_self_approves_an_asset_only_with_the_permission_and_the_company_policy(): void
+    {
+        $contributor = $this->contributor();
+        $this->actingAs($contributor);
+        $asset = Asset::findOrFail($this->contribute()->assertCreated()->json('data.id'));
+
+        $this->grantSelfApproval($contributor, withCompanyPolicy: false);
+        $this->postJson("/api/v1/capital/assets/{$asset->id}/approve")->assertForbidden();
+
+        $this->allowSelfApprovalPolicy($this->admin->company_id, [ApprovalPolicy::ASSET_CONTRIBUTIONS]);
+        $this->postJson("/api/v1/capital/assets/{$asset->id}/approve")->assertOk()->assertJsonPath('data.status', 'active');
+        $this->assertSame(1, JournalEntry::count());
     }
 
     public function test_reversal_reverses_the_journal_and_excludes_the_contribution_from_totals(): void
@@ -386,7 +478,8 @@ class AssetCapitalContributionTest extends TestCase
     public function test_cash_and_bank_contributions_are_unchanged(): void
     {
         $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->holder->id, 'amount' => 5000000, 'pay_method' => 'ASSET'])->assertUnprocessable()->assertJsonValidationErrors('pay_method');
-        $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->holder->id, 'amount' => 5000000, 'pay_method' => 'CASH'])->assertCreated();
+        $cash = $this->postJson('/api/v1/capital/capitals', ['share_id' => $this->holder->id, 'amount' => 5000000, 'pay_method' => 'CASH'])->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/capital/capitals/{$cash}/approve");
 
         $this->assertSame(5000000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Company));
         $this->getJson('/api/v1/capital/capitals')->assertJsonPath('data.share_holders.0.cash_contributed', 5000000)->assertJsonPath('data.share_holders.0.capitals.0.asset_code', null);
@@ -420,14 +513,32 @@ class AssetCapitalContributionTest extends TestCase
     /**
      * @param  array<string, mixed>  $overrides
      */
+    /**
+     * A non-exempt initiator: an Admin granted the capital and share permissions by employee override.
+     */
+    private function contributor(): Employee
+    {
+        $contributor = $this->secondApprover($this->admin, 'admin');
+        $contributor->permissionOverrides()->createMany([
+            ['permission' => 'capital.manage', 'granted' => true],
+            ['permission' => 'shares.issue', 'granted' => true],
+        ]);
+
+        return $contributor->fresh();
+    }
+
     private function contribute(array $overrides = []): TestResponse
     {
         return $this->postJson('/api/v1/capital/assets', $this->payload($overrides));
     }
 
+    /**
+     * Record an asset contribution and have a second authorised user approve it (C6 maker/checker).
+     */
     private function createAsset(): Asset
     {
         $id = $this->contribute()->assertCreated()->json('data.id');
+        $this->approveAsSecondUser($this->admin, "/api/v1/capital/assets/{$id}/approve");
 
         return Asset::findOrFail($id);
     }

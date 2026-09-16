@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { PaymentFilterModal, SearchButton, total, type PaymentFilters } from "@/components/payments/PaymentFilterModal";
+import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -15,6 +16,7 @@ interface PaidRow {
   branch: string | null;
   amount: number;
   paid_on: string;
+  accounting?: "accrued" | "cash";
 }
 
 /** Penalty → Paid Penalty List (live admin/penart_paid_list). */
@@ -38,7 +40,7 @@ export default function PaidPenaltyPage() {
             { key: "branch", header: "Branch Name" },
             { key: "amount", header: "Paid Amount", render: (row) => money(row.amount) },
             { key: "paid_on", header: "Date" },
-            { key: "action", header: "Action", sortable: false, render: () => null },
+            { key: "accounting", header: "Accounting", render: (row) => <Badge tone={row.accounting === "accrued" ? "info" : "default"}>{row.accounting === "accrued" ? "ACCRUED (LEGACY)" : "CASH BASIS"}</Badge> },
           ]}
           footer={
             <tr>

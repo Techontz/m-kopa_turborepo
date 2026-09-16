@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { SelectBox } from "@/components/ui/SelectBox";
+import type { Reversible } from "@/components/finance/Reversal";
+import type { Approvable } from "@/components/finance/Approval";
 import { todayIso } from "@/lib/format";
 
 export interface DateFilters {
@@ -53,7 +55,7 @@ export function DateFilterModal({ open, title, onClose, onApply, withBranch = fa
   );
 }
 
-export interface FloatTransfer {
+export interface FloatTransfer extends Reversible, Approvable {
   id: number;
   type: string;
   from_branch: string | null;
@@ -61,11 +63,12 @@ export interface FloatTransfer {
   from_account: string | null;
   to_account: string | null;
   amount: number;
-  status: "pending" | "approved";
+  status: "pending" | "approved" | "rejected" | "reversed";
   date: string;
+  journal_reference?: string | null;
 }
 
-/** Sum of transfer amounts (live table footer TOTAL). */
+/** Sum of posted transfer amounts (live table footer TOTAL); pending, rejected and reversed transfers are excluded. */
 export function totalAmount(rows: FloatTransfer[] | undefined): number {
-  return (rows ?? []).reduce((total, row) => total + Number(row.amount || 0), 0);
+  return (rows ?? []).filter((row) => row.status === "approved").reduce((total, row) => total + Number(row.amount || 0), 0);
 }

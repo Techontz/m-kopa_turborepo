@@ -9,6 +9,7 @@ use App\Http\Resources\Api\V1\Agent\AgentTransactionResource;
 use App\Models\AgentTransaction;
 use App\Models\Branch;
 use App\Services\AgentTransactionService;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Ledger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -72,6 +73,7 @@ class AgentTransactionController extends ApiController
         $this->assertBranchAccessible($agentTransaction->branch_id);
 
         $data = $request->validate(['reason' => ['required', 'string', 'max:255']], ['reason.required' => 'Please enter the reason for reversal']);
+        app(SegregationOfDuties::class)->assertCanReverseRecord($agentTransaction->employee_id, $this->currentEmployee());
 
         $this->service->reverse($agentTransaction, $data['reason'], $this->currentEmployee());
 

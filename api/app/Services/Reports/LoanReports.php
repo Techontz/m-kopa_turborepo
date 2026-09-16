@@ -11,6 +11,7 @@ use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
 use App\Models\Penalty;
 use App\Models\WriteOff;
+use App\Services\LoanService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -41,6 +42,7 @@ class LoanReports
         return LoanTransaction::query()
             ->where('company_id', $filter->company->id)
             ->when($filter->branchId, fn (Builder $query, int $branchId) => $query->where('branch_id', $branchId))
+            ->whereNull('reversed_at')
             ->whereBetween('transaction_date', $filter->range())
             ->with('customer')
             ->orderBy('transaction_date')
@@ -88,7 +90,7 @@ class LoanReports
 
         $received = LoanTransaction::query()
             ->where('company_id', $company->id)
-            ->where('type', 'deposit')
+            ->where('type', 'deposit')->whereNull('reversed_at')
             ->when($filter->dated, fn (Builder $query) => $query->whereBetween('transaction_date', $filter->range()))
             ->groupBy('branch_id')
             ->selectRaw('branch_id, SUM(amount) as total, SUM(principal) as principal, SUM(interest) as interest, SUM(reserve) as reserve')
@@ -136,7 +138,7 @@ class LoanReports
 
         $deposits = LoanTransaction::query()
             ->where('company_id', $company->id)
-            ->where('type', 'deposit')
+            ->where('type', 'deposit')->whereNull('reversed_at')
             ->whereNotNull('loan_id')
             ->whereBetween('transaction_date', ["{$year}-01-01", "{$year}-12-31 23:59:59"])
             ->when($branchId, fn (Builder $query, int $id) => $query->where('branch_id', $id))
@@ -234,7 +236,7 @@ class LoanReports
             ->where('company_id', $company->id)
             ->when($branchId, fn (Builder $query, int $id) => $query->where('branch_id', $id))
             ->status(LoanStatus::Default)
-            ->withSum(['transactions as paid_this_month' => fn (Builder $query) => $query->where('type', 'deposit')
+            ->withSum(['transactions as paid_this_month' => fn (Builder $query) => $query->where('type', 'deposit')->whereNull('reversed_at')
                 ->whereBetween('transaction_date', [$today->startOfMonth()->toDateString(), $today->endOfMonth()->toDateTimeString()])], 'amount')
             ->with(['customer', 'branch'])
             ->orderBy('withdrawn_at')
@@ -251,7 +253,7 @@ class LoanReports
         return WriteOff::query()
             ->whereHas('loan', fn (Builder $query) => $query->where('company_id', $company->id)
                 ->when($branchId, fn (Builder $loan, int $id) => $loan->where('branch_id', $id)))
-            ->when($recovered, fn (Builder $query) => $query->whereColumn('recovered_amount', '>=', 'amount'), fn (Builder $query) => $query->whereColumn('recovered_amount', '<', 'amount'))
+            ->when($recovered, fn (Builder $query) => $query->whereRaw(WriteOff::recoveredSql().' >= write_offs.amount'), fn (Builder $query) => $query->whereRaw(WriteOff::recoveredSql().' < write_offs.amount'))
             ->with(['loan.customer', 'loan.branch', 'employee'])
             ->orderBy('written_off_on')
             ->get();
@@ -296,7 +298,7 @@ class LoanReports
     {
         $events = collect();
 
-        foreach ($loan->transactions()->orderBy('transaction_date')->orderBy('id')->get() as $transaction) {
+        foreach ($loan->transactions()->whereNull('reversed_at')->orderBy('transaction_date')->orderBy('id')->get() as $transaction) {
             $events->push([
                 'date' => $transaction->transaction_date->toImmutable(),
                 'order' => 0,
@@ -383,7 +385,7 @@ class LoanReports
     {
         return LoanTransaction::query()
             ->where('company_id', $filter->company->id)
-            ->where('type', 'deposit')
+            ->where('type', 'deposit')->whereNull('reversed_at')
             ->when($filter->branchId, fn (Builder $query, int $id) => $query->where('branch_id', $id))
             ->whereBetween('transaction_date', $filter->range())
             ->with(['customer', 'branch', 'loan', 'employee'])
@@ -413,7 +415,7 @@ class LoanReports
         $penalty = (float) Penalty::where('customer_id', $customer->id)->where('is_waived', false)->get()
             ->sum(fn (Penalty $item): float => max(0, (float) $item->amount - (float) $item->paid_amount));
 
-        $recovery = (float) WriteOff::whereIn('loan_id', $loans->pluck('id'))->sum('recovered_amount');
+        $recovery = (float) WriteOff::whereIn('loan_id', $loans->pluck('id'))->selectRaw('COALESCE(SUM('.WriteOff::recoveredSql().'), 0) AS recovered')->value('recovered');
 
         return ['loans' => $loans, 'latest' => $latest, 'salary_advance' => $salaryAdvance, 'penalty' => $penalty, 'recovery' => $recovery];
     }
@@ -425,11 +427,14 @@ class LoanReports
      */
     private function loansWithPayments(): Builder
     {
-        return Loan::query()->withSum(['transactions as paid_sum' => fn (Builder $query) => $query->where('type', 'deposit')], 'amount');
+        return Loan::query()->withSum(['transactions as paid_sum' => fn (Builder $query) => $query->where('type', 'deposit')->whereNull('reversed_at')], 'amount');
     }
 
+    /**
+     * Remaining debt of a loan: the authoritative outstanding balance (principal + penalty + interest + insurance).
+     */
     public static function remaining(Loan $loan): float
     {
-        return max(0, (float) $loan->total_payable - (float) $loan->paid_sum);
+        return app(LoanService::class)->outstanding($loan)['total'];
     }
 }

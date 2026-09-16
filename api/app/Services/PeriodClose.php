@@ -9,6 +9,7 @@ use App\Models\BranchPeriodResult;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\JournalLine;
+use App\Services\Reports\Financial\InterestReserves;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,6 +30,21 @@ use Illuminate\Validation\ValidationException;
  *
  * Closing a period posts "Dr Income / Cr Profit Account" (and the reverse for expenses) and locks
  * the period in the ledger.
+ *
+ * Final rules (RULES_FINAL):
+ *  - Rule 2: eligible cash income (interest net of the reserve — including write-off recoveries credited to interest income —
+ *    fees, penalties collected, legacy recovery income; insurance excluded) − eligible expenses − loss b/f − HQ 2 % hold =
+ *    distributable profit, the only base of commission (10 %) and, after calculated commission, of dividends (90 % → 70/30).
+ *  - Rule 3: the interest reserve never reaches profit. The only reserve-related closing line is the legacy reclassification
+ *    Dr INTEREST INCOME / Cr INTEREST RESERVE for reserve still inside interest income (legacy repayment entries): both sides are
+ *    non-cash (income → reserve equity), it keeps that reserve out of the Profit Account and never touches the branch RESERVE A/C
+ *    money. Nothing here moves reserve into profit, principal, dividends or income.
+ *  - Rule 14: cash basis — penalty income is read from the ledger as posted (cash collections; legacy accrual entries on older
+ *    data are read as posted too), no accrual is assumed.
+ *  - Rule 15: legacy INSURANCE INCOME closes to INSURANCE RESERVE; new collections credit INSURANCE RESERVE directly (equity, not in
+ *    the income/expense rows) — neither reaches profit.
+ *  - Rule 16: the HQ 2 % hold is applied once, here: results store it, closing moves exactly that amount from the branch Profit
+ *    Account to the HQ Profit Account; commission, dividends and reports read the stored distributable profit and never re-apply it.
  */
 class PeriodClose
 {
@@ -186,10 +202,10 @@ class PeriodClose
     }
 
     /**
-     * Net debit/credit per (branch, account key) for the period, excluding closing entries,
-     * plus the reserve cut from interest.
+     * Net debit/credit per (branch, account key) for the period, excluding closing entries, plus the reserve cut from
+     * interest ({@see InterestReserves}: `reserve` = all reserve, `legacy_reserve` = the part still inside interest income).
      *
-     * @return array{totals: Collection<string, object>, reserve: Collection<int|string, float>, branches: list<int>}
+     * @return array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, branches: list<int>}
      */
     private function figures(int $companyId, CarbonImmutable $start, CarbonImmutable $end): array
     {
@@ -208,26 +224,17 @@ class PeriodClose
             ->get()
             ->keyBy(fn (object $row): string => $row->branch.':'.$row->account_key);
 
-        $reserve = $base()
-            ->where('accounts.key', Account::Reserve->value)
-            ->whereExists(fn ($query) => $query->selectRaw('1')
-                ->from('journal_lines AS income_lines')
-                ->join('accounts AS income_accounts', 'income_accounts.id', '=', 'income_lines.account_id')
-                ->whereColumn('income_lines.journal_entry_id', 'journal_lines.journal_entry_id')
-                ->where('income_accounts.key', Account::InterestIncome->value))
-            ->groupBy('accounts.branch_id')
-            ->selectRaw('COALESCE(accounts.branch_id, 0) AS branch, SUM(journal_lines.debit) - SUM(journal_lines.credit) AS amount')
-            ->toBase()
-            ->pluck('amount', 'branch')
-            ->map(fn ($amount): float => round((float) $amount, 2));
+        $reserves = InterestReserves::byBranch(fn () => $base()->toBase());
+        $reserve = collect($reserves['total']);
+        $legacyReserve = collect($reserves['legacy']);
 
         $branches = $totals->pluck('branch')->merge($reserve->keys())->map(fn ($id): int => (int) $id)->unique()->values()->all();
 
-        return ['totals' => $totals, 'reserve' => $reserve, 'branches' => $branches];
+        return ['totals' => $totals, 'reserve' => $reserve, 'legacy_reserve' => $legacyReserve, 'branches' => $branches];
     }
 
     /**
-     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, branches: list<int>}  $figures
+     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, branches: list<int>}  $figures
      * @return array{interest_income: float, reserve_amount: float, fee_income: float, penalty_income: float, recovery_income: float, total_income: float, expenses: float, gross_profit: float}
      */
     private function incomeFigures(array $figures, int $branchId): array
@@ -243,7 +250,7 @@ class PeriodClose
         };
 
         $reserve = (float) ($figures['reserve'][$branchId] ?? 0);
-        $interest = round($net(Account::InterestIncome) - $reserve, 2);
+        $interest = round($net(Account::InterestIncome) - (float) ($figures['legacy_reserve'][$branchId] ?? 0), 2);
         $fee = $net(Account::FeeIncome);
         $penalty = $net(Account::PenaltyIncome);
         $recovery = $net(Account::RecoveryIncome);
@@ -263,7 +270,7 @@ class PeriodClose
     }
 
     /**
-     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, branches: list<int>}  $figures
+     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, branches: list<int>}  $figures
      * @return array<string, float|bool>
      */
     private function branchResult(array $figures, int $branchId, float $lossBroughtForward): array
@@ -285,11 +292,14 @@ class PeriodClose
     }
 
     /**
-     * Closing lines per branch (0 = HQ): every income and expense account row is brought to zero
-     * against that branch's Profit Account.
+     * Closing lines per branch (0 = HQ): every income and expense account row is brought to zero.
      *
-     * Inferred: all income accounts (including insurance) are closed, so the Profit Account holds the
-     * full result of the books; the branch result table carries the commission figures.
+     *  - INSURANCE INCOME is not distributable profit: it closes to INSURANCE RESERVE (user decision D7).
+     *  - Reserve still inside INTEREST INCOME (legacy repayment entries, {@see InterestReserves}) is not income: that part
+     *    closes to INTEREST RESERVE (user decision D6); new repayment entries already credit INTEREST RESERVE directly.
+     *  - Everything else closes to the branch PROFIT ACCOUNT, which therefore receives exactly the branch gross profit.
+     *
+     * Periods closed before these rules (April–June 2026) keep their original closing entries.
      *
      * @return array<int, list<array<string, mixed>>>
      */
@@ -306,8 +316,27 @@ class PeriodClose
             ->toBase()
             ->get();
 
+        $legacyReserve = InterestReserves::byBranch(fn () => JournalLine::query()
+            ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
+            ->where('journal_entries.company_id', $period->company_id)
+            ->whereBetween('journal_entries.entry_date', [$period->period_start->toDateString(), $period->period_end->toDateString()])
+            ->toBase())['legacy'];
+
         $lines = [];
         $profit = [];
+        foreach ($legacyReserve as $branch => $amount) {
+            if (abs($amount) < 0.005) {
+                continue;
+            }
+            $lines[$branch][] = [
+                'account' => Account::InterestReserve,
+                'branch' => $branch === 0 ? null : $branch,
+                'debit' => $amount < 0 ? -$amount : 0,
+                'credit' => $amount > 0 ? $amount : 0,
+            ];
+            $profit[$branch] = round(($profit[$branch] ?? 0) - $amount, 2);
+        }
         foreach ($rows as $row) {
             $net = round((float) $row->debits - (float) $row->credits, 2);
             if (abs($net) < 0.005) {
@@ -323,6 +352,16 @@ class PeriodClose
                 'debit' => $net < 0 ? -$net : 0,
                 'credit' => $net > 0 ? $net : 0,
             ];
+            if ($row->account_key === Account::InsuranceIncome->value) {
+                $lines[$branch][] = [
+                    'account' => Account::InsuranceReserve,
+                    'branch' => $row->branch_id,
+                    'debit' => $net > 0 ? $net : 0,
+                    'credit' => $net < 0 ? -$net : 0,
+                ];
+
+                continue;
+            }
             $profit[$branch] = round(($profit[$branch] ?? 0) - $net, 2);
         }
 

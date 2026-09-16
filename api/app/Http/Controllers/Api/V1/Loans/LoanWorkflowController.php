@@ -7,8 +7,14 @@ use App\Http\Requests\Api\Loans\DisbursementSourceRequest;
 use App\Http\Requests\Api\Loans\EscalationRequest;
 use App\Http\Requests\Api\Loans\LoanReasonRequest;
 use App\Http\Requests\Api\Loans\MandateRequest;
+use App\Http\Requests\Api\Loans\ReverseDisbursementRequest;
+use App\Http\Requests\Api\Loans\ReverseRepaymentRequest;
 use App\Http\Resources\Api\V1\Loans\LoanResource;
+use App\Models\ApprovalPolicy;
 use App\Models\Loan;
+use App\Models\LoanTransaction;
+use App\Models\WriteOffRequest;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
 use Carbon\CarbonImmutable;
@@ -209,22 +215,129 @@ class LoanWorkflowController extends LoanApiController
     }
 
     /**
-     * Live wright_off_loan (Documents: "Mikopo isiyolipika → Write-Off").
+     * Live wright_off_loan (Documents: "Mikopo isiyolipika → Write-Off"), maker/checker (rule 6): the request is PENDING — nothing
+     * posted, the loan status unchanged — until a different user with loans.write_off approves it.
      */
-    public function writeOff(Loan $loan, LoanService $loans): JsonResponse
+    public function writeOff(Request $request, Loan $loan, LoanService $loans): JsonResponse
     {
         $this->authorizeAny('loans.write_off');
         $this->ensureVisible($loan);
+        $validated = $request->validate(['reason' => ['nullable', 'string', 'max:255']]);
 
         if (! in_array($loan->status, LoanStatus::repayable(), true)) {
             return $this->message('Only active, overdue or default loans can be written off', 422);
         }
 
-        $from = $loan->status;
-        $loans->writeOff($loan, $this->currentEmployee());
-        $this->workflow->record($loan->fresh(), 'WRITTEN_OFF', $from, $this->currentEmployee());
+        $writeOffRequest = $loans->requestWriteOff($loan, $this->currentEmployee(), $validated['reason'] ?? null);
 
-        return $this->loanMessage('Loan moved to Write-off successfully', $loan->fresh());
+        return $this->loanMessage('Write-off request submitted; another authorised user must approve it before the loan is written off.', $loan->fresh(), 201, [
+            'write_off_request' => ['id' => $writeOffRequest->id, 'status' => $writeOffRequest->status, 'outstanding' => $loans->outstanding($loan->fresh())],
+        ]);
+    }
+
+    /**
+     * GET /loans/write-off-requests?status=pending|approved|rejected|all — write-off requests in scope, with approval flags.
+     */
+    public function writeOffRequests(Request $request, LoanService $loans, SegregationOfDuties $duties): JsonResponse
+    {
+        $this->authorizeAny('loans.write_off');
+        $status = $request->string('status', WriteOffRequest::PENDING)->toString();
+        $viewer = $this->currentEmployee();
+
+        $rows = $this->scoped(WriteOffRequest::query())
+            ->when($status !== 'all', fn ($query) => $query->where('status', $status))
+            ->with(['loan.customer', 'branch', 'requester', 'approver', 'rejecter', 'writeOff'])
+            ->latest('id')
+            ->get();
+
+        return response()->json(['data' => $rows->map(fn (WriteOffRequest $row): array => [
+            'id' => $row->id,
+            'status' => $row->status,
+            'loan_id' => $row->loan_id,
+            'loan_number' => $row->loan?->loan_number,
+            'customer' => $row->loan?->customer?->full_name,
+            'branch' => $row->branch?->name,
+            'reason' => $row->reason,
+            'outstanding' => $row->status === WriteOffRequest::PENDING && $row->loan !== null ? $loans->outstanding($row->loan) : null,
+            'written_off_amount' => $row->writeOff !== null ? (float) $row->writeOff->amount : null,
+            'requested_by' => $row->requester?->full_name,
+            'requested_at' => $row->created_at?->toDateTimeString(),
+            'approved_by' => $row->approver?->full_name,
+            'approved_at' => $row->approved_at?->toDateTimeString(),
+            'rejected_by' => $row->rejecter?->full_name,
+            'rejected_at' => $row->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $row->rejection_reason,
+            ...$duties->flags($row->requested_by, $viewer, $row->status === WriteOffRequest::PENDING, true, workflow: ApprovalPolicy::WRITE_OFFS),
+        ])->values()]);
+    }
+
+    /**
+     * POST /loans/write-off-requests/{writeOffRequest}/approve — post the write-off (another authorised user).
+     */
+    public function approveWriteOff(WriteOffRequest $writeOffRequest, LoanService $loans): JsonResponse
+    {
+        $this->authorizeAny('loans.write_off');
+        $loan = Loan::findOrFail($writeOffRequest->loan_id);
+        $this->ensureVisible($loan);
+
+        $writeOff = $loans->approveWriteOff($writeOffRequest, $this->currentEmployee());
+
+        return $this->loanMessage('Loan moved to Write-off successfully', $loan->fresh(), extra: ['write_off' => [
+            'amount' => (float) $writeOff->amount,
+            'principal_amount' => (float) $writeOff->principal_amount,
+            'penalty_amount' => (float) $writeOff->penalty_amount,
+            'interest_amount' => (float) $writeOff->interest_amount,
+            'insurance_amount' => (float) $writeOff->insurance_amount,
+            'written_off_on' => $writeOff->written_off_on?->toDateString(),
+        ]]);
+    }
+
+    /**
+     * POST /loans/write-off-requests/{writeOffRequest}/reject — nothing is posted.
+     */
+    public function rejectWriteOff(LoanReasonRequest $request, WriteOffRequest $writeOffRequest, LoanService $loans): JsonResponse
+    {
+        $this->authorizeAny('loans.write_off');
+        $loan = Loan::findOrFail($writeOffRequest->loan_id);
+        $this->ensureVisible($loan);
+
+        $loans->rejectWriteOff($writeOffRequest, $request->string('reason')->toString(), $this->currentEmployee());
+
+        return $this->loanMessage('Write-off request rejected', $loan->fresh());
+    }
+
+    /**
+     * POST /loans/{loan}/transactions/{loanTransaction}/reverse — reverse a repayment (dependency-checked, see
+     * LoanService::reverseRepayment()); the money returns to suspense unallocated.
+     */
+    public function reverseRepayment(ReverseRepaymentRequest $request, Loan $loan, LoanTransaction $loanTransaction, LoanService $loans): JsonResponse
+    {
+        $this->ensureVisible($loan);
+        abort_unless((int) $loanTransaction->loan_id === (int) $loan->id, 404);
+
+        $result = $loans->reverseRepayment($loanTransaction, $request->string('reason')->toString(), $this->currentEmployee());
+        $message = 'Repayment reversed successfully. TZS '.money($result['transaction']->amount).' returned to suspense (receipt '.$result['payment']->receipt_number.').';
+        if ($result['closed_period'] !== null) {
+            $message .= " The repayment belongs to the closed period {$result['closed_period']}; the reversal was posted today as an adjustment in the current open period.";
+        }
+
+        return $this->loanMessage($message, $loan->fresh(), extra: [
+            'reversal_reference' => $result['reversal']->reference,
+            'payment_id' => $result['payment']->id,
+            'closed_period' => $result['closed_period'],
+        ]);
+    }
+
+    /**
+     * POST /loans/{loan}/reverse-disbursement — reverse the disbursement of a loan without repayments or penalties.
+     */
+    public function reverseDisbursement(ReverseDisbursementRequest $request, Loan $loan, LoanService $loans): JsonResponse
+    {
+        $this->ensureVisible($loan);
+
+        $loan = $loans->reverseDisbursement($loan, $request->string('reason')->toString(), $this->currentEmployee());
+
+        return $this->loanMessage('Loan disbursement reversed successfully; the loan is cancelled.', $loan);
     }
 
     /**

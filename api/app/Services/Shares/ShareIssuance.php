@@ -3,16 +3,20 @@
 namespace App\Services\Shares;
 
 use App\Enums\ShareTransactionType;
+use App\Models\ApprovalPolicy;
 use App\Models\Capital;
 use App\Models\Employee;
 use App\Models\ShareHolder;
+use App\Models\ShareIssuanceRequest;
 use App\Models\ShareStructure;
 use App\Models\ShareTransaction;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\CapitalContributions;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -28,6 +32,12 @@ use Throwable;
  *  - linked_contribution: the money was already recorded as a capital contribution; the share transaction links to it
  *    and no second journal is posted.
  *  - no_cash: founders' allocation without payment or an explicit bonus issuance — no journal.
+ *
+ * C6 maker/checker: a PAID issuance from Shares → Issue Shares is only requested ({@see self::requestIssuance()}: a
+ * `share_issuance_requests` row — no contribution, journal or share transaction). A different authorised user approves it
+ * ({@see self::approveIssuance()}, which runs {@see self::issue()} dated the approval date) or rejects it. {@see self::issue()}
+ * with the paid treatment posts immediately and is for that approval (and internal callers) only. The paid treatment of the
+ * one-time initial allocation ({@see self::establish()}) is unchanged.
  */
 class ShareIssuance
 {
@@ -35,7 +45,196 @@ class ShareIssuance
         private readonly ShareRegister $register,
         private readonly ShareValuations $valuations,
         private readonly CapitalContributions $contributions,
+        private readonly SegregationOfDuties $duties,
     ) {}
+
+    /**
+     * Request a PAID share issuance (C6): validates the structure, price, authorised limit and payment, stores the optional
+     * receipt / document privately and records the request as PENDING. Nothing is posted and ownership does not change. A
+     * repeated idempotency key returns the original request.
+     *
+     * @param  array{pay_method?: string|null, bank_account_id?: int|null, receipt_number?: string|null, cheque_number?: string|null}  $payment
+     * @return array{request: ShareIssuanceRequest, created: bool}
+     *
+     * @throws ValidationException
+     */
+    public function requestIssuance(
+        ShareHolder $holder,
+        int $shares,
+        ?float $pricePerShare,
+        ?CarbonInterface $date,
+        array $payment,
+        ?string $notes,
+        Employee $requestedBy,
+        ?string $idempotencyKey = null,
+        ?UploadedFile $document = null,
+    ): array {
+        $companyId = (int) $holder->company_id;
+
+        $previous = $this->replayedRequest($idempotencyKey, $holder, $shares);
+        if ($previous !== null) {
+            return ['request' => $previous, 'created' => false];
+        }
+
+        $structure = $this->register->requireStructure($companyId);
+        $at = $this->register->moment($date, $structure, 'issue_date');
+        $price = round($pricePerShare ?? ($this->register->valueAt($companyId, $at) ?? (float) $structure->initial_share_value), 2);
+        if ($price <= 0) {
+            throw ValidationException::withMessages(['price_per_share' => 'The issue price per share must be greater than zero']);
+        }
+        $this->register->assertWithinAuthorised($structure, $shares);
+        if (! in_array($payment['pay_method'] ?? null, ['CASH', 'BANK'], true)) {
+            throw ValidationException::withMessages(['pay_method' => 'Select the payment method']);
+        }
+        $receiving = $this->contributions->receivingAccount($companyId, (string) $payment['pay_method'], isset($payment['bank_account_id']) ? (int) $payment['bank_account_id'] : null);
+        $amount = round($shares * $price, 2);
+        if ($amount <= 0) {
+            throw ValidationException::withMessages(['price_per_share' => 'The subscription amount must be greater than zero']);
+        }
+
+        $path = $document?->store("share-issuance-requests/{$companyId}", ShareIssuanceRequest::DISK);
+
+        try {
+            $request = ShareIssuanceRequest::create([
+                'company_id' => $companyId,
+                'share_holder_id' => $holder->id,
+                'shares' => $shares,
+                'price_per_share' => $price,
+                'total_amount' => $amount,
+                'issue_date' => $at->toDateString(),
+                'pay_method' => $payment['pay_method'],
+                'bank_account_id' => $receiving['bank'] ?? null,
+                'receipt_number' => $payment['receipt_number'] ?? null,
+                'cheque_number' => $payment['cheque_number'] ?? null,
+                'notes' => $notes,
+                'document_path' => $path,
+                'document_name' => $document === null ? null : mb_substr(basename($document->getClientOriginalName()), 0, 191),
+                'idempotency_key' => $idempotencyKey,
+                'status' => ShareIssuanceRequest::STATUS_PENDING,
+                'requested_by' => $requestedBy->id,
+            ]);
+        } catch (Throwable $exception) {
+            if ($path !== null) {
+                Storage::disk(ShareIssuanceRequest::DISK)->delete($path);
+            }
+            $previous = $exception instanceof UniqueConstraintViolationException ? $this->replayedRequest($idempotencyKey, $holder, $shares) : null;
+            if ($previous === null) {
+                throw $exception;
+            }
+
+            return ['request' => $previous, 'created' => false];
+        }
+
+        return ['request' => $request, 'created' => true];
+    }
+
+    /**
+     * Approve a pending paid share issuance: a different authorised user than the requester (and than the shareholder's own
+     * login account) posts it — the capital contribution with its journal Dr COMPANY ACCOUNT / bank, Cr CAPITAL ACCOUNT and the
+     * share transaction, dated the approval date at the requested price — in one transaction with the request row locked.
+     *
+     * @throws ValidationException
+     */
+    public function approveIssuance(ShareIssuanceRequest $request, Employee $approver): ShareIssuanceRequest
+    {
+        return DB::transaction(function () use ($request, $approver): ShareIssuanceRequest {
+            $locked = ShareIssuanceRequest::whereKey($request->id)->with('shareHolder')->lockForUpdate()->firstOrFail();
+            if (! $locked->isPending()) {
+                throw ValidationException::withMessages(['request' => 'This share issuance is not pending approval.']);
+            }
+            $this->duties->assertCanApprove($this->requestInitiatorIds($locked), $approver, 'share issuance', workflow: ApprovalPolicy::SHARE_ISSUANCES);
+
+            $transaction = $this->issue(
+                $locked->shareHolder,
+                (int) $locked->shares,
+                ShareTransactionType::Issuance->value,
+                ShareTransaction::TREATMENT_PAID,
+                (float) $locked->price_per_share,
+                null,
+                [
+                    'pay_method' => $locked->pay_method,
+                    'bank_account_id' => $locked->bank_account_id,
+                    'receipt_number' => $locked->receipt_number,
+                    'cheque_number' => $locked->cheque_number,
+                ],
+                $locked->notes,
+                $approver,
+                "share-issuance-request-{$locked->id}",
+            )['transaction'];
+
+            if ($locked->document_path !== null && $transaction->capital_id !== null) {
+                Capital::whereKey($transaction->capital_id)->update(['receipt_file' => $locked->document_path, 'receipt_file_name' => $locked->document_name]);
+            }
+
+            $locked->update([
+                'status' => ShareIssuanceRequest::STATUS_APPROVED,
+                'approved_by' => $approver->id,
+                'approved_at' => now(),
+                'share_transaction_id' => $transaction->id,
+                'capital_id' => $transaction->capital_id,
+            ]);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Reject a pending paid share issuance: nothing was posted; the request is kept with the reason.
+     *
+     * @throws ValidationException
+     */
+    public function rejectIssuance(ShareIssuanceRequest $request, string $reason, Employee $employee): ShareIssuanceRequest
+    {
+        return DB::transaction(function () use ($request, $reason, $employee): ShareIssuanceRequest {
+            $locked = ShareIssuanceRequest::whereKey($request->id)->lockForUpdate()->firstOrFail();
+            if (! $locked->isPending()) {
+                throw ValidationException::withMessages(['reason' => 'Only pending share issuances can be rejected.']);
+            }
+
+            $locked->update(['status' => ShareIssuanceRequest::STATUS_REJECTED, 'rejected_by' => $employee->id, 'rejected_at' => now(), 'rejection_reason' => $reason]);
+
+            return $locked;
+        });
+    }
+
+    /**
+     * Employees who may not approve the request (rule 6): the requester and the shareholder's own login account.
+     *
+     * @return list<int|null>
+     */
+    public function requestInitiatorIds(ShareIssuanceRequest $request): array
+    {
+        return [$request->requested_by, $request->shareHolder?->employee_id];
+    }
+
+    /**
+     * Pending paid share issuance requests of a company, oldest first.
+     *
+     * @return Collection<int, ShareIssuanceRequest>
+     */
+    public function pendingIssuanceRequests(int $companyId): Collection
+    {
+        return ShareIssuanceRequest::where('company_id', $companyId)
+            ->where('status', ShareIssuanceRequest::STATUS_PENDING)
+            ->with(['shareHolder', 'requester'])
+            ->orderBy('id')
+            ->get()
+            ->toBase();
+    }
+
+    private function replayedRequest(?string $idempotencyKey, ShareHolder $holder, int $shares): ?ShareIssuanceRequest
+    {
+        if ($idempotencyKey === null) {
+            return null;
+        }
+
+        $previous = ShareIssuanceRequest::where('idempotency_key', $idempotencyKey)->first();
+        if ($previous !== null && ((int) $previous->company_id !== (int) $holder->company_id || (int) $previous->share_holder_id !== $holder->id || (int) $previous->shares !== $shares)) {
+            throw ValidationException::withMessages(['idempotency_key' => 'This request key was already used for a different share issuance']);
+        }
+
+        return $previous;
+    }
 
     /**
      * Create the share structure, its initial valuation and the initial allocation in one database transaction.
@@ -308,6 +507,9 @@ class ShareIssuance
         }
         if ($capital->isReversed()) {
             throw ValidationException::withMessages(['capital_id' => 'The selected capital contribution has been reversed']);
+        }
+        if (! $capital->isPosted()) {
+            throw ValidationException::withMessages(['capital_id' => 'The selected capital contribution has not been approved']);
         }
         if ((int) $capital->share_holder_id !== $holder->id) {
             throw ValidationException::withMessages(['capital_id' => 'The selected capital contribution belongs to another shareholder']);

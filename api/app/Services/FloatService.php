@@ -3,122 +3,268 @@
 namespace App\Services;
 
 use App\Enums\Account;
+use App\Models\ApprovalPolicy;
+use App\Models\AuditLog;
+use App\Models\Company;
+use App\Models\Employee;
 use App\Models\FloatTransfer;
+use App\Services\Approvals\ReserveProtection;
+use App\Services\Approvals\SegregationOfDuties;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Float movements (live Capital → Float pages). Every movement is posted through the ledger.
+ * Float movements (live Capital → Float pages).
+ *
+ * Rule 6 (segregation of duties): every float — company → branch, branch → branch, account → account — is initiated as
+ * PENDING (no journal, no balance movement) and posted only when a different authorised user approves it
+ * ({@see SegregationOfDuties}). Approval runs inside one transaction with the company and transfer rows locked, so the
+ * source balance is checked against committed postings and a double approval posts once. Reversals: {@see TransferReversal}.
  */
 class FloatService
 {
-    public function __construct(private readonly Ledger $ledger) {}
+    public const PENDING = 'pending';
+
+    public const APPROVED = 'approved';
+
+    public const REJECTED = 'rejected';
+
+    public function __construct(
+        private readonly Ledger $ledger,
+        private readonly SegregationOfDuties $duties,
+    ) {}
 
     /**
-     * Company account → branch principal account (approved immediately, as on the live page).
+     * Where a company → HQ float may be taken from: the COMPANY ACCOUNT, a company bank account or the Investment
+     * RESERVE A/C. Never a fixed asset — assets are not money.
      *
-     * Inferred: the company account must hold enough balance for the float.
+     * @return list<Account>
      */
-    public function companyToBranch(int $companyId, int $branchId, float $amount): FloatTransfer
+    public static function hqFloatSources(): array
     {
-        $this->ensureBalance($companyId, Account::Company, null, $amount, 'blanch_amount');
-
-        return DB::transaction(function () use ($companyId, $branchId, $amount): FloatTransfer {
-            $transfer = FloatTransfer::create([
-                'company_id' => $companyId,
-                'type' => 'company_to_branch',
-                'to_branch_id' => $branchId,
-                'from_account' => Account::Company->value,
-                'to_account' => Account::Principal->value,
-                'amount' => $amount,
-                'status' => 'approved',
-                'transfer_date' => today(),
-            ]);
-
-            $this->ledger->transfer($companyId, ['account' => Account::Company], ['account' => Account::Principal, 'branch' => $branchId], $amount, 'FLOAT FROM COMPANY ACCOUNT', $transfer);
-
-            return $transfer;
-        });
+        return [Account::Company, Account::Bank, Account::InvestmentReserve];
     }
 
-    public function requestBranchToBranch(int $companyId, int $fromBranchId, int $toBranchId, float $amount): FloatTransfer
+    /**
+     * Request a company money account → HQ PRINCIPAL A/C float (pending approval). The company funds HQ only: branches hold
+     * no lending money, HQ/Finance approves and disburses loans, so there is no company → branch float.
+     */
+    public function requestCompanyToHq(int $companyId, Account $from, ?int $bankAccountId, float $amount, Employee $requester): FloatTransfer
     {
-        return FloatTransfer::create([
-            'company_id' => $companyId,
+        $amount = round($this->ensurePositive($amount, 'amount'), 2);
+
+        if (! in_array($from, self::hqFloatSources(), true)) {
+            throw ValidationException::withMessages(['from_account' => 'Select the Company A/C, a bank account or the Investment RESERVE A/C']);
+        }
+        if ($from === Account::Bank && $bankAccountId === null) {
+            throw ValidationException::withMessages(['bank_account_id' => 'Select the company bank account the money leaves']);
+        }
+        $bankAccountId = $from === Account::Bank ? $bankAccountId : null;
+        $this->ensureBalance($companyId, $from, null, $amount, 'amount', $bankAccountId);
+
+        return $this->createPending($companyId, $requester, [
+            'type' => 'company_to_hq',
+            'from_account' => $from->value,
+            'bank_account_id' => $bankAccountId,
+            'to_account' => Account::Principal->value,
+            'amount' => $amount,
+        ]);
+    }
+
+    public function requestBranchToBranch(int $companyId, int $fromBranchId, int $toBranchId, float $amount, ?Employee $requester = null): FloatTransfer
+    {
+        $this->ensurePositive($amount, 'trans_amount');
+
+        return $this->createPending($companyId, $requester, [
             'type' => 'branch_to_branch',
             'from_branch_id' => $fromBranchId,
             'to_branch_id' => $toBranchId,
             'from_account' => Account::Principal->value,
             'to_account' => Account::Principal->value,
-            'amount' => $amount,
-            'status' => 'pending',
-            'transfer_date' => today(),
+            'amount' => round($amount, 2),
         ]);
     }
 
     /**
-     * Inferred: approval moves the float from the sending branch's principal account to the receiving
-     * branch's principal account, provided the sender has enough balance.
+     * Request a PRINCIPAL ↔ INTEREST movement within one branch (pending approval). Never from the RESERVE fund (rule 3).
      */
-    public function approve(FloatTransfer $transfer): FloatTransfer
+    public function requestAccountToAccount(int $companyId, int $branchId, Account $from, Account $to, float $amount, Employee $requester): FloatTransfer
     {
-        if ($transfer->type !== 'branch_to_branch' || $transfer->status !== 'pending') {
-            throw ValidationException::withMessages(['transfer' => 'Transaction is already processed']);
-        }
+        $this->ensurePositive($amount, 'amount');
+        ReserveProtection::assertNotReserveSource($from, 'from_acc');
 
-        $amount = (float) $transfer->amount;
-        $this->ensureBalance($transfer->company_id, Account::Principal, $transfer->from_branch_id, $amount, 'transfer');
+        return $this->createPending($companyId, $requester, [
+            'type' => 'account_to_account',
+            'from_branch_id' => $branchId,
+            'to_branch_id' => $branchId,
+            'from_account' => $from->value,
+            'to_account' => $to->value,
+            'amount' => round($amount, 2),
+        ]);
+    }
 
-        return DB::transaction(function () use ($transfer, $amount): FloatTransfer {
-            $locked = FloatTransfer::whereKey($transfer->id)->lockForUpdate()->first();
-            if ($locked->status !== 'pending') {
+    /**
+     * Approve a pending float and post it: Dr the receiving account / Cr the sending account, provided the sender holds the
+     * amount. The approver must not be the requester unless self-approval is explicitly granted.
+     */
+    public function approve(FloatTransfer $transfer, ?Employee $approver = null): FloatTransfer
+    {
+        return DB::transaction(function () use ($transfer, $approver): FloatTransfer {
+            $this->lockCompany((int) $transfer->company_id);
+            $locked = FloatTransfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== self::PENDING) {
                 throw ValidationException::withMessages(['transfer' => 'Transaction is already processed']);
             }
+            if ($approver !== null) {
+                $this->duties->assertCanApprove($locked->requested_by, $approver, 'float', workflow: ApprovalPolicy::FLOATS);
+            }
 
-            $this->ledger->transfer(
-                $transfer->company_id,
-                ['account' => Account::Principal, 'branch' => $transfer->from_branch_id],
-                ['account' => Account::Principal, 'branch' => $transfer->to_branch_id],
+            $from = Account::from($locked->from_account);
+            $to = Account::from($locked->to_account);
+            ReserveProtection::assertNotReserveSource($from, 'transfer');
+
+            $amount = (float) $locked->amount;
+            $source = match (true) {
+                $from === Account::Bank => ['account' => $from, 'bank' => $locked->bank_account_id],
+                in_array($from, [Account::Company, Account::InvestmentReserve], true) => ['account' => $from],
+                default => ['account' => $from, 'branch' => $locked->from_branch_id],
+            };
+            $this->ensureBalance((int) $locked->company_id, $from, $source['branch'] ?? null, $amount, 'transfer', $source['bank'] ?? null);
+
+            $entry = $this->ledger->transfer(
+                $locked->company_id,
+                $source,
+                ['account' => $to, 'branch' => $locked->to_branch_id],
                 $amount,
-                'FLOAT BRANCH TO BRANCH',
-                $transfer,
+                $this->description($locked->type, $from, $to),
+                $locked,
             );
 
-            $transfer->update(['status' => 'approved', 'transfer_date' => today()]);
+            $locked->update([
+                'status' => self::APPROVED,
+                'transfer_date' => today(),
+                'journal_entry_id' => $entry->id,
+                'approved_by' => $approver?->id,
+                'approved_at' => now(),
+            ]);
 
-            return $transfer;
+            return $locked;
         });
     }
 
     /**
-     * PRINCIPAL ↔ INTEREST within one branch. Recorded as an approved float transfer so the movement has a source.
+     * Reject a pending float: nothing was posted, the row is kept with the reason.
      */
-    public function accountToAccount(int $companyId, int $branchId, Account $from, Account $to, float $amount): FloatTransfer
+    public function reject(FloatTransfer $transfer, string $reason, Employee $employee): FloatTransfer
     {
-        $this->ensureBalance($companyId, $from, $branchId, $amount, 'amount');
+        return DB::transaction(function () use ($transfer, $reason, $employee): FloatTransfer {
+            $locked = FloatTransfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== self::PENDING) {
+                throw ValidationException::withMessages(['reason' => 'Only pending transfers can be rejected']);
+            }
 
-        return DB::transaction(function () use ($companyId, $branchId, $from, $to, $amount): FloatTransfer {
-            $transfer = FloatTransfer::create([
-                'company_id' => $companyId,
-                'type' => 'account_to_account',
-                'from_branch_id' => $branchId,
-                'to_branch_id' => $branchId,
-                'from_account' => $from->value,
-                'to_account' => $to->value,
-                'amount' => $amount,
-                'status' => 'approved',
-                'transfer_date' => today(),
-            ]);
+            $locked->update(['status' => self::REJECTED, 'rejected_by' => $employee->id, 'rejected_at' => now(), 'rejection_reason' => $reason]);
+            $this->auditRejection($locked, $employee, $reason);
 
-            $this->ledger->transfer($companyId, ['account' => $from, 'branch' => $branchId], ['account' => $to, 'branch' => $branchId], $amount, 'FLOAT '.$from->label().' TO '.$to->label(), $transfer);
-
-            return $transfer;
+            return $locked;
         });
     }
 
-    private function ensureBalance(int $companyId, Account $account, ?int $branchId, float $amount, string $field): void
+    /**
+     * Post a company → branch float immediately, without an approval step. Internal use only (system fixtures and tests);
+     * the API always goes through {@see requestCompanyToBranch()} and {@see approve()}.
+     *
+     * @internal
+     */
+    public function companyToBranch(int $companyId, int $branchId, float $amount): FloatTransfer
     {
-        if ($this->ledger->balance($companyId, $account, $branchId) < $amount) {
+        return $this->approve($this->createPending($companyId, null, [
+            'type' => 'company_to_branch',
+            'to_branch_id' => $branchId,
+            'from_account' => Account::Company->value,
+            'to_account' => Account::Principal->value,
+            'amount' => round($this->ensurePositive($amount, 'blanch_amount'), 2),
+        ]));
+    }
+
+    /**
+     * Post an account → account float immediately, without an approval step. Internal use only (system fixtures and
+     * tests); the API always goes through {@see requestAccountToAccount()} and {@see approve()}.
+     *
+     * @internal
+     */
+    public function accountToAccount(int $companyId, int $branchId, Account $from, Account $to, float $amount): FloatTransfer
+    {
+        ReserveProtection::assertNotReserveSource($from, 'from_acc');
+
+        return $this->approve($this->createPending($companyId, null, [
+            'type' => 'account_to_account',
+            'from_branch_id' => $branchId,
+            'to_branch_id' => $branchId,
+            'from_account' => $from->value,
+            'to_account' => $to->value,
+            'amount' => round($this->ensurePositive($amount, 'amount'), 2),
+        ]));
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function createPending(int $companyId, ?Employee $requester, array $attributes): FloatTransfer
+    {
+        return FloatTransfer::create($attributes + [
+            'company_id' => $companyId,
+            'status' => self::PENDING,
+            'requested_by' => $requester?->id,
+            'transfer_date' => today(),
+        ]);
+    }
+
+    private function description(string $type, Account $from, Account $to): string
+    {
+        return match ($type) {
+            'company_to_branch' => 'FLOAT FROM COMPANY ACCOUNT',
+            'company_to_hq' => 'FLOAT '.$from->label().' TO HQ '.$to->label(),
+            'branch_to_branch' => 'FLOAT BRANCH TO BRANCH',
+            default => 'FLOAT '.$from->label().' TO '.$to->label(),
+        };
+    }
+
+    private function auditRejection(FloatTransfer $transfer, Employee $employee, string $reason): void
+    {
+        AuditLog::create([
+            'company_id' => $transfer->company_id,
+            'employee_id' => $employee->id,
+            'action' => 'FloatTransfer.rejected',
+            'auditable_type' => $transfer->getMorphClass(),
+            'auditable_id' => $transfer->id,
+            'before' => ['status' => self::PENDING],
+            'after' => ['status' => self::REJECTED],
+            'context' => ['reason' => $reason, 'amount' => (float) $transfer->amount, 'type' => $transfer->type],
+            'ip_address' => request()?->ip(),
+        ]);
+    }
+
+    /**
+     * Serialises balance-changing movements of one company: balances are checked with the company row locked.
+     */
+    private function lockCompany(int $companyId): void
+    {
+        Company::whereKey($companyId)->lockForUpdate()->firstOrFail();
+    }
+
+    private function ensurePositive(float $amount, string $field): float
+    {
+        if (round($amount, 2) <= 0) {
+            throw ValidationException::withMessages([$field => 'Amount must be greater than zero']);
+        }
+
+        return $amount;
+    }
+
+    private function ensureBalance(int $companyId, Account $account, ?int $branchId, float $amount, string $field, ?int $bankAccountId = null): void
+    {
+        if ($this->ledger->balance($companyId, $account, $branchId, $bankAccountId) < $amount) {
             throw ValidationException::withMessages([$field => 'Insufficient balance in '.$account->label()]);
         }
     }

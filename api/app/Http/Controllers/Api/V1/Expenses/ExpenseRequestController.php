@@ -10,6 +10,7 @@ use App\Http\Resources\Api\V1\Expenses\ExpenseRequestResource;
 use App\Models\AuditLog;
 use App\Models\ExpenseRequest;
 use App\Services\ExpenseApproval;
+use App\Services\TransferReversal;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,26 +46,34 @@ class ExpenseRequestController extends ApiController
     public function __construct(private readonly ExpenseApproval $approval) {}
 
     /**
-     * status=pending (default) | accepted | all; accepted lists take the branch (incl. all) and from/to filter.
+     * status=pending (default) | accepted | reversed | all; accepted and all lists take the branch (incl. all) and from/to
+     * filter. The accepted list also shows reversed expenses (badge); `total` excludes reversed ones (`total_reversed`).
      */
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'scope' => ['required', Rule::in(ExpenseApproval::SCOPES)],
-            'status' => ['nullable', Rule::in(['pending', 'accepted', 'all'])],
+            'status' => ['nullable', Rule::in(['pending', 'accepted', 'reversed', 'all'])],
         ]);
         $scope = $validated['scope'];
         $status = $validated['status'] ?? 'pending';
         $this->authorizeAny(...self::VIEW_PERMISSIONS[$scope]);
 
-        $query = $this->requests($scope)->when($status !== 'all', fn (Builder $query) => $query->where('status', $status));
+        $statuses = match ($status) {
+            'accepted' => ['accepted', TransferReversal::STATUS_REVERSED],
+            'all' => null,
+            default => [$status],
+        };
+        $query = $this->requests($scope)->when($statuses !== null, fn (Builder $query) => $query->whereIn('status', $statuses));
         $this->applyFilters($query, $request, $status === 'pending' ? null : 'request_date');
 
         $requests = $query->get();
+        $reversed = $requests->where('status', TransferReversal::STATUS_REVERSED);
 
         return response()->json([
             'data' => ExpenseRequestResource::collection($requests),
-            'total' => round((float) $requests->sum('amount'), 2),
+            'total' => round((float) $requests->diff($reversed)->sum('amount'), 2),
+            'total_reversed' => round((float) $reversed->sum('amount'), 2),
             'approval_limit' => $this->approval->limit($this->currentEmployee()->company_id),
         ]);
     }
@@ -109,6 +118,26 @@ class ExpenseRequestController extends ApiController
         );
 
         return $this->message('Expenses Accepted successfully');
+    }
+
+    /**
+     * Reverse an accepted expense (Dr source account / Cr EXPENSES, posted today). Requires a permission that could approve
+     * the expense plus accounting.reverse.
+     */
+    public function reverse(Request $request, ExpenseRequest $expenseRequest): JsonResponse
+    {
+        $this->assertVisible($expenseRequest);
+        $this->authorizeAny(...$this->approval->requiredPermissions($expenseRequest, (float) $expenseRequest->amount));
+        $this->authorizeAny('accounting.reverse');
+        $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']]);
+
+        $result = $this->approval->reverse($expenseRequest, $validated['reason'], $this->currentEmployee());
+
+        return $this->message(
+            'Expenses Reversed successfully'.($result['notice'] !== null ? '. '.$result['notice'] : ''),
+            200,
+            ['data' => new ExpenseRequestResource($result['expense']->load(['branch', 'expenseType', 'bankAccount', 'employee', 'approver', 'reversedBy', 'journalEntry', 'reversalJournalEntry'])), 'notice' => $result['notice']],
+        );
     }
 
     /**
@@ -169,7 +198,7 @@ class ExpenseRequestController extends ApiController
      */
     private function requests(string $scope): Builder
     {
-        $query = ExpenseRequest::query()->where('scope', $scope)->with(['branch', 'expenseType', 'bankAccount', 'employee', 'approver'])->latest('id');
+        $query = ExpenseRequest::query()->where('scope', $scope)->with(['branch', 'expenseType', 'bankAccount', 'employee', 'approver', 'reversedBy', 'journalEntry', 'reversalJournalEntry'])->latest('id');
 
         return $scope === 'branch' ? $this->scoped($query) : $query->where('company_id', $this->currentEmployee()->company_id);
     }

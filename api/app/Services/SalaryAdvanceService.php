@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\Account;
+use App\Enums\TransactionType;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\JournalEntry;
@@ -17,10 +18,16 @@ use Illuminate\Validation\ValidationException;
  * Customer salary advance (live "perifelar" loans): request → approve → repayment → done.
  *
  * Ledger:
- *  - approval: Dr Salary Advance Receivable (branch) / Cr HQ Salary Advance account, and the category
- *    charge Dr Loan Fee (branch) / Cr Fee Income;
- *  - repayment: Dr HQ Salary Advance / Cr Receivable (principal) / Cr Interest Income (interest);
- *  - removal of an approved advance: reversal of every entry above (Documents: no delete, reversal only).
+ *  - approval: Dr Salary Advance Receivable (branch) / Cr HQ Salary Advance account. The category fee is NOT income at
+ *    approval (C2);
+ *  - fee collection ({@see collectFee()}): only when the fee is actually collected, once — Dr LOAN FEE A/C (branch) / Cr FEE
+ *    INCOME (branch). Advances approved before C2 posted the fee with the approval journal; that stays as booked;
+ *  - repayment (spec §8): principal returns to the principal pool and interest goes to the interest pool —
+ *    Dr HQ Salary Advance (principal portion) + Dr HQ Interest (interest portion) / Cr Receivable (principal) /
+ *    Cr Interest Income (interest). Repayments posted before this split debited HQ Salary Advance with the full amount;
+ *    they are not rewritten;
+ *  - removal of an approved advance: reversal of every entry above — the fee journal only exists (and is mirrored) when the fee
+ *    was collected (Documents: no delete, reversal only).
  */
 class SalaryAdvanceService
 {
@@ -62,11 +69,51 @@ class SalaryAdvanceService
             $this->ledger->journal($locked->company_id, 'SALARY ADVANCE LOAN', [
                 ['account' => Account::SalaryAdvanceReceivable, 'branch' => $locked->branch_id, 'debit' => (float) $locked->amount],
                 ['account' => Account::HqSalaryAdvance, 'credit' => (float) $locked->amount],
-                ['account' => Account::LoanFee, 'branch' => $locked->branch_id, 'debit' => (float) $locked->fee],
-                ['account' => Account::FeeIncome, 'branch' => $locked->branch_id, 'credit' => (float) $locked->fee],
             ], $locked, null, $locked->branch_id);
 
             $advance->setRawAttributes($locked->getAttributes(), true);
+        });
+    }
+
+    /**
+     * Record the ACTUAL collection of an approved advance's fee (C2): Dr LOAN FEE A/C / Cr FEE INCOME (branch), exactly once —
+     * the advance row is locked, and an advance that is not approved, reversed, has no fee, or whose fee was already collected
+     * (now or, legacy, at approval) is rejected with 422.
+     *
+     * @throws ValidationException
+     */
+    public function collectFee(SalaryAdvance $advance, Employee $employee, string $method = 'CASH', ?string $reference = null): SalaryAdvance
+    {
+        return DB::transaction(function () use ($advance, $employee, $method, $reference): SalaryAdvance {
+            /** @var SalaryAdvance $locked */
+            $locked = SalaryAdvance::lockForUpdate()->findOrFail($advance->id);
+
+            $blocked = match (true) {
+                $locked->reversed_at !== null || $locked->status === 'reversed' => 'Salary advance is reversed; its fee cannot be collected.',
+                ! in_array($locked->status, ['active', 'done'], true) => 'The fee can only be collected on an approved salary advance.',
+                (float) $locked->fee <= 0 => 'This salary advance has no fee to collect.',
+                $locked->fee_journal_entry_id !== null, $locked->feePostedAtApproval() => 'The fee of this salary advance has already been collected.',
+                default => null,
+            };
+            if ($blocked !== null) {
+                throw ValidationException::withMessages(['fee' => $blocked]);
+            }
+
+            $entry = $this->ledger->journal($locked->company_id, 'SALARY ADVANCE FEE', [
+                ['account' => Account::LoanFee, 'branch' => $locked->branch_id, 'debit' => (float) $locked->fee],
+                ['account' => Account::FeeIncome, 'branch' => $locked->branch_id, 'credit' => (float) $locked->fee],
+            ], $locked, null, $locked->branch_id, $employee, TransactionType::SalaryAdvanceRepayment);
+
+            $locked->update([
+                'fee_collected_at' => now(),
+                'fee_collected_by' => $employee->id,
+                'fee_collection_method' => $method,
+                'fee_collection_reference' => $reference,
+                'fee_journal_entry_id' => $entry->id,
+            ]);
+            $advance->setRawAttributes($locked->getAttributes(), true);
+
+            return $locked;
         });
     }
 
@@ -94,13 +141,15 @@ class SalaryAdvanceService
             }
 
             $principal = round(min($amount, max(0, (float) $locked->amount - $paid)), 2);
+            $interest = round($amount - $principal, 2);
 
             $payment = $locked->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
 
             $this->ledger->journal($locked->company_id, 'SALARY ADVANCE DEPOSIT', [
-                ['account' => Account::HqSalaryAdvance, 'debit' => $amount],
+                ['account' => Account::HqSalaryAdvance, 'debit' => $principal],
+                ['account' => Account::HqInterest, 'debit' => $interest],
                 ['account' => Account::SalaryAdvanceReceivable, 'branch' => $locked->branch_id, 'credit' => $principal],
-                ['account' => Account::InterestIncome, 'branch' => $locked->branch_id, 'credit' => round($amount - $principal, 2)],
+                ['account' => Account::InterestIncome, 'branch' => $locked->branch_id, 'credit' => $interest],
             ], $payment, $date, $locked->branch_id);
 
             if ($amount >= $remaining - 0.001) {

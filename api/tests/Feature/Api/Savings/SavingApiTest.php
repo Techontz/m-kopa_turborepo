@@ -12,11 +12,13 @@ use App\Models\Saving;
 use App\Services\Ledger;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class SavingApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     public function test_deposit_and_taken_withdrawal_move_the_saving_ledger(): void
     {
@@ -70,7 +72,7 @@ class SavingApiTest extends TestCase
         $this->getJson('/api/v1/savings/withdrawals')->assertOk()->assertJsonPath('data.0.description', 'SAVING CLEAR LOAN');
 
         $clear = Saving::where('withdrawal_type', 'CLEAR')->firstOrFail();
-        $this->postJson("/api/v1/savings/transactions/{$clear->id}/reverse", ['reason' => 'x'])->assertUnprocessable();
+        $this->asApprover($admin, fn () => $this->postJson("/api/v1/savings/transactions/{$clear->id}/reverse", ['reason' => 'x'])->assertUnprocessable());
 
         $other = Customer::factory()->create(['branch_id' => $admin->branch_id]);
         $this->postJson("/api/v1/savings/customers/{$other->id}/deposits", ['dep_sav' => 1000])->assertCreated();
@@ -82,11 +84,16 @@ class SavingApiTest extends TestCase
     {
         $admin = $this->signInAdmin();
         $customer = Customer::factory()->create(['branch_id' => $admin->branch_id]);
+        // Recorded by Finance (not the Super Admin) so the rule 6 reversal block below applies.
+        $recorder = $this->secondApprover($admin, 'finance');
+        $this->actingAs($recorder);
 
         $this->postJson("/api/v1/savings/customers/{$customer->id}/deposits", ['dep_sav' => 50000])->assertCreated();
         $saving = Saving::firstOrFail();
 
-        $this->postJson("/api/v1/savings/transactions/{$saving->id}/reverse", ['reason' => 'Wrong customer'])->assertOk()->assertJsonPath('message', 'Transaction Reversed successfully');
+        // Rule 6: the employee who recorded the deposit does not reverse it.
+        $this->postJson("/api/v1/savings/transactions/{$saving->id}/reverse", ['reason' => 'Wrong customer'])->assertForbidden();
+        $this->asApprover($recorder, fn () => $this->postJson("/api/v1/savings/transactions/{$saving->id}/reverse", ['reason' => 'Wrong customer'])->assertOk()->assertJsonPath('message', 'Transaction Reversed successfully'));
 
         $this->assertEquals(0, app(Ledger::class)->balance($admin->company_id, Account::HqSaving, $admin->branch_id));
         $this->getJson("/api/v1/savings/customers/{$customer->id}")->assertOk()->assertJsonPath('data.total_saving', 0)->assertJsonPath('data.statement.0.reversed', true);

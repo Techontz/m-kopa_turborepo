@@ -30,6 +30,9 @@ class DividendDeclaration extends Model
             'reinvest_amount' => 'decimal:2',
             'dividend_percent' => 'decimal:2',
             'dividend_amount' => 'decimal:2',
+            'distributable_profit' => 'decimal:2',
+            'commission_amount' => 'decimal:2',
+            'base_amount' => 'decimal:2',
             'total_shares' => 'integer',
             'as_of_date' => 'date',
             'declared_at' => 'datetime',
@@ -57,6 +60,19 @@ class DividendDeclaration extends Model
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);
+    }
+
+    public function reinvestmentJournalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'reinvestment_journal_entry_id');
+    }
+
+    /**
+     * Declared under the profit-allocation rule (commission first, reinvestment to REINVESTED PROFIT and branch principal).
+     */
+    public function isProfitAllocationRule(): bool
+    {
+        return $this->allocation_rule !== null;
     }
 
     public function declaredBy(): BelongsTo

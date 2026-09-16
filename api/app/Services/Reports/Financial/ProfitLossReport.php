@@ -23,10 +23,16 @@ use Illuminate\Support\Facades\DB;
  */
 class ProfitLossReport
 {
-    public const INCOME_ACCOUNTS = [Account::InterestIncome, Account::FeeIncome, Account::PenaltyIncome, Account::RecoveryIncome, Account::InsuranceIncome];
+    /** Income that belongs to profit. Insurance income is shown apart: it is not distributable (user decision D7). */
+    public const INCOME_ACCOUNTS = [Account::InterestIncome, Account::FeeIncome, Account::PenaltyIncome, Account::RecoveryIncome];
+
+    /** Raw figure key: insurance collected straight into INSURANCE RESERVE (rule 15, new collections — never income). */
+    public const INSURANCE_RESERVE_COLLECTED = 'insurance_reserve_collected';
 
     /**
-     * Raw per-branch figures (0 = HQ) for the range.
+     * Raw per-branch figures (0 = HQ) for the range: net amount per account key, plus `reserve` (all interest reserve of the
+     * range), `reserve_legacy` (the part still inside INTEREST INCOME, {@see InterestReserves}) and
+     * {@see INSURANCE_RESERVE_COLLECTED} (net credits to INSURANCE RESERVE outside month-end closings).
      *
      * @return array<int, array<string, float>>
      */
@@ -41,16 +47,7 @@ class ProfitLossReport
             ->selectRaw('COALESCE(accounts.branch_id, 0) AS branch, accounts.key AS account_key, SUM(journal_lines.debit) AS debits, SUM(journal_lines.credit) AS credits')
             ->get();
 
-        $reserve = $this->base($scope, $from, $to)
-            ->where('accounts.key', Account::Reserve->value)
-            ->whereExists(fn (Builder $query) => $query->selectRaw('1')
-                ->from('journal_lines AS income_lines')
-                ->join('accounts AS income_accounts', 'income_accounts.id', '=', 'income_lines.account_id')
-                ->whereColumn('income_lines.journal_entry_id', 'journal_lines.journal_entry_id')
-                ->where('income_accounts.key', Account::InterestIncome->value))
-            ->groupBy('accounts.branch_id')
-            ->selectRaw('COALESCE(accounts.branch_id, 0) AS branch, SUM(journal_lines.debit) - SUM(journal_lines.credit) AS amount')
-            ->pluck('amount', 'branch');
+        $reserves = InterestReserves::byBranch(fn (): Builder => $this->base($scope, $from, $to));
 
         $result = [];
         foreach ($totals as $row) {
@@ -61,11 +58,42 @@ class ProfitLossReport
             $difference = (float) $row->credits - (float) $row->debits;
             $result[(int) $row->branch][$account->value] = round($account->isDebitNormal() ? -$difference : $difference, 2) + 0.0;
         }
-        foreach ($reserve as $branch => $amount) {
-            $result[(int) $branch]['reserve'] = round((float) $amount, 2);
+        foreach ($reserves['total'] as $branch => $amount) {
+            $result[$branch]['reserve'] = $amount;
+        }
+        foreach ($reserves['legacy'] as $branch => $amount) {
+            $result[$branch]['reserve_legacy'] = $amount;
+        }
+
+        $insurance = $this->base($scope, $from, $to)
+            ->where('accounts.key', Account::InsuranceReserve->value)
+            ->groupBy('accounts.branch_id')
+            ->selectRaw('COALESCE(accounts.branch_id, 0) AS branch, SUM(journal_lines.credit) - SUM(journal_lines.debit) AS amount')
+            ->pluck('amount', 'branch');
+        foreach ($insurance as $branch => $amount) {
+            $result[(int) $branch][self::INSURANCE_RESERVE_COLLECTED] = round((float) $amount, 2) + 0.0;
         }
 
         return $result;
+    }
+
+    /**
+     * Raw figures of the whole company (every branch and HQ added together) for a date range, closing entries excluded.
+     * With $branchIds only those branches are added (HQ excluded).
+     *
+     * @param  list<int>|null  $branchIds
+     * @return array<string, float>
+     */
+    public function companyFigures(int $companyId, CarbonImmutable $from, CarbonImmutable $to, ?array $branchIds = null): array
+    {
+        $raw = [];
+        foreach ($this->figures(new FinancialScope($companyId, $branchIds, $branchIds === null, $from, $to)) as $values) {
+            foreach ($values as $key => $amount) {
+                $raw[$key] = round(($raw[$key] ?? 0) + $amount, 2);
+            }
+        }
+
+        return $raw;
     }
 
     /**
@@ -78,7 +106,7 @@ class ProfitLossReport
     {
         $value = fn (Account $account): float => (float) ($raw[$account->value] ?? 0);
         $reserve = (float) ($raw['reserve'] ?? 0);
-        $interest = round($value(Account::InterestIncome) - $reserve, 2);
+        $interest = round($value(Account::InterestIncome) - (float) ($raw['reserve_legacy'] ?? 0), 2);
         $fees = $value(Account::FeeIncome);
         $penalty = $value(Account::PenaltyIncome);
         $recovery = $value(Account::RecoveryIncome);
@@ -147,7 +175,11 @@ class ProfitLossReport
     /**
      * Consolidated P&L: income by account, expenses by account (operating expenses by expense type), monthly trend.
      *
-     * Inferred: insurance income is shown as income of the company (it is excluded from the branch/commission result).
+     * Interest is shown before the reserve (ledger interest income + reserve credited to INTEREST RESERVE by new entries), less
+     * the whole reserve. Insurance collections are listed below the net profit as "not distributable" (rule 15) — both kinds:
+     * legacy INSURANCE INCOME (closed to INSURANCE RESERVE at month end) and new collections credited straight to INSURANCE
+     * RESERVE — so the consolidated net profit follows the branch result definition (month-end close) and excludes insurance.
+     * The HQ 2 % hold is not applied here (it is applied once, in the branch results / distributable profit, rule 16).
      *
      * @return array<string, mixed>
      */
@@ -161,9 +193,11 @@ class ProfitLossReport
         }
 
         $reserve = (float) ($raw['reserve'] ?? 0);
+        $newReserve = round($reserve - (float) ($raw['reserve_legacy'] ?? 0), 2);
         $income = [];
         foreach (self::INCOME_ACCOUNTS as $account) {
-            $income[] = ['key' => $account->value, 'code' => $account->code(), 'label' => $account->label(), 'amount' => (float) ($raw[$account->value] ?? 0)];
+            $amount = (float) ($raw[$account->value] ?? 0);
+            $income[] = ['key' => $account->value, 'code' => $account->code(), 'label' => $account->label(), 'amount' => $account === Account::InterestIncome ? round($amount + $newReserve, 2) : $amount];
         }
         $grossIncome = round(array_sum(array_column($income, 'amount')), 2);
         $totalIncome = round($grossIncome - $reserve, 2);
@@ -201,7 +235,7 @@ class ProfitLossReport
                 foreach (self::INCOME_ACCOUNTS as $account) {
                     $sum['income'] += (float) ($values[$account->value] ?? 0);
                 }
-                $sum['income'] -= (float) ($values['reserve'] ?? 0);
+                $sum['income'] -= (float) ($values['reserve_legacy'] ?? 0);
                 foreach (PeriodClose::EXPENSE_ACCOUNTS as $account) {
                     $sum['expenses'] += (float) ($values[$account->value] ?? 0);
                 }
@@ -217,6 +251,15 @@ class ProfitLossReport
             'expenses' => $expenses,
             'total_expenses' => $totalExpenses,
             'net_profit' => round($totalIncome - $totalExpenses, 2),
+            'insurance_income' => [
+                'key' => Account::InsuranceReserve->value,
+                'code' => Account::InsuranceReserve->code(),
+                'label' => 'INSURANCE COLLECTIONS',
+                'amount' => round((float) ($raw[Account::InsuranceIncome->value] ?? 0) + (float) ($raw[self::INSURANCE_RESERVE_COLLECTED] ?? 0), 2),
+                'legacy_income_amount' => (float) ($raw[Account::InsuranceIncome->value] ?? 0),
+                'reserve_amount' => (float) ($raw[self::INSURANCE_RESERVE_COLLECTED] ?? 0),
+                'note' => 'Not distributable: held in INSURANCE RESERVE; legacy insurance income is closed to it at month end.',
+            ],
             'months' => $months,
         ];
     }
@@ -254,6 +297,7 @@ class ProfitLossReport
 
         $staff = DB::table('employees')
             ->where('company_id', $scope->companyId)
+            ->where('account_type', '!=', 'shareholder')
             ->whereIn('branch_id', $ids === [] ? [0] : $ids)
             ->where('status', 'active')
             ->groupBy('branch_id')
@@ -316,9 +360,8 @@ class ProfitLossReport
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
             ->join('journal_entries', 'journal_entries.id', '=', 'journal_lines.journal_entry_id')
             ->where('journal_entries.company_id', $scope->companyId)
-            ->whereBetween('journal_entries.entry_date', [$from->toDateString(), $to->toDateString()])
-            ->where(fn (Builder $query) => $query->whereNull('journal_entries.source_type')->orWhere('journal_entries.source_type', '!=', (new AccountingPeriod)->getMorphClass()));
+            ->whereBetween('journal_entries.entry_date', [$from->toDateString(), $to->toDateString()]);
 
-        return $scope->apply($query, 'accounts.branch_id');
+        return $scope->apply(ClosingEntries::exclude($query), 'accounts.branch_id');
     }
 }

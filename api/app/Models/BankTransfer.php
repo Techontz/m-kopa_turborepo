@@ -20,6 +20,9 @@ class BankTransfer extends Model
         return [
             'transfer_date' => 'date',
             'amount' => 'decimal:2',
+            'reversed_at' => 'datetime',
+            'approved_at' => 'datetime',
+            'rejected_at' => 'datetime',
             'charge' => 'decimal:2',
         ];
     }
@@ -47,5 +50,25 @@ class BankTransfer extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'approved_by');
+    }
+
+    public function reversedBy(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'reversed_by');
+    }
+
+    public function reversalJournalEntry(): BelongsTo
+    {
+        return $this->belongsTo(JournalEntry::class, 'reversal_journal_entry_id');
+    }
+
+    public function rejectedBy(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'rejected_by');
+    }
+
+    public function isReversed(): bool
+    {
+        return $this->status === 'reversed';
     }
 }

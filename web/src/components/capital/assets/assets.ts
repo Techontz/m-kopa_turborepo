@@ -78,6 +78,17 @@ export interface AssetRow {
   qr_endpoint: string;
   scan_url: string;
   scan_path: string;
+  /** C6 maker/checker: the contribution awaits approval by another authorised user while status is "pending". */
+  contribution_status?: string | null;
+  requested_by?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  rejected_by?: string | null;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
+  can_approve?: boolean;
+  approve_blocked_reason?: string | null;
+  can_reject?: boolean;
 }
 
 export interface AssetEventRow {
@@ -248,20 +259,27 @@ export function statusTone(status: string): BadgeTone {
     case "available":
       return "info";
     case "under_maintenance":
+    case "pending":
       return "warning";
     case "disposed":
     case "written_off":
     case "reversed":
+    case "rejected":
       return "danger";
     default:
       return "default";
   }
 }
 
-export const TERMINAL_STATUSES = ["disposed", "written_off", "reversed"];
+export const TERMINAL_STATUSES = ["disposed", "written_off", "reversed", "rejected"];
 
 export function isTerminal(status: string): boolean {
   return TERMINAL_STATUSES.includes(status);
+}
+
+/** A recorded asset contribution awaiting approval (C6): nothing posted, no lifecycle changes yet. */
+export function isAwaitingApproval(status: string): boolean {
+  return status === "pending";
 }
 
 export function truncate(text: string | null | undefined, length = 40): string {
@@ -316,6 +334,7 @@ export function labelLines(asset: Pick<AssetRow, "asset_code" | "name" | "asset_
 const EVENT_LABELS: Record<string, string> = {
   created: "Created",
   contributed_as_capital: "Contributed as capital",
+  contribution_rejected: "Contribution rejected",
   allocated_to_branch: "Allocated to branch",
   transferred: "Transferred",
   revalued: "Revalued",

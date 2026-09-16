@@ -7,6 +7,9 @@ namespace App\Enums;
  */
 enum PaymentStatus: string
 {
+    /** Branch/teller-entered non-cash receipt (mobile money / bank) waiting for Finance approval: nothing is posted yet. */
+    case PendingApproval = 'pending_approval';
+
     /** Teller cash recorded, waiting for bank deposit and Finance verification. */
     case PendingVerification = 'pending_verification';
 
@@ -34,6 +37,7 @@ enum PaymentStatus: string
     public function label(): string
     {
         return match ($this) {
+            self::PendingApproval => 'PENDING_APPROVAL',
             self::PendingVerification => 'PENDING_VERIFICATION',
             self::Deposited => 'DEPOSITED',
             self::Confirmed => 'CONFIRMED',
@@ -48,7 +52,7 @@ enum PaymentStatus: string
     public function badge(): string
     {
         return match ($this) {
-            self::PendingVerification, self::Deposited => 'warning',
+            self::PendingApproval, self::PendingVerification, self::Deposited => 'warning',
             self::Confirmed, self::Allocated => 'success',
             self::Unallocated => 'info',
             self::Rejected, self::Flagged => 'danger',
@@ -64,6 +68,16 @@ enum PaymentStatus: string
     public static function suspense(): array
     {
         return [self::Unallocated, self::Flagged];
+    }
+
+    /**
+     * Branch money received but not yet confirmed by Finance: it changes no loan balance, income or profit (C2/C6).
+     *
+     * @return list<self>
+     */
+    public static function awaitingFinance(): array
+    {
+        return [self::PendingApproval, self::PendingVerification, self::Deposited];
     }
 
     /**

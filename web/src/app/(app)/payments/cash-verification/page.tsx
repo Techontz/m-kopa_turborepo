@@ -76,6 +76,7 @@ export default function CashVerificationPage() {
                     type="button"
                     className="btn btn-sm btn-icon btn-danger"
                     title="Reject"
+                    disabled={reject.isPending}
                     onClick={async () => {
                       const reason = await promptReason("Reject cash payment");
                       if (reason) {
@@ -83,7 +84,7 @@ export default function CashVerificationPage() {
                       }
                     }}
                   >
-                    <i className="icon-close" />
+                    <i className={reject.isPending && reject.variables?.id === row.id ? "fa fa-spinner fa-spin" : "icon-close"} />
                   </button>
                 ),
             },

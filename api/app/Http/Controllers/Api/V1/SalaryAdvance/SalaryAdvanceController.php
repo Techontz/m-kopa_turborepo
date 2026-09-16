@@ -6,10 +6,13 @@ use App\Http\Controllers\Api\V1\ApiController;
 use App\Http\Requests\Api\SalaryAdvance\SalaryAdvanceRequest;
 use App\Http\Resources\Api\V1\SalaryAdvance\SalaryAdvancePaymentResource;
 use App\Http\Resources\Api\V1\SalaryAdvance\SalaryAdvanceResource;
+use App\Models\ApprovalPolicy;
 use App\Models\Customer;
+use App\Models\JournalEntry;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
 use App\Models\SalaryAdvancePayment;
+use App\Services\Approvals\SegregationOfDuties;
 use App\Services\SalaryAdvanceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -48,10 +51,14 @@ class SalaryAdvanceController extends ApiController
         return $this->message('Salary Advance Requested successfully', 201, ['data' => new SalaryAdvanceResource($advance->load(['customer', 'branch']))]);
     }
 
-    public function approve(SalaryAdvance $salaryAdvance): JsonResponse
+    /**
+     * Rule 6: the employee who requested the advance cannot approve (disburse) it.
+     */
+    public function approve(SalaryAdvance $salaryAdvance, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('salary_advance.manage');
         $this->assertBranchAccessible($salaryAdvance->branch_id);
+        $duties->assertCanApprove($salaryAdvance->employee_id, $this->currentEmployee(), 'salary advance', workflow: ApprovalPolicy::SALARY_ADVANCES);
 
         $this->service->approve($salaryAdvance);
 
@@ -59,9 +66,26 @@ class SalaryAdvanceController extends ApiController
     }
 
     /**
+     * Record the actual collection of an approved advance's fee (C2): posts Dr LOAN FEE A/C / Cr FEE INCOME once.
+     */
+    public function collectFee(Request $request, SalaryAdvance $salaryAdvance): JsonResponse
+    {
+        $this->authorizeAny('salary_advance.manage');
+        $this->assertBranchAccessible($salaryAdvance->branch_id);
+        $validated = $request->validate([
+            'method' => ['nullable', 'in:CASH,BANK,MOBILE'],
+            'reference' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $advance = $this->service->collectFee($salaryAdvance, $this->currentEmployee(), $validated['method'] ?? 'CASH', $validated['reference'] ?? null);
+
+        return $this->message('Salary Advance Fee Collected successfully', 200, ['data' => new SalaryAdvanceResource($advance->load(['customer', 'branch', 'feeCollector']))]);
+    }
+
+    /**
      * Delete a pending request, or reverse an approved advance (reason required; Documents: reversal only).
      */
-    public function destroy(Request $request, SalaryAdvance $salaryAdvance): JsonResponse
+    public function destroy(Request $request, SalaryAdvance $salaryAdvance, SegregationOfDuties $duties): JsonResponse
     {
         $this->authorizeAny('salary_advance.manage');
         $this->assertBranchAccessible($salaryAdvance->branch_id);
@@ -69,6 +93,8 @@ class SalaryAdvanceController extends ApiController
         $isPending = $salaryAdvance->status === 'pending';
         if (! $isPending) {
             $this->authorizeAny('accounting.reverse');
+            $request->validate(['reason' => ['required', 'string', 'max:255']], ['reason.required' => 'Please enter the reason for reversal']);
+            $duties->assertCanReverse(JournalEntry::query()->where('source_type', $salaryAdvance->getMorphClass())->where('source_id', $salaryAdvance->id)->whereNull('reversal_of_id')->orderBy('id')->first(), $this->currentEmployee());
         }
 
         $this->service->remove($salaryAdvance, $request->string('reason')->toString() ?: null, $this->currentEmployee());

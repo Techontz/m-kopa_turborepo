@@ -3,6 +3,8 @@
 namespace App\Http\Requests\Api\Bank;
 
 use App\Enums\Account;
+use App\Services\Approvals\ReserveProtection;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -26,7 +28,15 @@ class BranchToBankRequest extends FormRequest
 
         return [
             'from_blanch_id' => ['required', Rule::exists('branches', 'id')->where('company_id', $companyId)],
-            'ac_type' => ['required', Rule::in(array_map(fn (Account $account): string => $account->value, Account::transferableBranchAccounts()))],
+            'ac_type' => [
+                'required',
+                Rule::in(array_map(fn (Account $account): string => $account->value, Account::transferableBranchAccounts())),
+                function (string $attribute, mixed $value, Closure $fail): void {
+                    if (ReserveProtection::isReserve(is_string($value) ? $value : null)) {
+                        $fail(ReserveProtection::MESSAGE);
+                    }
+                },
+            ],
             'amount' => ['required', 'numeric', 'min:1'],
             'to_account_id' => ['required', Rule::exists('bank_accounts', 'id')->where('company_id', $companyId)],
         ];

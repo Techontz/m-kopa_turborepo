@@ -2,12 +2,14 @@
 
 namespace App\Http\Requests\Api\Capital;
 
+use App\Services\Shareholders\ShareholderAccounts;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * Register / edit share holder (live admin/shareHolder, with the name split into first / middle / last and a
  * passport-size photo). The photo is required when registering and optional when editing (keeps the current one).
+ * The phone is also the shareholder's login (Shareholder Portal), so it must be a real phone number.
  */
 class ShareHolderRequest extends FormRequest
 {
@@ -27,12 +29,20 @@ class ShareHolderRequest extends FormRequest
             'first_name' => ['required', 'string', 'max:100'],
             'middle_name' => ['nullable', 'string', 'max:100'],
             'last_name' => ['required', 'string', 'max:100'],
-            'share_mobile' => ['required', 'string', 'max:30'],
+            'share_mobile' => ['required', 'string', 'max:30', 'regex:'.ShareholderAccounts::PHONE_PATTERN],
             'share_email' => ['required', 'email', 'max:255'],
             'share_sex' => ['nullable', 'in:male,female'],
             'share_dob' => ['required', 'date', 'before:today'],
             'passport_photo' => [$this->route('share_holder') === null ? 'required' : 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:'.self::PHOTO_MAX_KB, 'dimensions:min_width=100,min_height=100'],
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return ['share_mobile.regex' => 'The phone no must be 9 to 15 digits: it is the shareholder\'s login.'];
     }
 
     /**

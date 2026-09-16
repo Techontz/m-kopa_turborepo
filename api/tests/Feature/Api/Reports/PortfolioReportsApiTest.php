@@ -99,7 +99,7 @@ class PortfolioReportsApiTest extends TestCase
         $this->assertEquals([
             'issued_count' => 5, 'issued_amount' => 600000, 'active_count' => 2, 'overdue_count' => 0, 'completed_count' => 2,
             'default_count' => 1, 'written_off_count' => 0, 'active_customers' => 3, 'outstanding_principal' => 280000,
-            'outstanding_interest' => 120000, 'outstanding_penalty' => 5000, 'outstanding_insurance' => 0, 'outstanding_total' => 405000,
+            'outstanding_interest' => 120000, 'outstanding_penalty' => 5000, 'outstanding_insurance' => 0, 'outstanding_total' => 405000, 'written_off_principal' => 0, 'written_off_outstanding' => 0,
         ], $data['summary']);
 
         $branch = collect($data['by_branch'])->firstWhere('outstanding_principal', 80000);

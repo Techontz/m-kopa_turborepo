@@ -10,11 +10,13 @@ use App\Models\StaffSalaryAdvance;
 use App\Models\StaffSalaryAdvanceCategory;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class StaffCreditApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -26,6 +28,17 @@ class StaffCreditApiTest extends TestCase
 
         $this->admin = $this->signInAdmin();
         $this->staff = Employee::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id]);
+    }
+
+    /**
+     * A non-exempt initiator: HR (hrm.manage) also granted payroll.pay by employee override.
+     */
+    private function requesterWhoCanPay(): Employee
+    {
+        $requester = $this->secondApprover($this->admin, 'hr');
+        $requester->permissionOverrides()->create(['permission' => 'payroll.pay', 'granted' => true]);
+
+        return $requester->fresh();
     }
 
     private function balance(Account $account, ?int $employee = null): float
@@ -68,23 +81,33 @@ class StaffCreditApiTest extends TestCase
     {
         $category = StaffLoanCategory::create(['company_id' => $this->admin->company_id, 'name' => 'TEST1', 'amount_from' => 1000, 'amount_to' => 10000, 'interest_rate' => 20, 'duration' => 'monthly', 'repayment_from' => 1, 'repayment_to' => 3, 'fee' => 0]);
         $payload = ['blanch_id' => $this->staff->branch_id, 'empl_id' => $this->staff->id, 'category_id' => $category->id, 'loan_amount' => 10000, 'day' => 'monthly', 'session' => 2, 'reason' => 'School fees'];
+        // Requested by HR (also able to pay) so rule 6 — not a permission — blocks the requester below.
+        $requester = $this->requesterWhoCanPay();
+        $this->actingAs($requester);
 
         $this->postJson('/api/v1/hrm/staff-loans', ['loan_amount' => 50000] + $payload)->assertJsonValidationErrors('loan_amount');
         $this->postJson('/api/v1/hrm/staff-loans', $payload)->assertCreated();
         $loan = StaffLoan::firstOrFail();
 
-        $this->postJson("/api/v1/hrm/staff-loans/{$loan->id}/approve")->assertOk();
+        // Rule 6: the requester approves nothing; a second user approves and a third disburses.
+        $this->postJson("/api/v1/hrm/staff-loans/{$loan->id}/approve")->assertForbidden();
+        $approver = $this->secondApprover($this->admin);
+        $payer = $this->secondApprover($this->admin);
+        $this->actingAs($approver)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/approve")->assertOk();
+        $this->actingAs($this->admin);
         $loan->refresh();
         $this->assertSame('approved', $loan->status);
         $this->assertEquals(12000, $loan->total_payable);
         $this->assertEquals(6000, $loan->restoration);
 
-        $this->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertUnprocessable()->assertJsonValidationErrors('amount');
+        $this->actingAs($payer)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertUnprocessable()->assertJsonValidationErrors('amount');
         $this->fundTheStaffFund(15000);
 
         $hr = Employee::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'role_id' => $this->admin->company->roles()->where('key', 'hr')->value('id')]);
         $this->actingAs($hr)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertForbidden();
-        $this->actingAs($this->admin)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertOk();
+        $this->actingAs($requester)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertForbidden();
+        $this->actingAs($payer)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertOk();
+        $this->actingAs($this->admin);
 
         $this->assertSame('active', $loan->fresh()->status);
         $this->assertEquals(5000, $this->balance(Account::StaffFundCash));
@@ -105,13 +128,19 @@ class StaffCreditApiTest extends TestCase
         $category = StaffSalaryAdvanceCategory::create(['company_id' => $this->admin->company_id, 'name' => 'SALARY ADVANCE STAFF', 'amount_from' => 10000, 'amount_to' => 100000, 'fee' => 200]);
         $payload = ['blanch_id' => $this->staff->branch_id, 'empl_id' => $this->staff->id, 'fee' => $category->id];
 
+        // Requested by HR (also able to pay) so rule 6 — not a permission — blocks the requester below.
+        $requester = $this->requesterWhoCanPay();
+        $this->actingAs($requester);
         $this->postJson('/api/v1/hrm/salary-advances', $payload + ['advance_amount' => 500])->assertJsonValidationErrors('advance_amount');
         $this->postJson('/api/v1/hrm/salary-advances', $payload + ['advance_amount' => 20000])->assertCreated();
         $advance = StaffSalaryAdvance::firstOrFail();
 
         $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'company_cash'])->assertUnprocessable();
-        $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/approve")->assertOk();
-        $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'company_cash'])->assertOk();
+
+        // Rule 6: the requester approves nothing; second users approve and disburse.
+        $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/approve")->assertForbidden();
+        $this->approveAsSecondUser($requester, "/api/v1/hrm/salary-advances/{$advance->id}/approve");
+        $this->approveAsSecondUser($requester, "/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'company_cash']);
 
         $this->assertSame('disbursed', $advance->fresh()->status);
         $this->assertEquals(-19800, $this->balance(Account::Company));

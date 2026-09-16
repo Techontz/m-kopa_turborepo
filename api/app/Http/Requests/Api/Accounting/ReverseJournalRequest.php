@@ -4,12 +4,13 @@ namespace App\Http\Requests\Api\Accounting;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\Gate;
 
 class ReverseJournalRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return Gate::allows('accounting.reverse');
     }
 
     /**

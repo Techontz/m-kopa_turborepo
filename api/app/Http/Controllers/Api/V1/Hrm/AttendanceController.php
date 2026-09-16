@@ -26,7 +26,7 @@ class AttendanceController extends HrmController
         $this->authorizeAny('hrm.manage');
 
         $date = $request->filled('date') ? CarbonImmutable::parse($request->string('date')->toString()) : CarbonImmutable::today();
-        $employees = $this->applyFilters($this->scoped(Employee::query())->where('status', 'active'), $request)->with('branch')->orderBy('first_name')->get();
+        $employees = $this->applyFilters($this->scoped(Employee::query())->staff()->where('status', 'active'), $request)->with('branch')->orderBy('first_name')->get();
         $records = Attendance::whereIn('employee_id', $employees->pluck('id'))->whereDate('date', $date->toDateString())->get()->keyBy('employee_id');
         $onLeave = $this->onLeave($employees->pluck('id')->all(), $date, $date);
 
@@ -101,7 +101,7 @@ class AttendanceController extends HrmController
     {
         $this->authorizeAny('hrm.manage');
 
-        $employee = Employee::findOrFail($request->integer('empl_id'));
+        $employee = Employee::staff()->findOrFail($request->integer('empl_id'));
         $this->ensureVisible($employee);
 
         Attendance::updateOrCreate(
@@ -129,7 +129,7 @@ class AttendanceController extends HrmController
 
         $month = $this->month($request, 'month');
         $end = $month->endOfMonth()->min(CarbonImmutable::today());
-        $employees = $this->applyFilters($this->scoped(Employee::query())->where('status', 'active'), $request)->with('branch')->orderBy('first_name')->get();
+        $employees = $this->applyFilters($this->scoped(Employee::query())->staff()->where('status', 'active'), $request)->with('branch')->orderBy('first_name')->get();
         $records = Attendance::whereIn('employee_id', $employees->pluck('id'))
             ->whereDate('date', '>=', $month->toDateString())
             ->whereDate('date', '<=', $month->endOfMonth()->toDateString())
@@ -172,7 +172,7 @@ class AttendanceController extends HrmController
         if ($request->filled('empl_id')) {
             $this->authorizeAny('hrm.manage');
             $request->validate(['empl_id' => [Rule::exists('employees', 'id')->where('company_id', $this->companyId())]]);
-            $employee = Employee::findOrFail($request->integer('empl_id'));
+            $employee = Employee::staff()->findOrFail($request->integer('empl_id'));
             $this->ensureVisible($employee);
 
             return $employee;

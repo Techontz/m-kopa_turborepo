@@ -10,7 +10,8 @@ use Illuminate\Http\Request;
 
 /**
  * Customer statement data (consumed by Reports → Customer statement): each transaction with its
- * Principal / Penalty / Interest / Insurance split, running remaining debit and receipt reference.
+ * Principal / Penalty / Interest / Insurance split, running remaining debit and receipt reference. Reversed repayments
+ * stay listed (flagged `reversed`) but count in neither the remaining debit nor the totals.
  */
 class StatementController extends ApiController
 {
@@ -32,7 +33,7 @@ class StatementController extends ApiController
                 'branch' => $customer->branch?->name,
             ],
             'totals' => collect(['deposit', 'withdrawal', 'principal', 'penalty', 'interest', 'insurance'])
-                ->mapWithKeys(fn (string $column): array => [$column => round((float) $rows->sum($column), 2)])
+                ->mapWithKeys(fn (string $column): array => [$column => round((float) $rows->where('reversed', false)->sum($column), 2)])
                 ->all(),
         ]);
     }

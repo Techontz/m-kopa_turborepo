@@ -28,6 +28,7 @@ class AccountingPeriod extends Model
             'period_start' => 'date',
             'period_end' => 'date',
             'closed_at' => 'datetime',
+            'commission_calculated_at' => 'datetime',
         ];
     }
 

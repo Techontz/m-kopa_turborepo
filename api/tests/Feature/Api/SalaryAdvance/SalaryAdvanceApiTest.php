@@ -12,11 +12,13 @@ use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class SalaryAdvanceApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -109,8 +111,8 @@ class SalaryAdvanceApiTest extends TestCase
         $this->assertSame('active', $advance->fresh()->status);
         $this->assertEquals(-20000, $ledger->balance($company, Account::HqSalaryAdvance));
         $this->assertEquals(20000, $ledger->balance($company, Account::SalaryAdvanceReceivable, $branch));
-        $this->assertEquals(200, $ledger->balance($company, Account::LoanFee, $branch));
-        $this->assertEquals(200, $ledger->balance($company, Account::FeeIncome, $branch));
+        $this->assertEquals(0, $ledger->balance($company, Account::LoanFee, $branch), 'C2: no fee at approval');
+        $this->assertEquals(0, $ledger->balance($company, Account::FeeIncome, $branch), 'C2: no fee income at approval');
 
         $this->getJson('/api/v1/salary-advance/approved')->assertOk()->assertJsonCount(1, 'data');
         $this->getJson('/api/v1/salary-advance/active')->assertOk()->assertJsonPath('data.0.id', $advance->id)->assertJsonPath('data.0.alert', 'new');
@@ -124,7 +126,8 @@ class SalaryAdvanceApiTest extends TestCase
 
         $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/payments", ['amount' => 14000])->assertOk();
         $this->assertSame('done', $advance->fresh()->status);
-        $this->assertEquals(4000, $ledger->balance($company, Account::HqSalaryAdvance));
+        $this->assertEquals(0, $ledger->balance($company, Account::HqSalaryAdvance), 'The HQ Salary Advance pool regains only the principal');
+        $this->assertEquals(4000, $ledger->balance($company, Account::HqInterest), 'Salary advance interest lands in the interest pool (spec §8)');
         $this->assertEquals(0, $ledger->balance($company, Account::SalaryAdvanceReceivable, $branch));
         $this->assertEquals(4000, $ledger->balance($company, Account::InterestIncome, $branch));
 
@@ -151,18 +154,101 @@ class SalaryAdvanceApiTest extends TestCase
         $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertOk();
         $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/payments", ['amount' => 5000])->assertOk();
 
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/collect-fee", ['method' => 'CASH'])->assertOk();
+        $this->assertEquals(200, $ledger->balance($this->admin->company_id, Account::FeeIncome, $this->admin->branch_id));
+
         $this->deleteJson("/api/v1/salary-advance/advances/{$advance->id}")->assertUnprocessable()->assertJsonValidationErrors('reason');
-        $this->deleteJson("/api/v1/salary-advance/advances/{$advance->id}", ['reason' => 'Wrong customer'])->assertOk()->assertJsonPath('message', 'Salary Advance Reversed successfully');
+        // Rule 6: the employee who approved (posted) the advance does not reverse it.
+        $this->deleteJson("/api/v1/salary-advance/advances/{$advance->id}", ['reason' => 'Wrong customer'])->assertForbidden();
+        $this->asApprover($this->admin, fn () => $this->deleteJson("/api/v1/salary-advance/advances/{$advance->id}", ['reason' => 'Wrong customer'])->assertOk()->assertJsonPath('message', 'Salary Advance Reversed successfully'));
 
         $advance->refresh();
         $this->assertSame('reversed', $advance->status);
         $this->assertNotNull($advance->reversed_at);
-        $this->assertSame(2, JournalEntry::whereNotNull('reversal_of_id')->count());
+        $this->assertSame(3, JournalEntry::whereNotNull('reversal_of_id')->count(), 'approval, repayment and the collected fee are mirrored');
         $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::HqSalaryAdvance));
         $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::SalaryAdvanceReceivable, $this->admin->branch_id));
         $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::FeeIncome, $this->admin->branch_id));
+        $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::LoanFee, $this->admin->branch_id));
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/collect-fee")->assertUnprocessable()->assertJsonPath('errors.fee.0', 'Salary advance is reversed; its fee cannot be collected.');
         $this->assertTrue(AuditLog::where('action', 'SalaryAdvance.updated')->where('auditable_id', $advance->id)->exists());
         $this->getJson('/api/v1/salary-advance/paid')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_fee_is_income_only_when_collected_and_only_once(): void
+    {
+        $advance = $this->pendingAdvance();
+        $ledger = app(Ledger::class);
+        $company = $this->admin->company_id;
+        $branch = $this->admin->branch_id;
+
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/collect-fee")->assertUnprocessable()
+            ->assertJsonPath('errors.fee.0', 'The fee can only be collected on an approved salary advance.');
+        $this->getJson('/api/v1/salary-advance/requested')->assertOk()->assertJsonPath('data.0.fee_status', SalaryAdvance::FEE_NOT_APPROVED);
+
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertOk();
+        $this->assertSame(0, JournalEntry::whereHas('lines.account', fn ($query) => $query->where('key', Account::FeeIncome->value))->count(), 'approval posts no fee line');
+        $this->getJson('/api/v1/salary-advance/active')->assertOk()
+            ->assertJsonPath('data.0.fee_status', SalaryAdvance::FEE_UNCOLLECTED)
+            ->assertJsonPath('data.0.fee_collectable', true);
+
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/collect-fee", ['method' => 'MOBILE', 'reference' => 'MP123'])->assertOk()
+            ->assertJsonPath('message', 'Salary Advance Fee Collected successfully')
+            ->assertJsonPath('data.fee_status', SalaryAdvance::FEE_COLLECTED)
+            ->assertJsonPath('data.fee_collectable', false);
+        $this->assertEquals(200, $ledger->balance($company, Account::LoanFee, $branch));
+        $this->assertEquals(200, $ledger->balance($company, Account::FeeIncome, $branch));
+        $advance->refresh();
+        $this->assertNotNull($advance->fee_collected_at);
+        $this->assertSame($this->admin->id, $advance->fee_collected_by);
+        $this->assertSame(['MOBILE', 'MP123'], [$advance->fee_collection_method, $advance->fee_collection_reference]);
+        $entry = JournalEntry::with('lines.account')->findOrFail($advance->fee_journal_entry_id);
+        $this->assertEquals([['loan_fee', 200.0, 0.0], ['fee_income', 0.0, 200.0]], $entry->lines->map(fn ($line): array => [$line->account->key->value, (float) $line->debit, (float) $line->credit])->all());
+
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/collect-fee")->assertUnprocessable()
+            ->assertJsonPath('errors.fee.0', 'The fee of this salary advance has already been collected.');
+        $this->assertEquals(200, $ledger->balance($company, Account::FeeIncome, $branch), 'collected once');
+
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/payments", ['amount' => 24000])->assertOk();
+        $this->assertSame('done', $advance->fresh()->status);
+        $this->assertEquals(200, $ledger->balance($company, Account::FeeIncome, $branch), 'repayment never touches the fee');
+    }
+
+    public function test_an_approved_advance_without_collected_fee_reverses_without_fee_lines(): void
+    {
+        $advance = $this->pendingAdvance();
+        $ledger = app(Ledger::class);
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertOk();
+
+        $this->asApprover($this->admin, fn () => $this->deleteJson("/api/v1/salary-advance/advances/{$advance->id}", ['reason' => 'Wrong customer'])->assertOk());
+
+        $this->assertSame(1, JournalEntry::whereNotNull('reversal_of_id')->count());
+        $this->assertSame(0, JournalEntry::whereHas('lines.account', fn ($query) => $query->whereIn('key', [Account::FeeIncome->value, Account::LoanFee->value]))->count());
+        $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::SalaryAdvanceReceivable, $this->admin->branch_id));
+    }
+
+    public function test_a_legacy_advance_whose_fee_was_posted_at_approval_stays_as_booked_and_counts_as_collected(): void
+    {
+        $advance = $this->pendingAdvance();
+        $advance->update(['status' => 'active', 'approved_at' => now()]);
+        $ledger = app(Ledger::class);
+        $ledger->journal($advance->company_id, 'SALARY ADVANCE LOAN', [
+            ['account' => Account::SalaryAdvanceReceivable, 'branch' => $advance->branch_id, 'debit' => 20000],
+            ['account' => Account::HqSalaryAdvance, 'credit' => 20000],
+            ['account' => Account::LoanFee, 'branch' => $advance->branch_id, 'debit' => 200],
+            ['account' => Account::FeeIncome, 'branch' => $advance->branch_id, 'credit' => 200],
+        ], $advance, null, $advance->branch_id);
+
+        $this->getJson('/api/v1/salary-advance/active')->assertOk()
+            ->assertJsonPath('data.0.fee_status', SalaryAdvance::FEE_COLLECTED_AT_APPROVAL)
+            ->assertJsonPath('data.0.fee_collectable', false);
+        $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/collect-fee")->assertUnprocessable()
+            ->assertJsonPath('errors.fee.0', 'The fee of this salary advance has already been collected.');
+        $this->assertEquals(200, $ledger->balance($advance->company_id, Account::FeeIncome, $advance->branch_id));
+        $this->assertNull($advance->fresh()->fee_journal_entry_id);
+
+        $this->asApprover($this->admin, fn () => $this->deleteJson("/api/v1/salary-advance/advances/{$advance->id}", ['reason' => 'Legacy error'])->assertOk());
+        $this->assertEquals(0, $ledger->balance($advance->company_id, Account::FeeIncome, $advance->branch_id), 'legacy fee is mirrored with the approval journal');
     }
 
     public function test_role_without_permission_is_forbidden(): void
@@ -177,6 +263,7 @@ class SalaryAdvanceApiTest extends TestCase
         $this->getJson('/api/v1/salary-advance/requested')->assertForbidden();
         $this->postJson('/api/v1/salary-advance/categories', [])->assertForbidden();
         $this->postJson("/api/v1/salary-advance/advances/{$this->pendingAdvance()->id}/approve")->assertForbidden();
+        $this->postJson("/api/v1/salary-advance/advances/{$this->pendingAdvance()->id}/collect-fee")->assertForbidden();
     }
 
     public function test_branch_scope_and_company_isolation(): void

@@ -3,9 +3,15 @@
 namespace App\Http\Resources\Api\V1\Bank;
 
 use App\Enums\Account;
+use App\Models\ApprovalPolicy;
 use App\Models\BankTransfer;
+use App\Models\Employee;
+use App\Services\Approvals\SegregationOfDuties;
+use App\Services\CompanyFunds;
+use App\Services\TransferReversal;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * @mixin BankTransfer
@@ -17,6 +23,11 @@ class BankTransferResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $viewer = $request->user() instanceof Employee ? $request->user() : null;
+        $canDecide = $this->type === CompanyFunds::RESERVE_TO_INVESTMENT
+            ? $viewer !== null && CompanyFunds::canDecideReserve($viewer)
+            : Gate::allows('bank.manage');
+
         return [
             'id' => $this->id,
             'type' => $this->type,
@@ -36,6 +47,19 @@ class BankTransferResource extends JsonResource
             'journal_reference' => $this->whenLoaded('journalEntry', fn () => $this->journalEntry?->reference),
             'employee' => $this->whenLoaded('employee', fn () => $this->employee?->full_name),
             'created_at' => $this->created_at?->toDateTimeString(),
+            'reversed_at' => $this->reversed_at?->toDateTimeString(),
+            'reversed_by' => $this->whenLoaded('reversedBy', fn () => $this->reversedBy?->full_name),
+            'reversal_reason' => $this->reversal_reason,
+            'reversal_reference' => $this->whenLoaded('reversalJournalEntry', fn () => $this->reversalJournalEntry?->reference),
+            'initiated_by' => $this->whenLoaded('employee', fn () => $this->employee?->full_name),
+            'approved_by' => $this->whenLoaded('approver', fn () => $this->approver?->full_name),
+            'approved_at' => $this->approved_at?->toDateTimeString(),
+            'rejected_by' => $this->whenLoaded('rejectedBy', fn () => $this->rejectedBy?->full_name),
+            'rejected_at' => $this->rejected_at?->toDateTimeString(),
+            'rejection_reason' => $this->rejection_reason,
+            ...app(SegregationOfDuties::class)->flags($this->employee_id, $viewer, $this->status === 'pending', $canDecide, workflow: ApprovalPolicy::BANK_TRANSFERS),
+            'can_reject' => $this->status === 'pending' && $canDecide,
+            ...app(TransferReversal::class)->flags($this->resource, Gate::allows('bank.manage') && Gate::allows('accounting.reverse')),
         ];
     }
 }

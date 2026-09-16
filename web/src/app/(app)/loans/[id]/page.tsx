@@ -9,8 +9,10 @@ import { DisbursementChainCard } from "@/components/loans/DisbursementChainCard"
 import { FreezeStatus } from "@/components/loans/FreezeStatus";
 import { LoanActions } from "@/components/loans/LoanActions";
 import { LoanFormFields } from "@/components/loans/LoanFormFields";
+import { LoanRecoveryCard } from "@/components/loans/LoanRecoveryCard";
 import { LoanSecurities } from "@/components/loans/LoanSecurities";
 import { LoanStatusBadge } from "@/components/loans/LoanStatusBadge";
+import { LoanTransactionsCard } from "@/components/loans/LoanTransactionsCard";
 import { settlementRows } from "@/components/loans/freeze";
 import type { CategoryOption, LoanDetail, LoanForm } from "@/components/loans/types";
 import { Card } from "@/components/ui/Card";
@@ -51,6 +53,11 @@ const ACTION_LABELS: Record<string, string> = {
   SETTLED_BY_TOPUP: "Settled by top-up",
   CLOSED: "Loan closed",
   WRITTEN_OFF: "Moved to write-off",
+  REPAYMENT_REVERSED: "Repayment reversed",
+  SETTLEMENT_FREEZE_REVERSED: "Settlement freeze cleared (repayment reversed)",
+  DISBURSEMENT_REVERSED: "Disbursement reversed",
+  RECOVERY_RECORDED: "Write-off recovery recorded (interest income)",
+  RECOVERY_REVERSED: "Write-off recovery reversed",
   COMMENT: "Comment",
   DELETED: "Deleted",
 };
@@ -188,6 +195,11 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
             </tr></tbody>
           </table>
         </div>
+        {detail.loan_fee && detail.loan_fee.amount > 0 && (
+          <p className="mt-2 mb-0" data-testid="loan-fee-memo">
+            Loan fee <b>TZS {money(detail.loan_fee.amount)}</b> — {detail.loan_fee.deducted ? detail.loan_fee.note : <b>{detail.loan_fee.note}</b>}
+          </p>
+        )}
         {detail.topup_of && <p className="mt-2 mb-0">Top-up of loan <Link href={`/loans/${detail.topup_of.id}`}>{detail.topup_of.loan_number}</Link> ({detail.topup_of.status_label}). Amount to send: <b>{money(detail.net_disbursement)}</b></p>}
       </Card>
 
@@ -266,24 +278,9 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
         </Card>
       )}
 
-      {detail.transactions.length > 0 && (
-        <Card title="Loan Transactions">
-          <DataTable
-            rows={detail.transactions}
-            searchable={false}
-            rowKey={(row) => row.id}
-            columns={[
-              { key: "date", header: "Date" },
-              { key: "description", header: "Description" },
-              { key: "method", header: "Method" },
-              { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-              { key: "principal", header: "Principal", render: (row) => money(row.principal) },
-              { key: "penalty", header: "Penalty", render: (row) => money(row.penalty) },
-              { key: "interest", header: "Interest", render: (row) => money(row.interest) },
-            ]}
-          />
-        </Card>
-      )}
+      {detail.recovery && <LoanRecoveryCard loanId={detail.loan.id} loanStatus={loan.status} position={detail.recovery} recoveries={detail.recoveries} />}
+
+      {detail.transactions.length > 0 && <LoanTransactionsCard loanId={detail.loan.id} transactions={detail.transactions} />}
 
       <Card title="Loan Timeline">
         <DataTable

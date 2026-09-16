@@ -86,6 +86,7 @@ export const financeMenu: FinanceMenuItem[] = [
       { label: "Approved Bank Transaction", href: "/bank/transfers/approved", permission: "bank.manage" },
       { label: "Company Cash ↔ Bank Transfer", href: "/bank/company-transfers", permission: "bank.manage" },
       { label: "Send Reserve To Investment", href: "/bank/reserve-to-investment", permission: "bank.manage" },
+      { label: "Send Petty Cash To Branch", href: "/bank/petty-cash", permission: "bank.manage" },
     ],
   },
   {

@@ -125,11 +125,13 @@ class ProfitChainTest extends TestCase
         $this->assertBalance(1000, Account::InsuranceReserve, $a, 'rule 15: insurance collected goes to INSURANCE RESERVE');
         $this->assertBalance(1000, Account::Insurance, $a);
 
-        // 5. Branch expense paid from the branch INTEREST A/C.
+        // 5. Branch expense paid from the branch PETTY CASH A/C (petty cash HQ sent out of interest income).
+        app(Ledger::class)->transfer($companyId, ['account' => Account::Interest, 'branch' => $b], ['account' => Account::PettyCash, 'branch' => $b], 20000, 'PETTY CASH');
         $type = ExpenseType::create(['company_id' => $companyId, 'scope' => 'branch', 'name' => 'RENT']);
         $expense = ExpenseRequest::create(['company_id' => $companyId, 'scope' => 'branch', 'branch_id' => $b, 'expense_type_id' => $type->id, 'amount' => 20000, 'description' => 'rent', 'status' => 'pending', 'request_date' => today()]);
         app(ExpenseApproval::class)->accept($expense, $this->admin, 20000, null);
         $this->assertBalance(100000, Account::Interest, $b);
+        $this->assertBalance(0, Account::PettyCash, $b, 'the petty cash HQ sent paid the rent');
 
         // 6. Month-end close of July.
         $this->travelTo(CarbonImmutable::parse('2026-08-02 09:00:00'));

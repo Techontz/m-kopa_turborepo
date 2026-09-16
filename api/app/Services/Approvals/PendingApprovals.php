@@ -231,6 +231,7 @@ class PendingApprovals
             CompanyFunds::BRANCH_TO_BANK => '/bank/transfers',
             CompanyFunds::BANK_TO_HQ => '/bank/to-hq',
             CompanyFunds::RESERVE_TO_INVESTMENT => '/bank/reserve-to-investment',
+            CompanyFunds::PETTY_CASH_TO_BRANCH => '/bank/petty-cash',
         ];
 
         return BankTransfer::where('company_id', $this->viewer->company_id)

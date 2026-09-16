@@ -245,7 +245,7 @@ class SegregationOfDutiesTest extends TestCase
     public function test_expense_requester_cannot_accept_it(): void
     {
         $type = ExpenseType::create(['company_id' => $this->admin->company_id, 'scope' => 'branch', 'name' => 'UMEME']);
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 100000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 100000, branch: $this->admin->branch_id);
         $this->actingAs($this->employee('admin'))->postJson('/api/v1/expenses/requests', ['scope' => 'branch', 'blanch_id' => $this->admin->branch_id, 'ex_id' => $type->id, 'req_amount' => 30000, 'req_description' => 'umeme'])->assertCreated();
         $request = ExpenseRequest::firstOrFail();
 
@@ -254,7 +254,7 @@ class SegregationOfDutiesTest extends TestCase
         $this->assertSame('pending', $request->fresh()->status);
 
         $this->actingAs($this->employee('finance'))->postJson("/api/v1/expenses/requests/{$request->id}/accept")->assertOk();
-        $this->assertSame(70000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(70000.0, $this->ledger->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
     }
 
     public function test_reserve_accounts_are_not_manual_transfer_or_expense_sources(): void

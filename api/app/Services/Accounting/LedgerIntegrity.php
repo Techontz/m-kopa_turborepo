@@ -60,7 +60,7 @@ class LedgerIntegrity
     {
         return [
             Account::Principal, Account::Interest, Account::LoanFee, Account::Penalty, Account::Reserve, Account::Insurance,
-            Account::Company, Account::Bank, Account::InvestmentReserve, Account::StaffFundCash, ...Account::hqAccounts(),
+            Account::Company, Account::Bank, Account::InvestmentReserve, Account::PettyCash, Account::StaffFundCash, ...Account::hqAccounts(),
         ];
     }
 

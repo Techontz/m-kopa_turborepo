@@ -103,10 +103,10 @@ class FinancialControlReportsTest extends TestCase
         $entry = app(Ledger::class)->transfer($company, ['account' => Account::Company], ['account' => Account::OperatingExpense], 1, 'Expenses: TEST');
         $base = ['company_id' => $company, 'status' => 'accepted', 'employee_id' => $this->admin->id, 'approved_by' => $this->admin->id, 'journal_entry_id' => $entry->id];
 
-        ExpenseRequest::create(['scope' => 'branch', 'branch_id' => $this->admin->branch_id, 'expense_type_id' => $rent->id, 'amount' => 100000, 'paid_from_account' => 'interest', 'request_date' => '2026-07-10', 'approved_at' => '2026-07-11 10:00:00'] + $base);
+        ExpenseRequest::create(['scope' => 'branch', 'branch_id' => $this->admin->branch_id, 'expense_type_id' => $rent->id, 'amount' => 100000, 'paid_from_account' => 'petty_cash', 'request_date' => '2026-07-10', 'approved_at' => '2026-07-11 10:00:00'] + $base);
         ExpenseRequest::create(['scope' => 'hq', 'branch_id' => null, 'expense_type_id' => $fuel->id, 'amount' => 40000, 'paid_from_account' => 'company_cash', 'request_date' => '2026-07-12', 'approved_at' => '2026-07-12 10:00:00'] + $base);
         ExpenseRequest::create(['scope' => 'hq', 'branch_id' => $this->second->id, 'expense_type_id' => $fuel->id, 'amount' => 60000, 'paid_from_account' => 'company_cash', 'request_date' => '2026-08-02', 'approved_at' => '2026-08-02 10:00:00'] + $base);
-        ExpenseRequest::create(['scope' => 'hq', 'branch_id' => null, 'expense_type_id' => $rent->id, 'amount' => 5000, 'paid_from_account' => 'interest', 'request_date' => '2026-08-03', 'approved_at' => '2026-08-03 10:00:00', 'journal_entry_id' => null] + $base);
+        ExpenseRequest::create(['scope' => 'hq', 'branch_id' => null, 'expense_type_id' => $rent->id, 'amount' => 5000, 'paid_from_account' => 'petty_cash', 'request_date' => '2026-08-03', 'approved_at' => '2026-08-03 10:00:00', 'journal_entry_id' => null] + $base);
         ExpenseRequest::create(['scope' => 'branch', 'branch_id' => $this->second->id, 'expense_type_id' => $rent->id, 'amount' => 999, 'status' => 'pending', 'request_date' => '2026-08-03'] + $base);
 
         $data = $this->getJson('/api/v1/reports/financial/expenses?branch_id=all&from=2026-07-01&to=2026-08-31')->assertOk()->json('data');
@@ -119,10 +119,10 @@ class FinancialControlReportsTest extends TestCase
         $this->assertSame(1, $data['mis_tagged_count']);
         $misTagged = collect($data['rows'])->firstWhere('mis_tagged', true);
         $this->assertEquals(5000, $misTagged['amount']);
-        $this->assertContains('HQ expense paid from branch INTEREST A/C', $misTagged['flags']);
+        $this->assertContains('HQ expense paid from branch PETTY CASH A/C', $misTagged['flags']);
         $this->assertContains('Expense type registered for BRANCH', $misTagged['flags']);
         $this->assertContains('Not posted to ledger', $misTagged['flags']);
-        $this->assertSame('INTEREST A/C', $misTagged['paid_from']);
+        $this->assertSame('PETTY CASH A/C', $misTagged['paid_from']);
         $this->assertEquals(105000, collect($data['by_category'])->firstWhere('label', 'RENT')['amount']);
         $months = collect($data['months'])->keyBy('month');
         $this->assertEquals(40000, $months['2026-07']['hq']);

@@ -138,6 +138,7 @@ class LedgerIntegrityTest extends TestCase
         $loans->deposit($running->fresh(), 10000, CarbonImmutable::today(), 'CASH', $this->admin);
 
         $type = ExpenseType::create(['company_id' => $companyId, 'scope' => 'branch', 'name' => 'umeme']);
+        app(Ledger::class)->transfer($companyId, ['account' => Account::Company], ['account' => Account::PettyCash, 'branch' => $branchId], 1000, 'PETTY CASH');
         $expense = ExpenseRequest::create([
             'company_id' => $companyId, 'scope' => 'branch', 'branch_id' => $branchId, 'expense_type_id' => $type->id,
             'amount' => 1000, 'description' => 'test', 'status' => 'pending', 'request_date' => today(),

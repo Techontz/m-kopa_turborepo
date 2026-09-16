@@ -45,6 +45,7 @@ class CashAccounts
         'branch_income_funds' => ['Branch income funds — INTEREST, LOAN FEE, PENALTY, RESERVE, INSURANCE A/C', [
             Account::Interest, Account::LoanFee, Account::Penalty, Account::Reserve, Account::Insurance,
         ]],
+        'branch_petty_cash' => ['Branch PETTY CASH A/C — petty cash sent by HQ', [Account::PettyCash]],
         'teller_and_agent' => ['Teller cash and agent accounts', [Account::TellerCash, Account::Agent]],
         'staff_fund_cash' => ['Staff fund cash', [Account::StaffFundCash]],
     ];
@@ -123,12 +124,23 @@ class CashAccounts
      */
     public function hqReserveHoldings(Company|int $company): array
     {
+        return $this->holdings($company, [Account::Reserve, Account::HqReserve]);
+    }
+
+    /**
+     * Balances of the given accounts per branch, largest first, ignoring accounts without money.
+     *
+     * @param  list<Account>  $accounts
+     * @return list<array{account: Account, branch: int|null, balance: float}>
+     */
+    private function holdings(Company|int $company, array $accounts): array
+    {
         $companyId = $company instanceof Company ? (int) $company->id : $company;
 
         return DB::table('journal_lines')
             ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
             ->where('accounts.company_id', $companyId)
-            ->whereIn('accounts.key', [Account::Reserve->value, Account::HqReserve->value])
+            ->whereIn('accounts.key', array_map(fn (Account $account): string => $account->value, $accounts))
             ->groupBy('accounts.key', 'accounts.branch_id')
             ->selectRaw('accounts.key AS account_key, accounts.branch_id, COALESCE(SUM(journal_lines.debit), 0) - COALESCE(SUM(journal_lines.credit), 0) AS amount')
             ->get()
@@ -137,6 +149,25 @@ class CashAccounts
             ->sortByDesc('balance')
             ->values()
             ->all();
+    }
+
+    /**
+     * HQ interest: income belongs to HQ, so it is every branch INTEREST A/C plus the HQ INTEREST ACCOUNT. This is what petty
+     * cash sent to branches is funded from.
+     */
+    public function hqInterest(Company|int $company, ?CarbonInterface $until = null): float
+    {
+        return round($this->ledger->balance($company, Account::Interest, until: $until, allBranches: true) + $this->ledger->balance($company, Account::HqInterest, until: $until), 2) + 0.0;
+    }
+
+    /**
+     * Where the HQ interest is held, largest first.
+     *
+     * @return list<array{account: Account, branch: int|null, balance: float}>
+     */
+    public function hqInterestHoldings(Company|int $company): array
+    {
+        return $this->holdings($company, [Account::Interest, Account::HqInterest]);
     }
 
     /**

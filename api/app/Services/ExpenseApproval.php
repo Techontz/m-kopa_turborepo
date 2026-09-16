@@ -84,7 +84,7 @@ class ExpenseApproval
     public function source(ExpenseRequest $expenseRequest, ?Account $hqAccount = null): array
     {
         return match ($expenseRequest->scope) {
-            'branch' => ['account' => Account::Interest, 'branch' => $expenseRequest->branch_id],
+            'branch' => ['account' => Account::PettyCash, 'branch' => $expenseRequest->branch_id],
             'bank' => ['account' => Account::Bank, 'bank' => $expenseRequest->bank_account_id],
             default => ['account' => $hqAccount ?? Account::Company],
         };

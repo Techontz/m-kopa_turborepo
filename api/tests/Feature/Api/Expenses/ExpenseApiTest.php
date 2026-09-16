@@ -50,10 +50,10 @@ class ExpenseApiTest extends TestCase
         $this->assertModelMissing($type);
     }
 
-    public function test_small_branch_expense_is_approved_by_finance_and_paid_from_branch_interest(): void
+    public function test_small_branch_expense_is_approved_by_finance_and_paid_from_branch_petty_cash(): void
     {
         $type = $this->type('branch', 'umeme');
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 100000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 100000, branch: $this->admin->branch_id);
         $manager = $this->employeeWithRole('branch_manager');
         $this->actingAs($manager);
 
@@ -71,9 +71,9 @@ class ExpenseApiTest extends TestCase
         $request->refresh();
         $this->assertSame('accepted', $request->status);
         $this->assertSame('sawa', $request->comment);
-        $this->assertSame(Account::Interest->value, $request->paid_from_account);
+        $this->assertSame(Account::PettyCash->value, $request->paid_from_account);
         $this->assertNotNull($request->journal_entry_id);
-        $this->assertSame(55000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(55000.0, $this->ledger->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
         $this->assertTrue(LedgerAccount::where('key', Account::OperatingExpense->value)->where('branch_id', $this->admin->branch_id)->where('expense_type_id', $type->id)->exists());
 
         $this->getJson('/api/v1/expenses/requests?scope=branch&status=accepted&branch_id=all')->assertOk()->assertJsonPath('data.0.amount', 45000)->assertJsonPath('total', 45000);
@@ -83,7 +83,7 @@ class ExpenseApiTest extends TestCase
     public function test_large_branch_expense_requires_admin_and_threshold_is_a_company_setting(): void
     {
         $type = $this->type('branch', 'KODI');
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 2000000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 2000000, branch: $this->admin->branch_id);
         $request = $this->pending('branch', $type, 600000);
 
         $this->getJson('/api/v1/expenses/settings')->assertOk()->assertJsonPath('data.expense_approval_limit', 500000);
@@ -99,10 +99,10 @@ class ExpenseApiTest extends TestCase
 
         $this->actingAs($this->employeeWithRole('finance'));
         $this->postJson("/api/v1/expenses/requests/{$request->id}/accept")->assertOk();
-        $this->assertSame(1400000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(1400000.0, $this->ledger->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
     }
 
-    public function test_branch_expense_fails_when_interest_balance_is_insufficient(): void
+    public function test_branch_expense_fails_when_the_petty_cash_balance_is_insufficient(): void
     {
         $this->ledger->openingBalance($this->admin->company_id, Account::Principal, 900000, branch: $this->admin->branch_id);
         $request = $this->pending('branch', $this->type('branch', 'SODA'), 12000);
@@ -112,7 +112,7 @@ class ExpenseApiTest extends TestCase
         $this->assertSame(900000.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
     }
 
-    public function test_hq_expense_is_approved_by_admin_and_paid_from_hq_account_never_branch_interest(): void
+    public function test_hq_expense_is_approved_by_admin_and_paid_from_hq_account_never_branch_petty_cash(): void
     {
         $type = $this->type('hq', 'MAFUTA');
         $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 100000, branch: $this->admin->branch_id);

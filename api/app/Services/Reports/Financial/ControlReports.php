@@ -268,16 +268,16 @@ class ControlReports
     private function expenseFlags(ExpenseRequest $expense): array
     {
         $flags = [];
-        $interest = $expense->paid_from_account === Account::Interest->value;
+        $pettyCash = $expense->paid_from_account === Account::PettyCash->value;
 
         if ($expense->scope === 'branch' && $expense->branch_id === null) {
             $flags[] = 'Branch expense without a branch';
         }
-        if ($expense->scope === 'branch' && $expense->paid_from_account !== null && ! $interest) {
-            $flags[] = 'Branch expense not paid from INTEREST A/C';
+        if ($expense->scope === 'branch' && $expense->paid_from_account !== null && ! $pettyCash) {
+            $flags[] = 'Branch expense not paid from PETTY CASH A/C';
         }
-        if ($expense->scope !== 'branch' && $interest) {
-            $flags[] = 'HQ expense paid from branch INTEREST A/C';
+        if ($expense->scope !== 'branch' && $pettyCash) {
+            $flags[] = 'HQ expense paid from branch PETTY CASH A/C';
         }
         if ($expense->expenseType !== null && $expense->expenseType->scope !== $expense->scope) {
             $flags[] = 'Expense type registered for '.strtoupper((string) $expense->expenseType->scope);

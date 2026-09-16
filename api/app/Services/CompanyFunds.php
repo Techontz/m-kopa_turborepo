@@ -24,7 +24,8 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
  *  - bank → HQ account (bank_to_hq, with an optional bank charge; bank_to_branch is history — branches hold no lending
  *    money, so nothing funds a branch any more),
  *  - branch sub-account → bank (branch_to_bank),
- *  - HQ reserve → Investment RESERVE A/C (reserve_to_investment): the one allowed movement out of the interest reserve.
+ *  - HQ reserve → Investment RESERVE A/C (reserve_to_investment): the one allowed movement out of the interest reserve,
+ *  - HQ interest → branch PETTY CASH A/C (petty_cash_to_branch): the only money a branch holds, spent only on expenses HQ approves.
  *
  * Rule 6 (segregation of duties): every movement is created PENDING (no journal) with its initiator in employee_id and
  * posted by {@see approve()} — a different authorised user, company and transfer rows locked, balance re-checked — or
@@ -43,6 +44,8 @@ class CompanyFunds
     public const BANK_TO_HQ = 'bank_to_hq';
 
     public const RESERVE_TO_INVESTMENT = 'reserve_to_investment';
+
+    public const PETTY_CASH_TO_BRANCH = 'petty_cash_to_branch';
 
     /** Staff roles that may approve or reject HQ reserve → Investment; shareholders may too ({@see canDecideReserve()}). */
     public const RESERVE_APPROVER_ROLES = ['super_admin', 'admin'];
@@ -174,6 +177,29 @@ class CompanyFunds
     }
 
     /**
+     * Request HQ interest → a branch PETTY CASH A/C (pending approval). Petty cash is funded from interest income
+     * ({@see CashAccounts::hqInterest()}); the branch then spends it only on expenses HQ approves.
+     */
+    public function requestPettyCash(int $companyId, int $branchId, float $amount, Employee $employee, ?string $reference = null): BankTransfer
+    {
+        $this->ensureAmounts($amount, 0);
+        $this->assertInterestCovers($companyId, round($amount, 2));
+
+        return BankTransfer::create([
+            'company_id' => $companyId,
+            'type' => self::PETTY_CASH_TO_BRANCH,
+            'branch_id' => $branchId,
+            'branch_account' => Account::PettyCash->value,
+            'employee_id' => $employee->id,
+            'hq_account' => Account::HqInterest->value,
+            'amount' => round($amount, 2),
+            'reference' => $reference,
+            'status' => self::PENDING,
+            'transfer_date' => today(),
+        ]);
+    }
+
+    /**
      * Whether the employee may approve or reject an HQ reserve → Investment transfer: Super Admin, Admin, or a login linked to
      * a shareholder of the company (Shareholder Portal account or staff who is also a shareholder). Maker/checker still applies.
      */
@@ -207,6 +233,10 @@ class CompanyFunds
                 $this->assertCanDecideReserve($approver);
 
                 return $this->postReserveToInvestment($locked, $approver);
+            }
+
+            if ($locked->type === self::PETTY_CASH_TO_BRANCH) {
+                return $this->postFromPool($locked, $approver, ['account' => Account::PettyCash, 'branch' => $locked->branch_id], $this->assertInterestCovers((int) $locked->company_id, (float) $locked->amount), 'HQ INTEREST TO BRANCH PETTY CASH A/C');
             }
 
             $bank = BankAccount::where('company_id', $locked->company_id)->whereKey($locked->bank_account_id)->lockForUpdate()->first();
@@ -287,8 +317,20 @@ class CompanyFunds
      */
     private function postReserveToInvestment(BankTransfer $transfer, Employee $approver): BankTransfer
     {
+        return $this->postFromPool($transfer, $approver, ['account' => Account::InvestmentReserve], $this->assertReserveCovers((int) $transfer->company_id, (float) $transfer->amount), 'HQ RESERVE TO INVESTMENT RESERVE A/C');
+    }
+
+    /**
+     * Post an approved transfer out of an HQ pool held across branch accounts: Dr the receiving account / Cr each holding in
+     * proportion to its balance (the per-branch figure is only a report of what that branch generated). Must be called inside
+     * {@see approve()}'s transaction with the company row locked.
+     *
+     * @param  array{account: Account, branch?: int|null}  $destination
+     * @param  list<array{account: Account, branch: int|null, balance: float}>  $holdings
+     */
+    private function postFromPool(BankTransfer $transfer, Employee $approver, array $destination, array $holdings, string $description): BankTransfer
+    {
         $amount = (float) $transfer->amount;
-        $holdings = $this->assertReserveCovers((int) $transfer->company_id, $amount);
         $total = round(array_sum(array_column($holdings, 'balance')), 2);
 
         $credits = array_map(fn (array $holding): float => min($holding['balance'], floor($amount * $holding['balance'] / $total * 100) / 100), $holdings);
@@ -299,12 +341,12 @@ class CompanyFunds
             $remainder = round($remainder - $extra, 2);
         }
 
-        $lines = [['account' => Account::InvestmentReserve, 'debit' => $amount]];
+        $lines = [$destination + ['debit' => $amount]];
         foreach ($holdings as $index => $holding) {
             $lines[] = ['account' => $holding['account'], 'branch' => $holding['branch'], 'credit' => $credits[$index]];
         }
 
-        $entry = $this->ledger->journal($transfer->company_id, 'HQ RESERVE TO INVESTMENT RESERVE A/C', $lines, $transfer);
+        $entry = $this->ledger->journal($transfer->company_id, $description, $lines, $transfer);
 
         $transfer->update([
             'status' => self::APPROVED,
@@ -334,9 +376,27 @@ class CompanyFunds
      */
     private function assertReserveCovers(int $companyId, float $amount): array
     {
-        $holdings = $this->cash->hqReserveHoldings($companyId);
+        return $this->assertPoolCovers($this->cash->hqReserveHoldings($companyId), $amount, 'HQ reserve');
+    }
+
+    /**
+     * @return list<array{account: Account, branch: int|null, balance: float}>
+     *
+     * @throws ValidationException when the HQ interest is smaller than the amount
+     */
+    private function assertInterestCovers(int $companyId, float $amount): array
+    {
+        return $this->assertPoolCovers($this->cash->hqInterestHoldings($companyId), $amount, 'HQ interest income');
+    }
+
+    /**
+     * @param  list<array{account: Account, branch: int|null, balance: float}>  $holdings
+     * @return list<array{account: Account, branch: int|null, balance: float}>
+     */
+    private function assertPoolCovers(array $holdings, float $amount, string $pool): array
+    {
         if (round(array_sum(array_column($holdings, 'balance')), 2) < $amount) {
-            throw ValidationException::withMessages(['amount' => 'Insufficient balance in HQ reserve']);
+            throw ValidationException::withMessages(['amount' => 'Insufficient balance in '.$pool]);
         }
 
         return $holdings;

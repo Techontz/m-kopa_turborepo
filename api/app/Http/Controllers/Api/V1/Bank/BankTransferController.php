@@ -17,6 +17,7 @@ use App\Services\TransferReversal;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Bank → Bank Transaction / Approved Transaction (branch → bank, request then approve),
@@ -160,6 +161,44 @@ class BankTransferController extends ApiController
         $transfer = $funds->requestReserveToInvestment($this->currentEmployee()->company_id, (float) $validated['amount'], $this->currentEmployee(), $validated['reference'] ?? null);
 
         return $this->message('Transaction Requested successfully — awaiting approval by another authorised user', 201, ['data' => new BankTransferResource($transfer->load(['employee']))]);
+    }
+
+    /**
+     * Petty cash sent to branches, with the HQ interest income still available and each branch's PETTY CASH A/C balance.
+     */
+    public function pettyCashIndex(Request $request, CashAccounts $cash): JsonResponse
+    {
+        $this->authorizeAny('bank.manage');
+        $companyId = $this->currentEmployee()->company_id;
+
+        return $this->collection(
+            $this->applyFilters($this->transfers(CompanyFunds::PETTY_CASH_TO_BRANCH), $request, 'transfer_date'),
+            [
+                'hq_interest_balance' => $cash->hqInterest($companyId),
+                'branches' => $this->visibleBranches()->map(fn ($branch): array => [
+                    'id' => (int) $branch->id,
+                    'name' => $branch->name,
+                    'petty_cash' => $this->ledger->balance($companyId, Account::PettyCash, $branch->id) + 0.0,
+                ])->values(),
+            ],
+        );
+    }
+
+    /**
+     * Request HQ interest income → a branch PETTY CASH A/C (pending). The branch then spends it only on expenses HQ approves.
+     */
+    public function pettyCashStore(Request $request, CompanyFunds $funds): JsonResponse
+    {
+        $this->authorizeAny('bank.manage');
+        $validated = $request->validate([
+            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where('company_id', $this->currentEmployee()->company_id)],
+            'amount' => ['required', 'numeric', 'min:1'],
+            'reference' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $transfer = $funds->requestPettyCash($this->currentEmployee()->company_id, (int) $validated['branch_id'], (float) $validated['amount'], $this->currentEmployee(), $validated['reference'] ?? null);
+
+        return $this->message('Petty cash Requested successfully — awaiting approval by another authorised user', 201, ['data' => new BankTransferResource($transfer->load(['branch', 'employee']))]);
     }
 
     /**

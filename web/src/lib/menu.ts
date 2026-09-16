@@ -75,6 +75,7 @@ export const menu: MenuTab[] = [
           { label: "Transfer Balance /Salary advance & disbursement Acc", href: "/bank/to-hq", permission: "bank.manage" },
           { label: "Company Cash ↔ Bank Transfer", href: "/bank/company-transfers", permission: "bank.manage" },
           { label: "Send Reserve To Investment", href: "/bank/reserve-to-investment", permission: "bank.manage" },
+          { label: "Send Petty Cash To Branch", href: "/bank/petty-cash", permission: "bank.manage" },
           { label: "Register Bank Expenses", href: "/bank/expense-types", permission: "bank.manage" },
           { label: "Request Expenses", href: "/bank/expenses", permission: "bank.manage" },
           { label: "Payroll", href: "/bank/payroll", permission: ["bank.manage", "payroll.pay"] },

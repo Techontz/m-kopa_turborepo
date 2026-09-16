@@ -37,12 +37,12 @@ class ExpenseReversalApiTest extends TestCase
         $this->ledger = app(Ledger::class);
     }
 
-    public function test_branch_expense_reversal_restores_interest_expense_and_period_profit(): void
+    public function test_branch_expense_reversal_restores_petty_cash_expense_and_period_profit(): void
     {
         $type = $this->type('branch', 'umeme');
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 100000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 100000, branch: $this->admin->branch_id);
         $expense = $this->accepted('branch', $type, 45000, $this->employeeWithRole('finance'));
-        $this->assertSame(55000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(55000.0, $this->ledger->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
         $this->assertSame(45000.0, $this->branchExpenses());
 
         $finance = $this->employeeWithRole('finance');
@@ -54,7 +54,7 @@ class ExpenseReversalApiTest extends TestCase
             ->assertJsonPath('data.status', 'reversed')
             ->assertJsonPath('notice', null);
 
-        $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
         $this->assertSame(0.0, $this->ledger->balance($this->admin->company_id, Account::OperatingExpense, $this->admin->branch_id));
         $this->assertSame(0.0, $this->branchExpenses());
 
@@ -104,7 +104,7 @@ class ExpenseReversalApiTest extends TestCase
     {
         $type = $this->type('branch', 'KODI');
         $this->travelTo(now()->subMonth()->startOfMonth()->addDays(2));
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 100000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 100000, branch: $this->admin->branch_id);
         $approver = $this->secondApprover($this->admin);
         $blocked = $this->accepted('branch', $type, 10000, $approver);
         $allowed = $this->accepted('branch', $type, 5000, $approver);
@@ -139,7 +139,7 @@ class ExpenseReversalApiTest extends TestCase
         });
 
         $type = $this->type('branch', 'MAJI');
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 900000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 900000, branch: $this->admin->branch_id);
         $approver = $this->secondApprover($this->admin);
         $large = $this->accepted('branch', $type, 600000, $approver);
         $small = $this->accepted('branch', $type, 1000, $approver);
@@ -176,13 +176,13 @@ class ExpenseReversalApiTest extends TestCase
 
         $this->assertSame($entries, JournalEntry::count());
         $this->assertSame('accepted', $small->fresh()->status);
-        $this->assertSame(299000.0, $real->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(299000.0, $real->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
     }
 
     public function test_accept_rejects_non_positive_amounts_and_posts_once(): void
     {
         $type = $this->type('branch', 'SODA');
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 10000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::PettyCash, 10000, branch: $this->admin->branch_id);
         $request = $this->pending('branch', $type, 1000);
 
         $this->postJson("/api/v1/expenses/requests/{$request->id}/accept", ['req_amount' => 0])->assertUnprocessable()->assertJsonValidationErrors('req_amount');
@@ -190,7 +190,7 @@ class ExpenseReversalApiTest extends TestCase
         $entries = JournalEntry::count();
         $this->postJson("/api/v1/expenses/requests/{$request->id}/accept")->assertUnprocessable();
         $this->assertSame($entries, JournalEntry::count());
-        $this->assertSame(9000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->assertSame(9000.0, $this->ledger->balance($this->admin->company_id, Account::PettyCash, $this->admin->branch_id));
     }
 
     private function branchExpenses(): float

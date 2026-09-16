@@ -22,7 +22,7 @@ interface Props {
 export function LoanFormFields({ form, setForm, categories: apiCategories, groups, fieldError, showInstalment, emptyMessage }: Props) {
   const categories = applicationCategoryOptions(apiCategories);
   const category = categories.find((item) => item.value === form.category_id);
-  const col = "col-lg-3 col-md-6";
+  const col = "col-xl-3 col-lg-4 col-md-6";
 
   return (
     <div className="row">
@@ -68,7 +68,7 @@ export function LoanFormFields({ form, setForm, categories: apiCategories, group
           required
         />
       </Field>
-      <Field label={<b>Interest Formula:</b>} required className={col} error={fieldError("rate")}>
+      <Field label="Interest Formula:" required className={col} error={fieldError("rate")}>
         <select className="form-control" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} required>
           <option value="">Interest Formula</option>
           <option value="SIMPLE">SIMPLE</option>
@@ -76,7 +76,7 @@ export function LoanFormFields({ form, setForm, categories: apiCategories, group
           <option value="REDUCING">REDUCING</option>
         </select>
       </Field>
-      <Field label={<b>Deducted Fee:</b>} required className={col} error={fieldError("fee_status")}>
+      <Field label="Deducted Fee:" required className={col} error={fieldError("fee_status")}>
         <select className="form-control" value={form.fee_status} onChange={(e) => setForm({ ...form, fee_status: e.target.value })} required>
           <option value="">Select</option>
           <option value="YES">YES</option>

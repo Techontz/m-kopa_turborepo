@@ -1,0 +1,83 @@
+/*
+ * Layout polish — the last stylesheet, so it tunes spacing, alignment and hierarchy across every page without changing any
+ * colour identity: every value here comes from tokens.css, so light and dark themes both follow.
+ *
+ * It fixes what looked untidy page by page: labels of different sizes, controls of different heights (native selects next to
+ * react-select boxes), card headers whose actions dropped onto a second line, cramped tables and uneven form rows.
+ */
+
+:root {
+    --mf-control-height: 40px;
+    --mf-radius: 8px;
+    --mf-radius-sm: 6px;
+    --mf-gap: 1rem;
+}
+
+/* ---------------------------------------------------------------- Page rhythm */
+.block-header { padding: 0 0 .25rem; }
+.block-header .breadcrumb { margin-bottom: .75rem; font-size: .82rem; }
+.card { border-radius: var(--mf-radius); margin-bottom: var(--mf-gap); }
+.card > .header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; flex-wrap: wrap; padding: 1rem 1.25rem .75rem; border-bottom: 1px solid var(--mf-border); }
+.card > .header h2 { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.45; letter-spacing: .01em; color: var(--mf-heading); }
+.card > .header h2 small { font-weight: 400; color: var(--mf-muted); }
+.card > .header .pull-right { float: none !important; margin: 0; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.card > .body { padding: 1.25rem; }
+.card > .header + .body { padding-top: 1rem; }
+
+/* ---------------------------------------------------------------- Forms */
+.mf-field { margin-bottom: 1rem; }
+.mf-field > .mf-label {
+    display: block;
+    margin-bottom: .35rem;
+    font-size: .78rem;
+    font-weight: 600;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    color: var(--mf-muted);
+}
+.mf-field > .mf-label .mf-required { margin-left: .15rem; color: var(--mf-danger); }
+.mf-field .field-error { margin-top: .3rem; font-size: .78rem; color: var(--mf-danger); }
+
+.form-control, .custom-select, .input-group-text { border-radius: var(--mf-radius-sm); }
+.form-control:not(textarea):not([size]):not([multiple]), select.form-control:not([size]):not([multiple]), .custom-select { height: var(--mf-control-height); }
+textarea.form-control { min-height: calc(var(--mf-control-height) * 2); border-radius: var(--mf-radius-sm); }
+select.form-control { appearance: none; padding-right: 2rem; background-image: linear-gradient(45deg, transparent 50%, var(--mf-muted) 50%), linear-gradient(135deg, var(--mf-muted) 50%, transparent 50%); background-position: calc(100% - 17px) center, calc(100% - 12px) center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.form-control:focus, .custom-select:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mf-blue) 18%, transparent); }
+
+/* react-select boxes line up with the native controls */
+.mf-select__control, [class$="-control"] { min-height: var(--mf-control-height) !important; border-radius: var(--mf-radius-sm) !important; }
+
+/* ---------------------------------------------------------------- Buttons */
+.btn { border-radius: var(--mf-radius-sm); font-weight: 600; letter-spacing: .01em; padding: .45rem 1rem; }
+.btn-sm { padding: .3rem .7rem; }
+.btn i { margin-right: .4rem; }
+.btn i:only-child { margin-right: 0; }
+.card > .header .btn { white-space: nowrap; }
+
+/* ---------------------------------------------------------------- Tables */
+.table { margin-bottom: 0; }
+.table th, .table td { padding: .65rem .85rem; vertical-align: middle; }
+.table thead th, .table .thead-info th, .table tr.mf-row-strong th { font-size: .76rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.table-responsive { border-radius: var(--mf-radius-sm); }
+.table tbody tr:hover { background: var(--mf-surface-hover); }
+.table .badge { font-weight: 600; }
+
+/* ---------------------------------------------------------------- Stat tiles */
+.dashboard-stat { border-radius: var(--mf-radius); padding: 1.15rem 1.25rem; }
+.dashboard-stat h4 { margin: 0 0 .35rem; font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+.dashboard-stat span { font-size: .9rem; font-weight: 600; }
+.dashboard-stat small { margin-top: .2rem; font-size: .75rem; opacity: .85; }
+.dashboard-stat i { margin-right: .4rem; }
+
+/* ---------------------------------------------------------------- Modals */
+.modal-content { border-radius: var(--mf-radius); }
+.modal-header, .modal-footer { padding: 1rem 1.25rem; }
+.modal-body { padding: 1.25rem; }
+.modal-title { font-size: 1rem; font-weight: 600; }
+
+/* ---------------------------------------------------------------- Narrow screens */
+@media (max-width: 767.98px) {
+    .card > .body { padding: 1rem; }
+    .card > .header { padding: .85rem 1rem .7rem; }
+    .dashboard-stat h4 { font-size: 1.4rem; }
+}

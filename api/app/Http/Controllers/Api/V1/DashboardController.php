@@ -13,9 +13,12 @@ class DashboardController extends ApiController
      * Dashboard figures (live admin/index): account header, stat cards, today's summary, account modals, customer-type
      * table and the Finance dashboard KPIs. Every figure and total is computed here; the web app only displays them.
      *
-     * Company money (Company A/C + bank accounts, capital, HQ and fund account balances, float sent to branches) is only
-     * sent to employees whose role covers the whole company; branch- and zone-scoped employees get null, whatever their
-     * permissions. For them the green card is their branch PETTY CASH A/C and every other figure covers their branches only.
+     * Company money (Company A/C + bank accounts, capital, HQ and fund account balances, float sent to HQ) is only sent to
+     * employees whose role covers the whole company; branch- and zone-scoped employees get null, whatever their permissions,
+     * and for them the green card is their branch PETTY CASH A/C with every other figure covering their branches only.
+     *
+     * The Investment (the owners' position: Company A/C, banks, Investment reserve, assets) needs capital.view: HQ and Finance
+     * see HQ funds instead — the PRINCIPAL A/C the company floated to HQ plus the HQ income pools.
      */
     public function __invoke(DashboardStatistics $statistics, AccessControl $access): JsonResponse
     {
@@ -27,11 +30,16 @@ class DashboardController extends ApiController
         $branchIds = $access->branchIds($employee);
         $seesCompanyMoney = $branchIds === null;
         $showFinance = $seesCompanyMoney && ($employee->can('accounting.view') || $employee->can('capital.view'));
-        $accountBalances = $seesCompanyMoney && $employee->can('capital.view') ? $statistics->accountBalances($company) : null;
+        $investment = $seesCompanyMoney && $employee->can('capital.view');
+        $accountBalances = match (true) {
+            $investment => $statistics->accountBalances($company),
+            $showFinance => $statistics->hqFunds($company),
+            default => null,
+        };
 
         return response()->json(['data' => [
             'header_accounts' => $showFinance ? $statistics->headerAccounts($company) : null,
-            'cards' => $statistics->cards($company, $today, $branchIds),
+            'cards' => $statistics->cards($company, $today, $branchIds, $investment),
             'account_balances' => $accountBalances,
             'account_balances_total' => $accountBalances === null ? null : round(array_sum($accountBalances), 2),
             'branch_accounts' => $showFinance ? $statistics->branchAccounts($company)->values() : null,
@@ -40,7 +48,7 @@ class DashboardController extends ApiController
                 'penalty' => $employee->can('penalties.manage'),
                 'salary_advance' => $employee->can('salary_advance.manage'),
                 'hq_accounts' => $seesCompanyMoney && $employee->can('hq.manage'),
-                'company_accounts' => $seesCompanyMoney && $employee->can('capital.view'),
+                'company_accounts' => $investment,
                 'account_balance' => $seesCompanyMoney,
             ]),
             'customer_types' => collect($statistics->customerTypes($company, $branchIds))->map(fn (array $row): array => collect($row)->except('customers')->all())->values(),

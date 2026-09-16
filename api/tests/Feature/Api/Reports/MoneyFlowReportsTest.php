@@ -5,6 +5,7 @@ namespace Tests\Feature\Api\Reports;
 use App\Enums\Account;
 use App\Enums\LoanStatus;
 use App\Models\AccountingPeriod;
+use App\Models\BankAccount;
 use App\Models\Branch;
 use App\Models\Company;
 use App\Models\Customer;
@@ -205,6 +206,39 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertEquals(49500000, $data['account_balances']['Assets']);
         $this->assertEquals($data['account_balances_total'], $data['cards']['account_balance']);
         $this->assertSame('Company A/C + banks + reserve + assets', $data['cards']['account_balance_label']);
+    }
+
+    /**
+     * HQ and Finance run the money, but the Investment is the owners' position: they see the funds the company floated to HQ
+     * and the income HQ holds instead, never the Company A/C, the banks or the assets.
+     */
+    public function test_hq_and_finance_see_hq_funds_instead_of_the_investment(): void
+    {
+        $companyId = $this->admin->company_id;
+        $ledger = app(Ledger::class);
+        $bank = BankAccount::create(['company_id' => $companyId, 'name' => 'NMB']);
+        $ledger->openingBalance($companyId, Account::Company, 9000000, 'CAPITAL');
+        $ledger->openingBalance($companyId, Account::Bank, 4000000, bankAccount: $bank);
+        $ledger->openingBalance($companyId, Account::MotorVehicles, 7000000, 'ASSET CAPITAL');
+        $ledger->openingBalance($companyId, Account::Principal, 2000000, 'FLOAT TO HQ');
+        $ledger->openingBalance($companyId, Account::Interest, 150000, branch: $this->admin->branch_id);
+
+        $owner = $this->getJson('/api/v1/dashboard')->assertOk()->json('data');
+        $this->assertSame('Account Balance', $owner['cards']['account_balance_title']);
+        $this->assertEquals(20000000, $owner['cards']['account_balance'], 'company 9m + bank 4m + assets 7m');
+
+        $finance = $this->employeeWithRole('finance');
+        $this->assertFalse($finance->can('capital.view'));
+        $data = $this->actingAs($finance)->getJson('/api/v1/dashboard')->assertOk()->json('data');
+
+        $this->assertSame('HQ Funds', $data['cards']['account_balance_title']);
+        $this->assertEquals(2000000 + 150000, $data['cards']['account_balance'], 'the float received plus the interest HQ holds');
+        $this->assertSame(['PRINCIPAL A/C', 'INTEREST A/C'], array_keys($data['account_balances']));
+        $this->assertEquals($data['cards']['account_balance'], $data['account_balances_total']);
+        $this->assertArrayNotHasKey('Company A/C', $data['account_balances']);
+        $this->assertArrayNotHasKey('Assets', $data['account_balances']);
+        $this->assertNull($data['finance_kpis']['company_accounts']);
+        $this->assertStringNotContainsString('9000000', json_encode($data['cards']).json_encode($data['account_balances']));
     }
 
     public function test_branch_scoped_dashboard_cards_cover_the_employee_branch_only(): void

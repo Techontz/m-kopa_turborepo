@@ -54,22 +54,31 @@ class DashboardStatistics
     }
 
     /**
-     * Stat cards. For the whole company ($branchIds null) the green card is the Investment: the total of
-     * {@see accountBalances()} (COMPANY ACCOUNT + bank accounts + Investment reserve + assets). For branch- and zone-scoped
-     * employees it is the PETTY CASH A/C of their branches ({@see pettyCash()}) — the only money a branch holds — and loan
-     * withdrawal, receivable and default loan cover those branches only.
+     * Stat cards. The green card is:
+     *  - the Investment ({@see accountBalances()}: COMPANY ACCOUNT + bank accounts + Investment reserve + assets) for a
+     *    company-wide employee who may see capital — the owners' position, never shown to HQ;
+     *  - HQ funds ({@see hqFunds()}: the PRINCIPAL A/C the company floated to HQ plus the HQ income pools) for every other
+     *    company-wide employee (HQ, Finance);
+     *  - the PETTY CASH A/C of their branches ({@see pettyCash()}) for branch- and zone-scoped employees — the only money a
+     *    branch holds. Their loan withdrawal, receivable and default loan cover those branches only.
      *
      * @param  list<int>|null  $branchIds
      * @return array{account_balance: float, account_balance_title: string, account_balance_label: string, loan_withdrawal: float, receivable: float, default_loan: float}
      */
-    public function cards(Company $company, CarbonImmutable $today, ?array $branchIds = null): array
+    public function cards(Company $company, CarbonImmutable $today, ?array $branchIds = null, bool $investment = true): array
     {
         $inBranches = fn (Builder $query): Builder => $branchIds === null ? $query : $query->whereIn('branch_id', $branchIds);
 
+        $green = match (true) {
+            $branchIds !== null => ['Petty Cash', 'Sent by HQ — spent only with HQ approval', $this->pettyCash($company, $branchIds)],
+            $investment => ['Account Balance', 'Company A/C + banks + reserve + assets', round(array_sum($this->accountBalances($company)), 2)],
+            default => ['HQ Funds', 'Received from the company + HQ income', round(array_sum($this->hqFunds($company)), 2)],
+        };
+
         return [
-            'account_balance' => $branchIds === null ? round(array_sum($this->accountBalances($company)), 2) : $this->pettyCash($company, $branchIds),
-            'account_balance_title' => $branchIds === null ? 'Account Balance' : 'Petty Cash',
-            'account_balance_label' => $branchIds === null ? 'Company A/C + banks + reserve + assets' : 'Sent by HQ — spent only with HQ approval',
+            'account_balance' => $green[2],
+            'account_balance_title' => $green[0],
+            'account_balance_label' => $green[1],
             'loan_withdrawal' => (float) $inBranches(LoanTransaction::where('company_id', $company->id))->where('type', 'withdrawal')->whereNull('reversed_at')->whereDate('transaction_date', $today)->sum('amount'),
             'receivable' => (float) LoanSchedule::whereHas('loan', fn ($query) => $inBranches($query->where('company_id', $company->id))->status(...LoanStatus::repayable()))
                 ->whereDate('due_date', $today)->sum('amount'),
@@ -86,6 +95,38 @@ class DashboardStatistics
     public function pettyCash(Company $company, array $branchIds): float
     {
         return round(array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($company, Account::PettyCash, $branchId), $branchIds)), 2) + 0.0;
+    }
+
+    /**
+     * HQ funds — what HQ and Finance see instead of the owners' Investment: the lending money the company floated to HQ and
+     * the income HQ holds. Every branch-tagged fund account is included, because a branch holds no money of its own: the
+     * branch figure is only a report of what that branch generated.
+     *
+     * @return array<string, float>
+     */
+    public function hqFunds(Company $company): array
+    {
+        $pool = fn (Account $account): float => $this->ledger->balance($company, $account, allBranches: true) + 0.0;
+
+        $balances = [
+            'PRINCIPAL A/C' => $pool(Account::Principal),
+            'INTEREST A/C' => $pool(Account::Interest),
+            'LOAN FEE A/C' => $pool(Account::LoanFee),
+            'PENALTY A/C' => $pool(Account::Penalty),
+            'RESERVE A/C' => $pool(Account::Reserve),
+            'INSURANCE A/C' => $pool(Account::Insurance),
+            'AGENT A/C' => $pool(Account::Agent),
+            'TELLER CASH A/C' => $pool(Account::TellerCash),
+            'PETTY CASH A/C (branches)' => $pool(Account::PettyCash),
+        ];
+
+        foreach ($this->hqAccounts($company)['rows'] as $row) {
+            $balances[$row['name']] = $row['name'] === Account::HqReserve->label()
+                ? $this->ledger->balance($company, Account::HqReserve) + 0.0
+                : $row['balance'];
+        }
+
+        return array_filter($balances, fn (float $balance): bool => abs($balance) >= 0.005);
     }
 
     /**

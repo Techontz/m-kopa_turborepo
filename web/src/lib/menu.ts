@@ -274,6 +274,7 @@ export const menu: MenuTab[] = [
       { label: "Staff Fund", icon: "icon-drawer", href: "/hrm/staff-fund", permission: ["hrm.manage", "payroll.pay"] },
       { label: "Salary Advance", icon: "icon-list", href: "/hrm/salary-advances", permission: ["hrm.manage", "payroll.pay"] },
       { label: "Staff Loan", icon: "icon-list", href: "/hrm/staff-loans", permission: ["hrm.manage", "payroll.pay"] },
+      { label: "Active Staff Loan", icon: "icon-list", href: "/hrm/staff-loans/active", permission: ["hrm.manage", "payroll.pay"] },
       { label: "Performance", icon: "icon-speedometer", href: "/hrm/performance", permission: "hrm.manage" },
       { label: "Staff Loan category", icon: "icon-settings", href: "/hrm/staff-loan-categories", permission: "hrm.manage" },
       { label: "Staff salary advance category", icon: "icon-settings", href: "/hrm/staff-salary-advance-categories", permission: "hrm.manage" },

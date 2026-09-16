@@ -3,12 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { FinanceDashboard } from "@/components/finance-dashboard/FinanceDashboard";
 import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { useAuth } from "@/lib/auth";
-import { usesFinanceShell } from "@/lib/financeMenu";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
@@ -51,13 +48,8 @@ const TYPE_LINKS: Record<string, string> = {
   "customers.index": "/customers",
 };
 
-/** Finance (Head Office) users get the live Head Office dashboard; every other role keeps the admin dashboard. */
+/** Every role sees the same dashboard; the figures inside it are scoped to what the signed-in employee may see. */
 export default function DashboardPage() {
-  const { user } = useAuth();
-  return usesFinanceShell(user) ? <FinanceDashboard /> : <AdminDashboard />;
-}
-
-function AdminDashboard() {
   const { data, isLoading } = useApi<DashboardData>("dashboard");
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [branchesOpen, setBranchesOpen] = useState(false);

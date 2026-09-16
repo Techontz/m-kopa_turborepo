@@ -51,6 +51,42 @@ class FloatApiTest extends TestCase
             ->assertJsonPath('sources.0.label', 'Company A/C')
             ->assertJsonPath('sources.0.balance', 600000);
         $this->getJson('/api/v1/capital/floats?from=2000-01-01&to=2000-01-02')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/capital/floats/approved')->assertOk()
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.to_account', 'PRINCIPAL A/C')
+            ->assertJsonPath('total', 400000);
+
+        // Only posted floats count towards the total; a second pending request is listed separately.
+        $this->postJson('/api/v1/capital/floats', ['amount' => 50000, 'from_account' => Account::Company->value])->assertCreated();
+        $this->getJson('/api/v1/capital/floats')->assertOk()->assertJsonPath('total', 400000)->assertJsonPath('total_pending', 50000);
+        $this->getJson('/api/v1/capital/floats/approved')->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    /**
+     * A float is deleted only while it is pending: once approved it is posted and can be reversed, never removed. The
+     * rows carry a sending branch, so the legacy branch → branch floats (which can no longer be created) are used here.
+     */
+    public function test_a_pending_float_is_deleted_but_an_approved_one_is_not(): void
+    {
+        $admin = $this->signInAdmin();
+        $kakonko = Branch::factory()->create(['company_id' => $admin->company_id, 'name' => 'Kakonko']);
+        $this->ledger()->openingBalance($admin->company_id, Account::Principal, 250000, branch: $admin->branch_id);
+
+        $posted = $this->legacyBranchFloat($admin->company_id, $admin->branch_id, $kakonko->id, 100000);
+        $this->asApprover($admin, fn () => $this->postJson("/api/v1/capital/floats/{$posted->id}/approve")->assertOk()->assertJsonPath('message', 'Float Approved successfully'));
+        $this->asApprover($admin, fn () => $this->postJson("/api/v1/capital/floats/{$posted->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('transfer'));
+        $this->deleteJson("/api/v1/capital/floats/{$posted->id}")->assertUnprocessable()->assertJsonPath('message', 'Approved transaction cannot be deleted');
+
+        $pending = $this->legacyBranchFloat($admin->company_id, $kakonko->id, $admin->branch_id, 10);
+        $this->deleteJson("/api/v1/capital/floats/{$pending->id}")->assertOk()->assertJsonPath('message', 'Transaction Deleted successfully');
+        $this->assertModelMissing($pending);
+        $this->assertSame(150000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $admin->branch_id), 'deleting a pending float moves nothing');
+
+        // A company → HQ float has no branch at either end, so deleting it must not ask for branch access.
+        $this->ledger()->openingBalance($admin->company_id, Account::Company, 500000, 'CAPITAL');
+        $companyFloat = $this->postJson('/api/v1/capital/floats', ['amount' => 400000, 'from_account' => Account::Company->value])->assertCreated()->json('data.id');
+        $this->deleteJson("/api/v1/capital/floats/{$companyFloat}")->assertOk();
+        $this->assertSame(500000.0, $this->ledger()->balance($admin->company_id, Account::Company));
     }
 
     public function test_company_float_sources_are_bank_and_investment_reserve_but_never_an_asset_or_more_than_the_balance(): void
@@ -74,79 +110,56 @@ class FloatApiTest extends TestCase
         $this->assertSame(100000.0, $this->ledger()->balance($admin->company_id, Account::Bank, bankAccount: $bank));
         $this->assertSame(0.0, $this->ledger()->balance($admin->company_id, Account::InvestmentReserve));
         $this->assertSame(230000.0, $this->ledger()->balance($admin->company_id, Account::Principal));
-    }
 
-    public function test_branch_to_branch_request_approve_and_delete(): void
-    {
-        $admin = $this->signInAdmin();
-        $kakonko = Branch::factory()->create(['company_id' => $admin->company_id, 'name' => 'Kakonko']);
-        // Rule 6: an Admin requests, so the initiator is not the Super Admin (who approves their own items).
-        $requester = $this->secondApprover($admin, 'admin');
-        $this->actingAs($requester);
-
-        $this->postJson('/api/v1/capital/floats/branch', ['from_blanch_id' => $admin->branch_id, 'to_blanch_id' => $admin->branch_id, 'trans_amount' => 100])
-            ->assertUnprocessable()->assertJsonValidationErrors('to_blanch_id');
-
-        $this->postJson('/api/v1/capital/floats/branch', ['from_blanch_id' => $admin->branch_id, 'to_blanch_id' => $kakonko->id, 'trans_amount' => 100000])
-            ->assertCreated()->assertJsonPath('message', 'Float Transfer Requested successfully');
-        $transfer = FloatTransfer::firstWhere('type', 'branch_to_branch');
-
-        $this->getJson('/api/v1/capital/floats/branch')->assertOk()->assertJsonPath('data.0.status', 'pending');
-
-        $approver = $this->secondApprover($admin);
-        $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertForbidden();
-        $this->asApprover($requester, fn () => $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertUnprocessable(), $approver);
-        $this->ledger()->openingBalance($admin->company_id, Account::Principal, 250000, branch: $admin->branch_id);
-
-        $this->asApprover($requester, fn () => $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Float Approved successfully'), $approver);
-        $this->assertSame(150000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $admin->branch_id));
-        $this->assertSame(100000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $kakonko->id));
-
-        $this->asApprover($requester, fn () => $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertUnprocessable(), $approver);
-        $this->deleteJson("/api/v1/capital/floats/branch/{$transfer->id}")->assertUnprocessable();
-        $this->getJson('/api/v1/capital/floats/approved')->assertOk()->assertJsonPath('data.0.from_branch', Branch::find($admin->branch_id)->name);
-
-        $pending = FloatTransfer::create(['company_id' => $admin->company_id, 'type' => 'branch_to_branch', 'from_branch_id' => $kakonko->id, 'to_branch_id' => $admin->branch_id, 'amount' => 10, 'status' => 'pending', 'transfer_date' => today()]);
-        $this->deleteJson("/api/v1/capital/floats/branch/{$pending->id}")->assertOk();
-        $this->assertModelMissing($pending);
-    }
-
-    public function test_account_to_account_within_branch(): void
-    {
-        $admin = $this->signInAdmin();
-        $this->ledger()->openingBalance($admin->company_id, Account::Interest, 80000, branch: $admin->branch_id);
-
-        $this->postJson('/api/v1/capital/floats/accounts', ['blanch_id' => $admin->branch_id, 'from_acc' => 'INT', 'to_acc' => 'INT', 'amount' => 1])
-            ->assertUnprocessable()->assertJsonValidationErrors('to_acc');
-        $short = $this->postJson('/api/v1/capital/floats/accounts', ['blanch_id' => $admin->branch_id, 'from_acc' => 'PR', 'to_acc' => 'INT', 'amount' => 1])->assertCreated()->json('data.id');
-        $this->asApprover($admin, fn () => $this->postJson("/api/v1/capital/floats/{$short}/approve")->assertUnprocessable()->assertJsonValidationErrors('transfer'));
-
-        $id = $this->postJson('/api/v1/capital/floats/accounts', ['blanch_id' => $admin->branch_id, 'from_acc' => 'INT', 'to_acc' => 'PR', 'amount' => 30000])->assertCreated()->json('data.id');
-        $this->asApprover($admin, fn () => $this->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk());
-
-        $this->assertSame(50000.0, $this->ledger()->balance($admin->company_id, Account::Interest, $admin->branch_id));
-        $this->assertSame(30000.0, $this->ledger()->balance($admin->company_id, Account::Principal, $admin->branch_id));
-        $this->getJson('/api/v1/capital/floats/accounts')->assertOk()->assertJsonPath('data.1.from_account', 'INTEREST A/C')->assertJsonPath('total', 30000)->assertJsonPath('total_pending', 1);
+        // The source balance is checked again at approval, so a float the source can no longer cover is not posted.
+        $drained = $this->postJson('/api/v1/capital/floats', ['amount' => 100000, 'from_account' => Account::Bank->value, 'bank_account_id' => $bank->id])->assertCreated()->json('data.id');
+        $this->ledger()->transfer($admin->company_id, ['account' => Account::Bank, 'bank' => $bank->id], ['account' => Account::Company], 100000, 'BANK TO COMPANY');
+        $this->asApprover($admin, fn () => $this->postJson("/api/v1/capital/floats/{$drained}/approve")->assertUnprocessable()->assertJsonValidationErrors('transfer'));
+        $this->assertSame(230000.0, $this->ledger()->balance($admin->company_id, Account::Principal));
     }
 
     public function test_permission_scope_and_isolation(): void
     {
         $admin = $this->signInAdmin();
-        $otherCompanyTransfer = FloatTransfer::create(['company_id' => Company::factory()->create()->id, 'type' => 'branch_to_branch', 'amount' => 1, 'status' => 'pending', 'transfer_date' => today()]);
-        $this->postJson("/api/v1/capital/floats/branch/{$otherCompanyTransfer->id}/approve")->assertNotFound();
+        $otherCompanyTransfer = FloatTransfer::create(['company_id' => Company::factory()->create()->id, 'type' => 'company_to_hq', 'amount' => 1, 'status' => 'pending', 'transfer_date' => today()]);
+        $this->postJson("/api/v1/capital/floats/{$otherCompanyTransfer->id}/approve")->assertNotFound();
         $this->postJson('/api/v1/capital/floats', ['amount' => 1, 'from_account' => Account::Principal->value])->assertUnprocessable()->assertJsonValidationErrors('from_account');
 
         $roles = $admin->company->roles()->pluck('id', 'key');
         $teller = Employee::factory()->create(['company_id' => $admin->company_id, 'branch_id' => $admin->branch_id, 'role_id' => $roles['teller']]);
-        $this->actingAs($teller)->getJson('/api/v1/capital/floats/branch')->assertForbidden();
+        $this->actingAs($teller)->getJson('/api/v1/capital/floats')->assertForbidden();
 
+        $this->actingAs($admin);
+        $this->ledger()->openingBalance($admin->company_id, Account::Company, 100000, 'CAPITAL');
+        $this->postJson('/api/v1/capital/floats', ['amount' => 5000, 'from_account' => Account::Company->value])->assertCreated();
+
+        // Branch/zone-scoped roles see only floats touching their branches, and a company → HQ float touches none.
         $branchA = Branch::factory()->create(['company_id' => $admin->company_id]);
         $branchB = Branch::factory()->create(['company_id' => $admin->company_id]);
-        FloatTransfer::create(['company_id' => $admin->company_id, 'type' => 'branch_to_branch', 'from_branch_id' => $branchA->id, 'to_branch_id' => $branchB->id, 'amount' => 5, 'status' => 'pending', 'transfer_date' => today()]);
+        $foreignBranches = FloatTransfer::create(['company_id' => $admin->company_id, 'type' => 'branch_to_branch', 'from_branch_id' => $branchA->id, 'to_branch_id' => $branchB->id, 'from_account' => Account::Principal->value, 'to_account' => Account::Principal->value, 'amount' => 5, 'status' => 'pending', 'transfer_date' => today()]);
         $manager = Employee::factory()->create(['company_id' => $admin->company_id, 'branch_id' => $admin->branch_id, 'role_id' => $roles['branch_manager']]);
         $manager->role->permissions()->create(['permission' => 'float.manage']);
 
-        $this->actingAs($manager->fresh())->getJson('/api/v1/capital/floats/branch')->assertOk()->assertJsonCount(0, 'data');
-        $this->actingAs($manager->fresh())->postJson('/api/v1/capital/floats/branch', ['from_blanch_id' => $branchA->id, 'to_blanch_id' => $branchB->id, 'trans_amount' => 5])->assertForbidden();
+        $this->actingAs($manager->fresh())->getJson('/api/v1/capital/floats')->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($manager->fresh())->postJson("/api/v1/capital/floats/{$foreignBranches->id}/approve")->assertForbidden();
+    }
+
+    /**
+     * A pending branch → branch float row. The flow is gone (branches hold no lending money), but the historic rows are
+     * still listed, approved, rejected and reversed, so they are created straight on the model.
+     */
+    private function legacyBranchFloat(int $companyId, int $fromBranchId, int $toBranchId, float $amount): FloatTransfer
+    {
+        return FloatTransfer::create([
+            'company_id' => $companyId,
+            'type' => 'branch_to_branch',
+            'from_branch_id' => $fromBranchId,
+            'to_branch_id' => $toBranchId,
+            'from_account' => Account::Principal->value,
+            'to_account' => Account::Principal->value,
+            'amount' => $amount,
+            'status' => 'pending',
+            'transfer_date' => today(),
+        ]);
     }
 }

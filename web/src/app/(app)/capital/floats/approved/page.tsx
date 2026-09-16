@@ -11,7 +11,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
-/** Live admin/aproved_float — approved branch → branch floats (today unless filtered). */
+/** Approved floats: company money (Company A/C, a bank account or the Investment RESERVE A/C) posted to the HQ PRINCIPAL A/C
+ * (today unless filtered). Branches never receive float. */
 export default function ApprovedFloatPage() {
   const [filters, setFilters] = useState<DateFilters | null>(null);
   const [open, setOpen] = useState(false);
@@ -27,8 +28,8 @@ export default function ApprovedFloatPage() {
           rowKey={(row) => row.id}
           columns={[
             { key: "sn", header: "S/no.", render: (_, index) => `${index + 1}.`, sortable: false },
-            { key: "from_branch", header: "From Branch" },
-            { key: "to_branch", header: "To Branch" },
+            { key: "from_account", header: "From Account" },
+            { key: "to_account", header: "To Account" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "status", header: "Status", render: (row) => (isReversed(row) ? <ReversedStatus row={row} /> : <Badge tone="success">Approved</Badge>) },
             { key: "date", header: "Date" },
@@ -36,7 +37,7 @@ export default function ApprovedFloatPage() {
               key: "action",
               header: "Action",
               sortable: false,
-              render: (row) => !isReversed(row) && <ReverseButton row={row} path={`capital/floats/${row.id}/reverse`} description={`float ${row.from_branch ?? ""} → ${row.to_branch ?? ""}`} />,
+              render: (row) => !isReversed(row) && <ReverseButton row={row} path={`capital/floats/${row.id}/reverse`} description={`float ${row.from_account ?? ""} → ${row.to_account ?? "HQ"}`} />,
             },
           ]}
           footer={<tr><td>TOTAL:</td><td /><td /><td><b>{money(totalAmount(transfers))}</b> <small className="text-muted">(excl. reversed)</small></td><td /><td /><td /></tr>}

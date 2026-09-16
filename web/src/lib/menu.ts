@@ -59,9 +59,7 @@ export const menu: MenuTab[] = [
           { label: "Dividends", href: "/capital/dividends", permission: "capital.manage" },
           { label: "Shares", href: "/shares", permission: "shares.view" },
           { label: "Float", href: "/capital/floats", permission: "float.manage" },
-          { label: "Float Branch To Branch", href: "/capital/floats/branch", permission: "float.manage" },
           { label: "Approved Float", href: "/capital/floats/approved", permission: "float.manage" },
-          { label: "Float Ac-Ac", href: "/capital/floats/accounts", permission: "float.manage" },
         ],
       },
       {

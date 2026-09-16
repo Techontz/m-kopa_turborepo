@@ -191,7 +191,7 @@ class PendingApprovals
             return null;
         }
 
-        $links = ['company_to_hq' => '/capital/floats', 'company_to_branch' => '/capital/floats', 'branch_to_branch' => '/capital/floats/branch', 'account_to_account' => '/capital/floats/accounts'];
+        $links = ['company_to_hq' => '/capital/floats', 'company_to_branch' => '/capital/floats'];
 
         return FloatTransfer::where('company_id', $this->viewer->company_id)
             ->where('status', FloatService::PENDING)

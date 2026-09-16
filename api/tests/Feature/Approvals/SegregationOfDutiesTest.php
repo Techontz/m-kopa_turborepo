@@ -268,19 +268,20 @@ class SegregationOfDutiesTest extends TestCase
             ->assertUnprocessable()->assertJsonPath('errors.ac_type.0', ReserveProtection::MESSAGE);
         $this->postJson('/api/v1/hq/transactions', ['from_account' => Account::HqReserve->value, 'to_account' => Account::HqInterest->value, 'amount' => 1000])
             ->assertUnprocessable()->assertJsonPath('errors.from_account.0', ReserveProtection::MESSAGE);
-        $this->postJson('/api/v1/capital/floats/accounts', ['blanch_id' => $this->admin->branch_id, 'from_acc' => 'RES', 'to_acc' => 'PR', 'amount' => 1000])
-            ->assertUnprocessable()->assertJsonValidationErrors('from_acc');
 
         $type = ExpenseType::create(['company_id' => $this->admin->company_id, 'scope' => 'hq', 'name' => 'KODI']);
         $expense = ExpenseRequest::create(['company_id' => $this->admin->company_id, 'scope' => 'hq', 'expense_type_id' => $type->id, 'employee_id' => $this->employee('finance')->id, 'amount' => 1000, 'status' => 'pending', 'request_date' => today()]);
         $this->postJson("/api/v1/expenses/requests/{$expense->id}/accept", ['from_account' => Account::HqReserve->value])
             ->assertUnprocessable()->assertJsonPath('errors.from_account.0', ReserveProtection::MESSAGE);
 
-        // Legacy pending rows created before the rule are blocked at approval too.
+        // Legacy pending rows created before the rule are blocked at approval too — the float account → account flow no
+        // longer has an endpoint, so its historic rows are the only way a reserve float can still be offered for posting.
         $legacyBank = BankTransfer::create(['company_id' => $this->admin->company_id, 'type' => 'branch_to_bank', 'branch_id' => $this->admin->branch_id, 'branch_account' => Account::Reserve->value, 'bank_account_id' => $bank->id, 'amount' => 1000, 'status' => 'pending', 'transfer_date' => today()]);
         $legacyHq = HqTransaction::create(['company_id' => $this->admin->company_id, 'from_account' => Account::HqReserve->value, 'to_account' => Account::HqInterest->value, 'amount' => 1000, 'status' => 'pending']);
+        $legacyFloat = FloatTransfer::create(['company_id' => $this->admin->company_id, 'type' => 'account_to_account', 'from_branch_id' => $this->admin->branch_id, 'to_branch_id' => $this->admin->branch_id, 'from_account' => Account::Reserve->value, 'to_account' => Account::Principal->value, 'amount' => 1000, 'status' => 'pending', 'transfer_date' => today()]);
         $this->postJson("/api/v1/bank/transfers/{$legacyBank->id}/approve")->assertUnprocessable()->assertJsonPath('errors.amount.0', ReserveProtection::MESSAGE);
         $this->postJson("/api/v1/hq/transactions/{$legacyHq->id}/approve")->assertUnprocessable()->assertJsonPath('errors.amount.0', ReserveProtection::MESSAGE);
+        $this->postJson("/api/v1/capital/floats/{$legacyFloat->id}/approve")->assertUnprocessable()->assertJsonPath('errors.transfer.0', ReserveProtection::MESSAGE);
 
         $this->assertSame($entries, JournalEntry::count());
         $this->assertSame(50000.0, $this->ledger->balance($this->admin->company_id, Account::Reserve, $this->admin->branch_id));

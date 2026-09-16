@@ -72,14 +72,8 @@ Route::prefix('capital')->name('capital.')->group(function (): void {
     Route::controller(FloatController::class)->prefix('floats')->name('floats.')->group(function (): void {
         Route::get('/', 'company')->name('company');
         Route::post('/', 'storeCompany')->name('company.store');
-        Route::get('balances', 'balances')->name('balances');
-        Route::get('branch', 'branch')->name('branch');
-        Route::post('branch', 'storeBranch')->name('branch.store');
-        Route::post('branch/{floatTransfer}/approve', 'approve')->name('approve');
-        Route::delete('branch/{floatTransfer}', 'destroy')->name('destroy');
         Route::get('approved', 'approved')->name('approved');
-        Route::get('accounts', 'accounts')->name('accounts');
-        Route::post('accounts', 'storeAccounts')->name('accounts.store');
+        Route::delete('{floatTransfer}', 'destroy')->whereNumber('floatTransfer')->name('destroy');
         Route::post('{floatTransfer}/reverse', 'reverse')->whereNumber('floatTransfer')->name('reverse');
         Route::post('{floatTransfer}/approve', 'approve')->whereNumber('floatTransfer')->name('transfers.approve');
         Route::post('{floatTransfer}/reject', 'reject')->whereNumber('floatTransfer')->name('reject');

@@ -71,38 +71,6 @@ class FloatService
         ]);
     }
 
-    public function requestBranchToBranch(int $companyId, int $fromBranchId, int $toBranchId, float $amount, ?Employee $requester = null): FloatTransfer
-    {
-        $this->ensurePositive($amount, 'trans_amount');
-
-        return $this->createPending($companyId, $requester, [
-            'type' => 'branch_to_branch',
-            'from_branch_id' => $fromBranchId,
-            'to_branch_id' => $toBranchId,
-            'from_account' => Account::Principal->value,
-            'to_account' => Account::Principal->value,
-            'amount' => round($amount, 2),
-        ]);
-    }
-
-    /**
-     * Request a PRINCIPAL ↔ INTEREST movement within one branch (pending approval). Never from the RESERVE fund (rule 3).
-     */
-    public function requestAccountToAccount(int $companyId, int $branchId, Account $from, Account $to, float $amount, Employee $requester): FloatTransfer
-    {
-        $this->ensurePositive($amount, 'amount');
-        ReserveProtection::assertNotReserveSource($from, 'from_acc');
-
-        return $this->createPending($companyId, $requester, [
-            'type' => 'account_to_account',
-            'from_branch_id' => $branchId,
-            'to_branch_id' => $branchId,
-            'from_account' => $from->value,
-            'to_account' => $to->value,
-            'amount' => round($amount, 2),
-        ]);
-    }
-
     /**
      * Approve a pending float and post it: Dr the receiving account / Cr the sending account, provided the sender holds the
      * amount. The approver must not be the requester unless self-approval is explicitly granted.
@@ -188,26 +156,6 @@ class FloatService
     }
 
     /**
-     * Post an account → account float immediately, without an approval step. Internal use only (system fixtures and
-     * tests); the API always goes through {@see requestAccountToAccount()} and {@see approve()}.
-     *
-     * @internal
-     */
-    public function accountToAccount(int $companyId, int $branchId, Account $from, Account $to, float $amount): FloatTransfer
-    {
-        ReserveProtection::assertNotReserveSource($from, 'from_acc');
-
-        return $this->approve($this->createPending($companyId, null, [
-            'type' => 'account_to_account',
-            'from_branch_id' => $branchId,
-            'to_branch_id' => $branchId,
-            'from_account' => $from->value,
-            'to_account' => $to->value,
-            'amount' => round($this->ensurePositive($amount, 'amount'), 2),
-        ]));
-    }
-
-    /**
      * @param  array<string, mixed>  $attributes
      */
     private function createPending(int $companyId, ?Employee $requester, array $attributes): FloatTransfer
@@ -225,7 +173,6 @@ class FloatService
         return match ($type) {
             'company_to_branch' => 'FLOAT FROM COMPANY ACCOUNT',
             'company_to_hq' => 'FLOAT '.$from->label().' TO HQ '.$to->label(),
-            'branch_to_branch' => 'FLOAT BRANCH TO BRANCH',
             default => 'FLOAT '.$from->label().' TO '.$to->label(),
         };
     }

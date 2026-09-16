@@ -4,8 +4,6 @@ namespace App\Http\Controllers\Api\V1\Capital;
 
 use App\Enums\Account;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Http\Requests\Api\Capital\AccountFloatRequest;
-use App\Http\Requests\Api\Capital\BranchFloatRequest;
 use App\Http\Requests\Api\Capital\CompanyFloatRequest;
 use App\Models\ApprovalPolicy;
 use App\Models\BankAccount;
@@ -23,8 +21,9 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Capital → Float, Float Branch To Branch, Approved Float, Float Ac-Ac (live transfar_amount, float_branch_branch,
- * aproved_float, float_branch_ac_ac). Lists default to today like the live pages; the filter modal narrows them.
+ * Capital → Float and Approved Float. The company funds HQ only: a float moves company money (Company A/C, a bank account or
+ * the Investment RESERVE A/C) into the HQ PRINCIPAL A/C. Branches hold no lending money, so there is no branch → branch or
+ * account → account float. Lists default to today like the live pages; the filter modal narrows them.
  *
  * Rule 6: every float is requested as PENDING and posted when a different authorised user approves it
  * (POST {floatTransfer}/approve); pending floats can be rejected (POST {floatTransfer}/reject). Lists carry
@@ -91,28 +90,6 @@ class FloatController extends ApiController
         return $sources;
     }
 
-    public function branch(): JsonResponse
-    {
-        $this->authorizeAny('float.manage');
-
-        return $this->list($this->visible(FloatTransfer::query())
-            ->where('type', 'branch_to_branch')
-            ->where('status', 'pending')
-            ->with(['fromBranch', 'toBranch', 'requester'])
-            ->orderBy('id')
-            ->get());
-    }
-
-    public function storeBranch(BranchFloatRequest $request): JsonResponse
-    {
-        $this->authorizeAny('float.manage');
-        $this->assertBranchAccessible($request->integer('from_blanch_id'));
-
-        $transfer = $this->floats->requestBranchToBranch($this->currentEmployee()->company_id, $request->integer('from_blanch_id'), $request->integer('to_blanch_id'), $request->float('trans_amount'), $this->currentEmployee());
-
-        return $this->message('Float Transfer Requested successfully', 201, ['data' => ['id' => $transfer->id, 'status' => $transfer->status]]);
-    }
-
     /**
      * Approve a pending float of any type and post it. The requester cannot approve their own float (rule 6).
      */
@@ -143,7 +120,7 @@ class FloatController extends ApiController
     public function destroy(FloatTransfer $floatTransfer): JsonResponse
     {
         $this->authorizeAny('float.manage');
-        $this->assertBranchAccessible((int) $floatTransfer->from_branch_id);
+        $this->assertFloatVisible($floatTransfer);
 
         if ($floatTransfer->status !== 'pending') {
             return $this->message('Approved transaction cannot be deleted', 422);
@@ -159,32 +136,11 @@ class FloatController extends ApiController
         $this->authorizeAny('float.manage');
         $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date']]);
 
-        return $this->list($this->transfers($request, 'branch_to_branch')->whereIn('status', ['approved', TransferReversal::STATUS_REVERSED])->get());
+        return $this->list($this->transfers($request, ['company_to_hq', 'company_to_branch'])->whereIn('status', ['approved', TransferReversal::STATUS_REVERSED])->get());
     }
 
     /**
-     * Account-to-account movements. Inferred: the live page keeps no list; recent movements are listed for reference.
-     */
-    public function accounts(Request $request): JsonResponse
-    {
-        $this->authorizeAny('float.manage');
-        $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date']]);
-
-        return $this->list($this->transfers($request, 'account_to_account')->get());
-    }
-
-    public function storeAccounts(AccountFloatRequest $request): JsonResponse
-    {
-        $this->authorizeAny('float.manage');
-        $this->assertBranchAccessible($request->integer('blanch_id'));
-
-        $transfer = $this->floats->requestAccountToAccount($this->currentEmployee()->company_id, $request->integer('blanch_id'), $request->fromAccount(), $request->toAccount(), $request->float('amount'), $this->currentEmployee());
-
-        return $this->message('Float Requested successfully — awaiting approval by another authorised user', 201, ['data' => ['id' => $transfer->id, 'status' => $transfer->status]]);
-    }
-
-    /**
-     * Reverse an approved float (company → branch, branch → branch or account → account): Dr the sending account /
+     * Reverse an approved float: Dr the sending account /
      * Cr the receiving account, mirroring the original journal. Blocked when the receiving account no longer holds it.
      */
     public function reverse(Request $request, FloatTransfer $floatTransfer, TransferReversal $reversals): JsonResponse
@@ -197,27 +153,6 @@ class FloatController extends ApiController
         $reversals->reverse($floatTransfer, $validated['reason'], $this->currentEmployee());
 
         return $this->message('Float Reversed successfully');
-    }
-
-    /**
-     * Branch balances for the float forms (PRINCIPAL / INTEREST).
-     */
-    public function balances(): JsonResponse
-    {
-        $this->authorizeAny('float.manage');
-
-        $ledger = app(Ledger::class);
-        $companyId = $this->currentEmployee()->company_id;
-
-        return response()->json(['data' => [
-            'company' => $ledger->balance($companyId, Account::Company) + 0.0,
-            'branches' => $this->visibleBranches()->map(fn ($branch): array => [
-                'id' => $branch->id,
-                'name' => $branch->name,
-                'principal' => $ledger->balance($companyId, Account::Principal, $branch->id) + 0.0,
-                'interest' => $ledger->balance($companyId, Account::Interest, $branch->id) + 0.0,
-            ])->values(),
-        ]]);
     }
 
     /**

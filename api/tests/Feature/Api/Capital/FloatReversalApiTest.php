@@ -72,52 +72,62 @@ class FloatReversalApiTest extends TestCase
     public function test_reversal_is_blocked_when_the_receiving_account_already_used_the_money(): void
     {
         $this->ledger->openingBalance($this->admin->company_id, Account::Company, 5000);
-        // The branch account → account move below spends what the float delivered, so the money must land in a branch: the
-        // legacy company → branch float is posted with the internal fixture (the API only funds the HQ PRINCIPAL A/C now)
-        // by a second user, so the signed-in admin is not the poster and may reverse it.
-        $float = $this->asApprover($this->admin, fn () => app(FloatService::class)->companyToBranch($this->admin->company_id, $this->admin->branch_id, 1000));
-        $this->approveFloat($this->postJson('/api/v1/capital/floats/accounts', ['blanch_id' => $this->admin->branch_id, 'from_acc' => 'PR', 'to_acc' => 'INT', 'amount' => 600])->assertCreated()->json('data.id'));
+        // The float lands in the HQ PRINCIPAL A/C (no branch), so HQ spends part of it before the reversal is attempted.
+        $this->approveFloat($this->postJson('/api/v1/capital/floats', ['amount' => 1000, 'from_account' => Account::Company->value])->assertCreated()->json('data.id'));
+        $float = FloatTransfer::firstOrFail();
+        $spent = $this->ledger->transfer($this->admin->company_id, ['account' => Account::Principal], ['account' => Account::HqDisbursement], 600, 'HQ DISBURSEMENT');
         $entries = JournalEntry::count();
 
-        $message = 'The receiving account (PRINCIPAL A/C - '.Branch::find($this->admin->branch_id)->name.') no longer holds TZS 1,000 (balance TZS 400); the money has already been used.';
+        $message = 'The receiving account (PRINCIPAL A/C) no longer holds TZS 1,000 (balance TZS 400); the money has already been used.';
         $this->getJson('/api/v1/capital/floats')->assertOk()->assertJsonPath('data.0.can_reverse', false)->assertJsonPath('data.0.reverse_blocked_reason', $message);
         $this->postJson("/api/v1/capital/floats/{$float->id}/reverse", ['reason' => 'Mistake'])->assertUnprocessable()->assertJsonPath('errors.reason.0', $message);
 
         $this->assertSame($entries, JournalEntry::count());
         $this->assertSame('approved', $float->fresh()->status);
 
-        $move = FloatTransfer::where('type', 'account_to_account')->firstOrFail();
-        $this->postJson("/api/v1/capital/floats/{$move->id}/reverse", ['reason' => 'Undo move'])->assertOk();
-        $this->assertSame(1000.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
-        $this->assertSame(0.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
+        $this->ledger->reverse($spent, 'Undo disbursement');
+        $this->assertSame(1000.0, $this->ledger->balance($this->admin->company_id, Account::Principal));
+        $this->assertSame(0.0, $this->ledger->balance($this->admin->company_id, Account::HqDisbursement));
 
         $this->postJson("/api/v1/capital/floats/{$float->id}/reverse", ['reason' => 'Mistake'])->assertOk();
         $this->assertSame(5000.0, $this->ledger->balance($this->admin->company_id, Account::Company));
     }
 
-    public function test_branch_to_branch_reversal_and_pending_transfers_cannot_be_reversed(): void
+    public function test_pending_transfers_cannot_be_reversed_and_a_legacy_branch_float_still_reverses(): void
     {
+        $this->ledger->openingBalance($this->admin->company_id, Account::Company, 250000);
+        $id = $this->postJson('/api/v1/capital/floats', ['amount' => 100000, 'from_account' => Account::Company->value])->assertCreated()->json('data.id');
+
+        $this->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Not yet'])->assertUnprocessable()->assertJsonPath('errors.reason.0', 'Only approved transfers can be reversed.');
+
+        $this->approveFloat($id);
+        $this->getJson('/api/v1/capital/floats/approved')->assertOk()->assertJsonPath('data.0.can_reverse', true);
+        $this->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Wrong source'])->assertOk();
+
+        $this->assertSame(250000.0, $this->ledger->balance($this->admin->company_id, Account::Company));
+        $this->assertSame(0.0, $this->ledger->balance($this->admin->company_id, Account::Principal));
+        $this->getJson('/api/v1/capital/floats/approved')->assertOk()->assertJsonPath('data.0.status', 'reversed')->assertJsonPath('total', 0);
+
+        // Branch → branch floats can no longer be requested, but the historic rows are still approved and reversed.
         $kakonko = Branch::factory()->create(['company_id' => $this->admin->company_id]);
         $this->ledger->openingBalance($this->admin->company_id, Account::Principal, 250000, branch: $this->admin->branch_id);
-        $transfer = app(FloatService::class)->requestBranchToBranch($this->admin->company_id, $this->admin->branch_id, $kakonko->id, 100000);
+        $legacy = FloatTransfer::create(['company_id' => $this->admin->company_id, 'type' => 'branch_to_branch', 'from_branch_id' => $this->admin->branch_id, 'to_branch_id' => $kakonko->id, 'from_account' => Account::Principal->value, 'to_account' => Account::Principal->value, 'amount' => 100000, 'status' => 'pending', 'transfer_date' => today()]);
 
-        $this->postJson("/api/v1/capital/floats/{$transfer->id}/reverse", ['reason' => 'Not yet'])->assertUnprocessable()->assertJsonPath('errors.reason.0', 'Only approved transfers can be reversed.');
+        $this->postJson("/api/v1/capital/floats/{$legacy->id}/reverse", ['reason' => 'Not yet'])->assertUnprocessable()->assertJsonPath('errors.reason.0', 'Only approved transfers can be reversed.');
+        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/floats/{$legacy->id}/approve")->assertOk());
+        $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $kakonko->id));
 
-        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/capital/floats/branch/{$transfer->id}/approve")->assertOk());
-        $this->getJson('/api/v1/capital/floats/approved')->assertOk()->assertJsonPath('data.0.can_reverse', true);
-        $this->postJson("/api/v1/capital/floats/{$transfer->id}/reverse", ['reason' => 'Wrong receiver'])->assertOk();
-
+        $this->postJson("/api/v1/capital/floats/{$legacy->id}/reverse", ['reason' => 'Wrong receiver'])->assertOk();
         $this->assertSame(250000.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
         $this->assertSame(0.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $kakonko->id));
-        $this->getJson('/api/v1/capital/floats/approved')->assertOk()->assertJsonPath('data.0.status', 'reversed')->assertJsonPath('total', 0);
+        $this->assertSame('reversed', $legacy->fresh()->status);
     }
 
     public function test_concurrent_approvals_of_one_pending_transfer_post_once(): void
     {
-        $kakonko = Branch::factory()->create(['company_id' => $this->admin->company_id]);
-        $this->ledger->openingBalance($this->admin->company_id, Account::Principal, 250000, branch: $this->admin->branch_id);
+        $this->ledger->openingBalance($this->admin->company_id, Account::Company, 250000);
         $service = app(FloatService::class);
-        $transfer = $service->requestBranchToBranch($this->admin->company_id, $this->admin->branch_id, $kakonko->id, 100000);
+        $transfer = $service->requestCompanyToHq($this->admin->company_id, Account::Company, null, 100000, $this->admin);
         $stale = FloatTransfer::findOrFail($transfer->id);
 
         $service->approve($transfer);
@@ -130,7 +140,8 @@ class FloatReversalApiTest extends TestCase
         }
 
         $this->assertSame($entries, JournalEntry::count());
-        $this->assertSame(150000.0, $this->ledger->balance($this->admin->company_id, Account::Principal, $this->admin->branch_id));
+        $this->assertSame(150000.0, $this->ledger->balance($this->admin->company_id, Account::Company));
+        $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::Principal));
     }
 
     public function test_reversal_rolls_back_when_posting_fails(): void

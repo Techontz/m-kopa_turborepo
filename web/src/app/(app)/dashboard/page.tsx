@@ -172,7 +172,7 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
-        <p className="mb-2 mt-2"><small className="text-muted">Today money movements — not income and not expenses</small></p>
+        <p className="mb-2 mt-2"><small className="text-muted">Today money movements, not income and not expenses</small></p>
         <div className="table-responsive">
           <table className="table table-bordered table-custom mb-0">
             <tbody>
@@ -244,14 +244,18 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      <Modal open={accountsOpen} onClose={() => setAccountsOpen(false)} title="Company Account List">
-        <table className="table table-bordered">
-          <thead className="thead-info"><tr><th>A/c Name</th><th>Amount</th></tr></thead>
-          <tbody>
-            {Object.entries(data.account_balances ?? {}).map(([name, amount]) => <tr key={name}><td>{name}</td><td>{money(amount)}</td></tr>)}
-            <tr><th>TOTAL:</th><th>{money(data.account_balances_total)}</th></tr>
-          </tbody>
-        </table>
+      <Modal open={accountsOpen} onClose={() => setAccountsOpen(false)} title={data.cards.account_balance_title === "HQ Funds" ? "HQ Account List" : "Company Account List"}>
+        <div className="table-responsive">
+          <table className="table table-bordered">
+            <thead className="thead-info"><tr><th>A/c Name</th><th className="text-right">Amount</th></tr></thead>
+            <tbody>
+              {Object.entries(data.account_balances ?? {}).map(([name, amount]) => (
+                <tr key={name}><td>{name}</td><td className="text-right">{money(amount)}</td></tr>
+              ))}
+              <tr><th>TOTAL:</th><th className="text-right">{money(data.account_balances_total)}</th></tr>
+            </tbody>
+          </table>
+        </div>
       </Modal>
 
       <Modal open={branchesOpen} onClose={() => setBranchesOpen(false)} title="Branch List" size="xl">

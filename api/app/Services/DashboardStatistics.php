@@ -102,6 +102,10 @@ class DashboardStatistics
      * the income HQ holds. Every branch-tagged fund account is included, because a branch holds no money of its own: the
      * branch figure is only a report of what that branch generated.
      *
+     * Every account is listed, empty ones included, so the modal reads as the full account list rather than as whichever
+     * accounts happen to hold money today. The HQ accounts are prefixed "HQ " because several of them share a name with a
+     * fund pool above (PENALTY, INTEREST, RESERVE, LOAN FEE).
+     *
      * @return array<string, float>
      */
     public function hqFunds(Company $company): array
@@ -121,12 +125,12 @@ class DashboardStatistics
         ];
 
         foreach ($this->hqAccounts($company)['rows'] as $row) {
-            $balances[$row['name']] = $row['name'] === Account::HqReserve->label()
+            $balances['HQ '.$row['name']] = $row['name'] === Account::HqReserve->label()
                 ? $this->ledger->balance($company, Account::HqReserve) + 0.0
                 : $row['balance'];
         }
 
-        return array_filter($balances, fn (float $balance): bool => abs($balance) >= 0.005);
+        return $balances;
     }
 
     /**

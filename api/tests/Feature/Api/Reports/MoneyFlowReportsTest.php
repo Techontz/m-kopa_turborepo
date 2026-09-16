@@ -233,7 +233,13 @@ class MoneyFlowReportsTest extends TestCase
 
         $this->assertSame('HQ Funds', $data['cards']['account_balance_title']);
         $this->assertEquals(2000000 + 150000, $data['cards']['account_balance'], 'the float received plus the interest HQ holds');
-        $this->assertSame(['PRINCIPAL A/C', 'INTEREST A/C'], array_keys($data['account_balances']));
+        $this->assertSame(
+            ['PRINCIPAL A/C', 'INTEREST A/C', 'LOAN FEE A/C', 'PENALTY A/C', 'RESERVE A/C', 'INSURANCE A/C', 'AGENT A/C', 'TELLER CASH A/C', 'PETTY CASH A/C (branches)'],
+            array_slice(array_keys($data['account_balances']), 0, 9),
+            'the modal lists every account, the empty ones included, then the HQ accounts',
+        );
+        $this->assertEquals(0, $data['account_balances']['LOAN FEE A/C']);
+        $this->assertArrayHasKey('HQ '.Account::HqReserve->label(), $data['account_balances']);
         $this->assertEquals($data['cards']['account_balance'], $data['account_balances_total']);
         $this->assertArrayNotHasKey('Company A/C', $data['account_balances']);
         $this->assertArrayNotHasKey('Assets', $data['account_balances']);

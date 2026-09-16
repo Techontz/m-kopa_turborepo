@@ -23,7 +23,6 @@ class SettingController extends HrmController
             'commission_pool_percent' => (float) $settings->commission_pool_percent,
             'zone_override_percent' => (float) $settings->zone_override_percent,
             'staff_fund_percent' => (float) $settings->staff_fund_percent,
-            'company_fund_percent' => (float) $settings->company_fund_percent,
             'work_start_time' => $settings->work_start_time,
         ]]);
     }

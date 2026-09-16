@@ -24,7 +24,6 @@ class HrmSettingsRequest extends FormRequest
             'commission_pool_percent' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
             'zone_override_percent' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
             'staff_fund_percent' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
-            'company_fund_percent' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
             'work_start_time' => ['sometimes', 'required', 'date_format:H:i'],
         ];
     }

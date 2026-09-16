@@ -25,7 +25,6 @@ class HrmSetting extends Model
             'commission_pool_percent' => 'decimal:2',
             'zone_override_percent' => 'decimal:2',
             'staff_fund_percent' => 'decimal:2',
-            'company_fund_percent' => 'decimal:2',
         ];
     }
 

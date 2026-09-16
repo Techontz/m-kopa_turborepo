@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One employee's line on a payroll run: Base + Commission + Allowance − Deductions. `negligence` is recovered from the commission
- * only (spec §23); `company_fund` is the company's staff fund contribution obligation (spec §26), not part of the take home.
+ * only (spec §23).
  */
 class PayrollItem extends Model
 {
@@ -18,7 +18,7 @@ class PayrollItem extends Model
      */
     protected function casts(): array
     {
-        return collect(['base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'company_fund', 'salary_advance', 'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home'])
+        return collect(['base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'salary_advance', 'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home'])
             ->mapWithKeys(fn (string $column): array => [$column => 'decimal:2'])
             ->all();
     }

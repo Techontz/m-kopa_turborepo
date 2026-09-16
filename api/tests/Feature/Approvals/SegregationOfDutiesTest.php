@@ -335,13 +335,18 @@ class SegregationOfDutiesTest extends TestCase
     public function test_payroll_preparer_can_neither_approve_nor_pay(): void
     {
         $hr = $this->employee('hr');
+        $finance = $this->employee('finance');
+        // Finance is the final payroll approver (ruling 2026-09-17); HR, who prepares payroll, may not approve at all.
         $run = PayrollRun::create(['company_id' => $this->admin->company_id, 'period' => today()->startOfMonth(), 'status' => PayrollRun::STATUS_DRAFT, 'prepared_by' => $hr->id]);
-
-        $this->actingAs($hr)->getJson('/api/v1/hrm/payroll?period='.today()->format('Y-m'))->assertJsonPath('data.run.can_approve', false)->assertJsonPath('data.run.approve_blocked_reason', SegregationOfDuties::INITIATOR_MESSAGE);
+        $this->actingAs($hr)->getJson('/api/v1/hrm/payroll?period='.today()->format('Y-m'))->assertJsonPath('data.run.can_approve', false);
         $this->actingAs($hr)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertForbidden();
+
+        // A Finance user who prepared the run still cannot approve it.
+        $run->update(['prepared_by' => $finance->id]);
+        $this->actingAs($finance)->getJson('/api/v1/hrm/payroll?period='.today()->format('Y-m'))->assertJsonPath('data.run.can_approve', false)->assertJsonPath('data.run.approve_blocked_reason', SegregationOfDuties::INITIATOR_MESSAGE);
+        $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertForbidden();
         $this->assertSame(PayrollRun::STATUS_DRAFT, $run->fresh()->status);
 
-        $finance = $this->employee('finance');
         $run->update(['status' => PayrollRun::STATUS_APPROVED, 'prepared_by' => $finance->id, 'approved_by' => $hr->id]);
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
         $this->assertSame(PayrollRun::STATUS_APPROVED, $run->fresh()->status);

@@ -47,8 +47,9 @@ use Illuminate\Validation\ValidationException;
  * Spec §24 — only Finance-approved allowances are paid: recurring approved (legacy `active`) allowances every month, and an
  * approved allowance of this or an earlier payroll period once — generation reserves it for the run, payment marks it paid.
  *
- * Spec §26 — the employee's staff fund contribution (staff_fund_percent of basic salary) is real money withheld into the
- * STAFF FUND A/C; the company's contribution (company_fund_percent) is recorded per employee as an obligation only.
+ * Spec §26, as ruled by the product owner (2026-09-17): SALARY EXPENSE is the full basic salary and nothing more. The
+ * staff fund share (staff_fund_percent, 20 %) is withheld from it and goes into the STAFF FUND A/C as real cash — basic
+ * 1,000,000: expense 1,000,000, staff receives 800,000, fund receives 200,000. There is no separate company contribution.
  *
  * Spec §23 — approved negligence is recovered from the COMMISSION of the line only (never from salary), oldest first; what
  * the commission cannot cover is carried forward to the next payroll ({@see NegligenceDeductions}).
@@ -105,7 +106,6 @@ class PayrollEngine
         return $employees->map(fn (Employee $employee): array => $this->line(
             $employee,
             (float) $settings->staff_fund_percent,
-            (float) $settings->company_fund_percent,
             (float) ($commissions[$employee->id] ?? 0),
             (float) ($negligence[$employee->id] ?? 0),
         ));
@@ -192,8 +192,6 @@ class PayrollEngine
                 $lines[] = ['account' => Account::CommissionExpense, 'branch' => $branchId, 'debit' => $commission];
                 $lines[] = ['account' => Account::AllowanceExpense, 'branch' => $branchId, 'debit' => (float) $item->allowance];
                 $lines[] = ['account' => Account::StaffPayable, 'employee' => $item->employee_id, 'credit' => (float) $item->gross];
-                $lines[] = ['account' => Account::SalaryExpense, 'branch' => $branchId, 'debit' => (float) $item->company_fund];
-                $lines[] = ['account' => Account::StaffFundObligation, 'employee' => $item->employee_id, 'credit' => (float) $item->company_fund];
 
                 $this->ledger->journal($run->company_id, 'Salary recognition '.$run->period->format('F Y').' - '.$item->employee->full_name, $lines, $run, $expenseDate, $branchId, $approver);
             }
@@ -404,7 +402,6 @@ class PayrollEngine
             'salary_advance' => $advanceTaken,
             'allowance' => $item->allowance,
             'staff_fund' => $item->staff_fund,
-            'company_fund' => $item->company_fund,
             'deduction' => $deductionTaken,
             'negligence' => $negligenceTaken,
             'loan_restoration' => $loanTaken,
@@ -443,7 +440,7 @@ class PayrollEngine
     /**
      * @return array<string, mixed>
      */
-    private function line(Employee $employee, float $staffFundPercent, float $companyFundPercent, float $commission, float $negligenceOutstanding): array
+    private function line(Employee $employee, float $staffFundPercent, float $commission, float $negligenceOutstanding): array
     {
         $info = $employee->salaryInfo;
         $type = $info->salary_type ?: SalaryType::Branch->value;
@@ -478,7 +475,6 @@ class PayrollEngine
             'allowance' => $allowance,
             'gross' => $gross,
             'staff_fund' => $staffFund,
-            'company_fund' => round($base * $companyFundPercent / 100, 2),
             'salary_advance' => $advance,
             'deduction' => $deduction,
             'negligence' => $negligence,

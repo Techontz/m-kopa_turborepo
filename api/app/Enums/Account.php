@@ -64,11 +64,6 @@ enum Account: string
     case DividendPayable = 'dividend_payable';
     /** Commission allocated from a closed month's profit, not yet recognised in an approved payroll (D1). */
     case CommissionPayable = 'commission_payable';
-    /**
-     * The company's own staff fund contribution (spec §26, §55: 20 % of basic salary) owed to each employee. An obligation /
-     * entitlement recorded per employee, NOT money: it never enters the STAFF FUND A/C until the company actually transfers it.
-     */
-    case StaffFundObligation = 'staff_fund_obligation';
 
     // Equity
     case Capital = 'capital';
@@ -98,7 +93,7 @@ enum Account: string
     public function type(): string
     {
         return match ($this) {
-            self::Suspense, self::SavingsDeposits, self::StaffPayable, self::StaffFund, self::DividendPayable, self::CommissionPayable, self::StaffFundObligation => 'liability',
+            self::Suspense, self::SavingsDeposits, self::StaffPayable, self::StaffFund, self::DividendPayable, self::CommissionPayable => 'liability',
             self::Capital, self::RetainedProfit, self::ReinvestedProfit, self::InterestReserve, self::InsuranceReserve => 'equity',
             self::InterestIncome, self::FeeIncome, self::PenaltyIncome, self::InsuranceIncome, self::RecoveryIncome => 'income',
             self::OperatingExpense, self::SalaryExpense, self::CommissionExpense, self::AllowanceExpense, self::WriteOffExpense, self::BankCharges => 'expense',
@@ -128,7 +123,7 @@ enum Account: string
             self::MotorVehicles => '1500', self::Equipment => '1510', self::FurnitureFixtures => '1520',
             self::Buildings => '1530', self::Land => '1540', self::OtherFixedAssets => '1550',
             self::Suspense => '2000', self::SavingsDeposits => '2010', self::StaffPayable => '2020',
-            self::StaffFund => '2030', self::DividendPayable => '2040', self::CommissionPayable => '2050', self::StaffFundObligation => '2060',
+            self::StaffFund => '2030', self::DividendPayable => '2040', self::CommissionPayable => '2050',
             self::Capital => '3000', self::ReinvestedProfit => '3010', self::InterestReserve => '3020', self::InsuranceReserve => '3030',
             self::RetainedProfit => '3100',
             self::InterestIncome => '4000', self::FeeIncome => '4010', self::PenaltyIncome => '4020',
@@ -182,7 +177,6 @@ enum Account: string
             self::StaffFund => 'STAFF FUND',
             self::DividendPayable => 'DIVIDEND ACCOUNT',
             self::CommissionPayable => 'COMMISSION PAYABLE',
-            self::StaffFundObligation => 'STAFF FUND OBLIGATION (COMPANY CONTRIBUTION)',
             self::Capital => 'CAPITAL ACCOUNT',
             self::ReinvestedProfit => 'REINVESTED PROFIT',
             self::InterestReserve => 'INTEREST RESERVE',

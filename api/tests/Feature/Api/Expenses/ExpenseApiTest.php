@@ -90,6 +90,9 @@ class ExpenseApiTest extends TestCase
 
         $this->actingAs($this->employeeWithRole('finance'));
         $this->postJson("/api/v1/expenses/requests/{$request->id}/accept")->assertForbidden();
+        // §34 ruling: Finance cannot get under the Admin threshold by approving less than was requested.
+        $this->postJson("/api/v1/expenses/requests/{$request->id}/accept", ['req_amount' => 400000])->assertForbidden();
+        $this->assertSame('pending', $request->fresh()->status);
         $this->putJson('/api/v1/expenses/settings', ['expense_approval_limit' => 1000])->assertForbidden();
 
         $this->actingAs($this->admin);

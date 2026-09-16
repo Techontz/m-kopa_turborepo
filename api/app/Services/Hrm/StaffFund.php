@@ -29,10 +29,9 @@ use Illuminate\Validation\ValidationException;
  *  Repayment:               Dr Staff Fund A/C     Cr Staff Loan / Staff Advance (interest → Cr Staff Fund)
  *  Withdrawal (inferred):   Dr Staff Fund(emp)    Cr Staff Fund A/C
  *
- * Spec §25–26, §55 — the company contribution (hrm_settings.company_fund_percent, 20 % of basic salary) is NOT fund money.
- * Payroll approval records it per employee as an obligation: Dr Salary Expense / Cr STAFF FUND OBLIGATION(emp). It never
- * touches the STAFF FUND A/C, so Finance's fund balance only shows cash actually received. The employee benefit record is
- * staff contribution + company contribution (20,000 + 20,000 = 40,000 on a 100,000 basic salary).
+ * Spec §25–26, as ruled by the product owner (2026-09-17): the 20 % withheld from basic salary is the only contribution. It
+ * is part of the salary expense, not an extra company expense, and it enters the STAFF FUND A/C as real cash, so an
+ * employee's benefit record is exactly what the fund received for them.
  */
 class StaffFund
 {
@@ -49,24 +48,15 @@ class StaffFund
     }
 
     /**
-     * Company contribution (obligation, not cash) recorded for one employee.
-     */
-    public function companyContribution(int $companyId, int $employeeId): float
-    {
-        return $this->ledger->balance($companyId, Account::StaffFundObligation, employee: $employeeId);
-    }
-
-    /**
-     * Spec §26 benefit record of one employee: own contribution (fund money), company contribution (obligation) and the total.
+     * Spec §26 benefit record of one employee: the contributions the fund actually received for them.
      *
-     * @return array{staff_contribution: float, company_contribution: float, total_benefit_record: float}
+     * @return array{staff_contribution: float, total_benefit_record: float}
      */
     public function benefitRecord(int $companyId, int $employeeId): array
     {
         $staff = $this->memberBalance($companyId, $employeeId);
-        $company = $this->companyContribution($companyId, $employeeId);
 
-        return ['staff_contribution' => $staff, 'company_contribution' => $company, 'total_benefit_record' => round($staff + $company, 2)];
+        return ['staff_contribution' => $staff, 'total_benefit_record' => $staff];
     }
 
     /**
@@ -157,23 +147,12 @@ class StaffFund
             ->selectRaw('accounts.employee_id, SUM(journal_lines.credit) AS credits, SUM(journal_lines.debit) AS debits')
             ->get();
 
-        $obligations = JournalLine::query()
-            ->join('accounts', 'accounts.id', '=', 'journal_lines.account_id')
-            ->where('accounts.company_id', $companyId)
-            ->where('accounts.key', Account::StaffFundObligation->value)
-            ->whereNotNull('accounts.employee_id')
-            ->groupBy('accounts.employee_id')
-            ->selectRaw('accounts.employee_id, SUM(journal_lines.credit) - SUM(journal_lines.debit) AS owed')
-            ->pluck('owed', 'accounts.employee_id')
-            ->map(fn ($owed): float => round((float) $owed, 2));
-
         $memberLines = $memberLines->keyBy(fn ($row): int => (int) $row->employee_id);
-        $employeeIds = $memberLines->keys()->merge($obligations->keys())->map(fn ($id): int => (int) $id)->unique()->sort()->values();
+        $employeeIds = $memberLines->keys()->map(fn ($id): int => (int) $id)->unique()->sort()->values();
         $employees = Employee::whereIn('id', $employeeIds)->with('branch')->get()->keyBy('id');
-        $members = $employeeIds->map(function (int $employeeId) use ($memberLines, $obligations, $employees): array {
+        $members = $employeeIds->map(function (int $employeeId) use ($memberLines, $employees): array {
             $row = $memberLines->get($employeeId);
             $balance = round((float) ($row->credits ?? 0) - (float) ($row->debits ?? 0), 2);
-            $company = (float) ($obligations[$employeeId] ?? 0);
 
             return [
                 'employee_id' => $employeeId,
@@ -183,8 +162,7 @@ class StaffFund
                 'withdrawals' => round((float) ($row->debits ?? 0), 2),
                 'balance' => $balance,
                 'staff_contribution' => $balance,
-                'company_contribution' => $company,
-                'total_benefit_record' => round($balance + $company, 2),
+                'total_benefit_record' => $balance,
             ];
         })->values()->all();
 
@@ -199,7 +177,6 @@ class StaffFund
             'balance' => $this->cashBalance($companyId),
             'liability' => $liability,
             'contributions' => round((float) collect($members)->sum('contributions'), 2),
-            'company_contributions_owed' => round((float) collect($members)->sum('company_contribution'), 2),
             'total_benefit_record' => round((float) collect($members)->sum('total_benefit_record'), 2),
             'withdrawals' => round((float) $dated(StaffFundWithdrawal::where('company_id', $companyId), 'created_at')->sum('amount'), 2),
             'loans_issued' => round((float) $dated(StaffLoan::where('company_id', $companyId)->whereNotNull('disbursed_at'), 'disbursed_at')->sum('amount_approved'), 2),

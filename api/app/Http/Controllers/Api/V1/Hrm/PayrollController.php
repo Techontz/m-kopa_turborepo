@@ -20,11 +20,12 @@ use Illuminate\Validation\Rule;
 
 /**
  * HRM → Salary Sheet (live admin/salary_sheet) with the Documents' payroll workflow:
- * HR generates and approves (payroll.approve) → Finance pays (payroll.pay); payslips.
+ * HR prepares and reviews (payroll.approve: generate, commission, settings) → Finance is the final approver and pays
+ * (payroll.pay) — product owner ruling 2026-09-17 on specification §31; payslips.
  */
 class PayrollController extends HrmController
 {
-    private const MONEY = ['base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'company_fund', 'salary_advance', 'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home'];
+    private const MONEY = ['base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'salary_advance', 'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home'];
 
     public function __construct(
         private readonly PayrollEngine $payroll,
@@ -49,7 +50,7 @@ class PayrollController extends HrmController
         $rows = $run === null
             ? $this->payroll->preview($this->companyId(), $month)
             : $run->items()->with('employee', 'branch')->orderBy('id')->get()->map(fn ($item): array => $item->only([
-                'employee_id', 'branch_id', 'salary_type', 'base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'company_fund', 'salary_advance',
+                'employee_id', 'branch_id', 'salary_type', 'base_salary', 'commission', 'allowance', 'gross', 'staff_fund', 'salary_advance',
                 'deduction', 'negligence', 'loan_restoration', 'total_deductions', 'take_home', 'phone', 'account_name', 'account_number', 'payment_method', 'salary_payment_id',
             ]) + ['employee' => $item->employee?->full_name, 'branch' => $item->branch?->name]);
 
@@ -82,7 +83,7 @@ class PayrollController extends HrmController
                 'paid_at' => $run->paid_at?->toDateTimeString(),
                 'expense_date' => $run->expense_date?->toDateString(),
                 'expense_period_note' => $run->expense_period_note,
-                ...app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_DRAFT, Gate::allows('payroll.approve'), workflow: ApprovalPolicy::PAYROLL),
+                ...app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_DRAFT, Gate::allows('payroll.pay'), workflow: ApprovalPolicy::PAYROLL),
                 ...collect(app(SegregationOfDuties::class)->flags($run->prepared_by, $this->currentEmployee(), $run->status === PayrollRun::STATUS_APPROVED, Gate::allows('payroll.pay'), workflow: ApprovalPolicy::PAYROLL))
                     ->mapWithKeys(fn ($value, string $key): array => [str_replace('approve', 'pay', $key) => $value])->all(),
             ] : null,
@@ -101,11 +102,12 @@ class PayrollController extends HrmController
     }
 
     /**
-     * Rule 6: the employee who generated (prepared) the payroll cannot approve it.
+     * Finance gives the final approval (§31: HR prepares payroll but never creates the money movement alone), and rule 6
+     * still applies: the employee who generated (prepared) the payroll cannot approve it.
      */
     public function approve(PayrollRun $run, SegregationOfDuties $duties): JsonResponse
     {
-        $this->authorizeAny('payroll.approve');
+        $this->authorizeAny('payroll.pay');
         abort_unless($run->company_id === $this->companyId(), 404);
         $duties->assertCanApprove($run->prepared_by, $this->currentEmployee(), 'payroll', workflow: ApprovalPolicy::PAYROLL);
 

@@ -32,7 +32,7 @@ class AllowanceApprovalApiTest extends TestCase
 
         $this->travelTo(CarbonImmutable::parse('2026-07-20 09:00:00'));
         $this->admin = $this->signInAdmin();
-        HrmSetting::forCompany($this->admin->company_id)->update(['staff_fund_percent' => 0, 'company_fund_percent' => 0]);
+        HrmSetting::forCompany($this->admin->company_id)->update(['staff_fund_percent' => 0]);
         $this->hr = $this->employeeWithRole('hr');
         $this->finance = $this->employeeWithRole('finance');
         $this->staff = Employee::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id]);

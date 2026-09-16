@@ -15,9 +15,10 @@ use Illuminate\Validation\ValidationException;
 /**
  * Expense approval and payment (Documents: ACCOUNT OVERVIEW + handwritten "Finance – Expenses" note).
  *
- *  - Branch expenses ("matumizi madogo ya branch") are approved by Finance (expenses.approve_branch)
- *    up to the company's expense_approval_limit; larger ones and all HQ expenses need Admin (expenses.approve_hq).
- *  - Branch expenses are paid from the branch INTEREST A/C; HQ expenses from HQ (company) accounts and
+ *  - Branch petty expenses (specification §34, ruling 2026-09-17) are approved by Finance (expenses.approve_branch)
+ *    up to the company's expense_approval_limit; anything above it, and all HQ expenses, need Admin
+ *    (expenses.approve_hq). Finance can never get under the Admin threshold by approving a smaller amount than requested.
+ *  - Branch expenses are paid from the branch PETTY CASH A/C; HQ expenses from HQ (company) accounts and
  *    never from branch interest; bank expenses from the chosen bank account.
  *  - Every expense is posted Dr EXPENSES (tagged with branch + expense type) / Cr source account.
  */
@@ -32,7 +33,8 @@ class ExpenseApproval
     ) {}
 
     /**
-     * Permissions of which any one allows approving this request for the given amount.
+     * Permissions of which any one allows approving this request for the given amount. The threshold is tested against
+     * the larger of the requested and the approved amount, so cutting a 2,000,000 request to 900,000 still needs Admin.
      *
      * Inferred: Admin (approve_hq) may also approve small branch expenses; bank-account expenses are
      * HQ money and follow the HQ rule.
@@ -41,6 +43,7 @@ class ExpenseApproval
      */
     public function requiredPermissions(ExpenseRequest $expenseRequest, float $amount): array
     {
+        $amount = max($amount, (float) $expenseRequest->amount);
         if ($expenseRequest->scope === 'branch' && $amount <= $this->limit($expenseRequest->company_id)) {
             return ['expenses.approve_branch', 'expenses.approve_hq'];
         }

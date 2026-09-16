@@ -37,7 +37,7 @@ class NegligenceDeductionApiTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-08-02 09:00:00'));
         $this->admin = $this->signInAdmin();
         // Staff take the whole pool (no zone manager carve-out) so the commission equals 10 % of the distributable profit.
-        HrmSetting::forCompany($this->admin->company_id)->update(['commission_pool_percent' => 10, 'zone_override_percent' => 0, 'staff_fund_percent' => 20, 'company_fund_percent' => 20]);
+        HrmSetting::forCompany($this->admin->company_id)->update(['commission_pool_percent' => 10, 'zone_override_percent' => 0, 'staff_fund_percent' => 20]);
         $this->hr = $this->employeeWithRole('hr');
         $this->finance = $this->employeeWithRole('finance');
     }

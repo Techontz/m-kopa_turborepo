@@ -37,7 +37,7 @@ class PayrollPeriodExpenseTest extends TestCase
 
         $this->travelTo(CarbonImmutable::parse('2026-08-02 10:00:00'));
         $this->admin = $this->signInAdmin();
-        HrmSetting::forCompany($this->admin->company_id)->update(['staff_fund_percent' => 20, 'company_fund_percent' => 20]);
+        HrmSetting::forCompany($this->admin->company_id)->update(['staff_fund_percent' => 20]);
         $this->hr = $this->employeeWithRole('hr');
         $this->finance = $this->employeeWithRole('finance');
     }
@@ -101,14 +101,14 @@ class PayrollPeriodExpenseTest extends TestCase
             ->mapWithKeys(fn (JournalEntry $entry): array => [implode(' ', array_slice(explode(' ', $entry->description), 0, 2)) => $entry->entry_date->toDateString()])->all();
         $this->assertSame(['Salary payment' => '2026-08-05', 'Salary deductions' => '2026-07-31'], $dates);
 
-        // Salary 500,000 + company staff fund contribution 100,000 − other deduction 30,000 = 570,000 of July salary expense,
+        // Salary 500,000 − other deduction 30,000 = 470,000 (no company contribution on top, ruling 2026-09-17) of July salary expense,
         // allowance 100,000 in July; nothing lands in August.
-        $this->assertEquals(570000, $this->salaryExpense('2026-07-01', '2026-07-31'));
+        $this->assertEquals(470000, $this->salaryExpense('2026-07-01', '2026-07-31'));
         $this->assertEquals(0, $this->salaryExpense('2026-08-01', '2026-08-31'));
 
-        // The July month-end sees the payroll: expenses = 570,000 salary + 100,000 allowance.
+        // The July month-end sees the payroll: expenses = 470,000 salary + 100,000 allowance.
         $period = app(PeriodClose::class)->calculate($this->admin->company_id, CarbonImmutable::parse('2026-07-01'));
-        $this->assertEquals(670000, (float) $period->results()->where('branch_id', $this->admin->branch_id)->value('expenses'));
+        $this->assertEquals(570000, (float) $period->results()->where('branch_id', $this->admin->branch_id)->value('expenses'));
     }
 
     public function test_a_payroll_approved_during_its_month_is_dated_on_the_approval_day(): void

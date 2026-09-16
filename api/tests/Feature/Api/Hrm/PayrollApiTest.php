@@ -132,18 +132,17 @@ class PayrollApiTest extends TestCase
         $this->actingAs($hr)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertForbidden();
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertUnprocessable();
 
-        // Rule 6: the HR employee who generated (prepared) the payroll cannot approve it; a second HR employee does.
+        // §31 ruling: HR prepares and reviews, Finance gives the final approval — no HR user can approve, not even another one.
         $this->actingAs($hr)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertForbidden();
-        $this->actingAs($this->secondApprover($hr, 'hr'))->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
+        $this->actingAs($this->secondApprover($hr, 'hr'))->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertForbidden();
+        $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
         $this->assertEquals(538000, $this->balance(Account::StaffPayable, employee: $staff->id));
         // D1: commission is a profit allocation — approval clears COMMISSION PAYABLE, no commission expense.
         $this->assertEquals(0, $this->balance(Account::CommissionExpense, $branchId));
         $this->assertEquals(0, $this->balance(Account::CommissionPayable, $branchId, $staff->id));
         $this->assertEquals(-38000, $this->balance(Account::RetainedProfit, $branchId));
-        // Spec §26: HQ salary 200,000 plus the company's 20% staff fund contribution (40,000) recorded as an obligation.
-        $this->assertEquals(240000, $this->balance(Account::SalaryExpense));
-        $this->assertEquals(40000, $this->balance(Account::StaffFundObligation, employee: $hq->id));
-        $this->assertEquals(80000, $this->balance(Account::StaffFundObligation, employee: $staff->id));
+        // Spec §26 (ruling 2026-09-17): salary expense is the basic salary only — no extra company 20 % on top.
+        $this->assertEquals(200000, $this->balance(Account::SalaryExpense));
         $this->actingAs($hr)->postJson('/api/v1/hrm/payroll/generate', ['period' => $period])->assertUnprocessable();
         $this->actingAs($hr)->putJson("/api/v1/hrm/staff/{$staff->id}/salary", ['salary' => 500000, 'account_name' => 'NMB', 'account_number' => '1', 'fee_salary' => 0, 'salary_type' => 'branch', 'commission_eligible' => true, 'payment_method' => 'bank'])->assertUnprocessable();
 

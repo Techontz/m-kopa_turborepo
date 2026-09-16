@@ -115,7 +115,7 @@ export default function SalarySheetPage() {
                 <button type="button" className="btn btn-sm btn-primary mr-1" disabled={generate.isPending} onClick={() => generate.mutate({ period })}>{run ? "Re-generate" : "Generate Payroll"}</button>
               )}
               {run?.status === "draft" && run.can_approve === false && run.approve_blocked_reason && <BlockedApproveButton reason={run.approve_blocked_reason} label="Approve Payroll" />}
-              {can("payroll.approve") && run?.status === "draft" && run.can_approve !== false && (
+              {can("payroll.pay") && run?.status === "draft" && run.can_approve !== false && (
                 <button type="button" className="btn btn-sm btn-success" disabled={approve.isPending} onClick={async () => (await confirmAction("Approve payroll?", "Salaries can not be changed after approval")) && approve.mutate({ id: run.id })}>Approve Payroll</button>
               )}
             </span>

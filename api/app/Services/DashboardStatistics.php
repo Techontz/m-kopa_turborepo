@@ -136,6 +136,29 @@ class DashboardStatistics
     }
 
     /**
+     * Operating Income (specification §5 and §45): ONE central pool for approved operating expenses, shown as one total with
+     * the income categories it came from. The categories are sources, never extra cash on top of the total — the rows add
+     * up to it exactly. The ledger keeps an INTEREST, LOAN FEE and PENALTY A/C (user ruling: presentation only), so the total
+     * is their sum; interest is already net of the 20% reserve, which is not operating income (§6).
+     *
+     * @return array{total: float, sources: list<array{key: string, label: string, amount: float}>}
+     */
+    public function operatingIncome(Company $company): array
+    {
+        $pool = fn (Account ...$accounts): float => round(array_sum(array_map(
+            fn (Account $account): float => $this->ledger->balance($company, $account, allBranches: true), $accounts
+        )), 2) + 0.0;
+
+        $sources = [
+            ['key' => 'interest', 'label' => 'Interest (after 20% reserve)', 'amount' => $pool(Account::Interest, Account::HqInterest)],
+            ['key' => 'loan_fee', 'label' => 'Loan Fee', 'amount' => $pool(Account::LoanFee, Account::HqLoanFee)],
+            ['key' => 'penalty', 'label' => 'Penalty', 'amount' => $pool(Account::Penalty, Account::HqPenalty)],
+        ];
+
+        return ['total' => round(array_sum(array_column($sources, 'amount')), 2) + 0.0, 'sources' => $sources];
+    }
+
+    /**
      * "Company Account List" (Investment) modal: the company account, each bank account, the Investment RESERVE A/C
      * (only reserve HQ has already sent — it can differ from the HQ reserve), then one Assets row
      * = the total of every fixed asset account (assets contributed as capital).

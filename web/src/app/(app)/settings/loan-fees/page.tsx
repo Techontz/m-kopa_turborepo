@@ -18,7 +18,6 @@ interface FeeForm {
   interest_formular: string;
   fee_category_type: string;
   fee_value: string;
-  insurance: string;
 }
 
 const MODE_LABEL: Record<string, string> = { "LOAN PRODUCT": "LOAN FEE BY LOAN PRODUCT", GENERAL: "LOAN FEE BY GENERAL" };
@@ -31,7 +30,6 @@ function FeeModal({ category, onClose }: { category: LoanCategory; onClose: () =
     interest_formular: String(category.interest_rate),
     fee_category_type: category.fee_type === "percentage" ? "PERCENTAGE" : "MONEY",
     fee_value: String(category.fee_value),
-    insurance: String(category.insurance),
   });
   const update = useAction<FeeForm>("put", `settings/loan-fees/${category.id}`);
   const set = (field: keyof FeeForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
@@ -51,17 +49,14 @@ function FeeModal({ category, onClose }: { category: LoanCategory; onClose: () =
         <Field label="Loan Interest(%):" required className="col-lg-3" error={update.fieldError("interest_formular")}>
           <input type="number" step="any" className="form-control" value={form.interest_formular} onChange={set("interest_formular")} required />
         </Field>
-        <Field label="Loan Fee Type:" required className="col-lg-4" error={update.fieldError("fee_category_type")}>
+        <Field label="Loan Fee Type:" required className="col-lg-6" error={update.fieldError("fee_category_type")}>
           <select className="form-control" value={form.fee_category_type} onChange={set("fee_category_type")}>
             <option value="MONEY">MONEY VALUE</option>
             <option value="PERCENTAGE">PERCENTAGE VALUE</option>
           </select>
         </Field>
-        <Field label="Loan Fee:" required className="col-lg-4" error={update.fieldError("fee_value")}>
+        <Field label="Loan Fee:" required className="col-lg-6" error={update.fieldError("fee_value")}>
           <input type="number" step="any" className="form-control" value={form.fee_value} onChange={set("fee_value")} required />
-        </Field>
-        <Field label="Insurance:" required className="col-lg-4" error={update.fieldError("insurance")}>
-          <input type="number" step="any" className="form-control" value={form.insurance} onChange={set("insurance")} required />
         </Field>
       </div>
     </Modal>
@@ -137,7 +132,6 @@ export default function LoanFeesPage() {
                 { key: "interest_rate", header: "Loan Interest", render: (row) => percent(row.interest_rate) },
                 { key: "fee_type", header: "Loan Fee Type", value: (row) => (row.fee_type === "percentage" ? "PERCENTAGE VALUE" : "MONEY VALUE") },
                 { key: "fee_value", header: "Loan Fee", render: (row) => (row.fee_type === "percentage" ? `${row.fee_value} / %` : `${money(row.fee_value)} / Tsh`) },
-                { key: "insurance", header: "Insurance", render: (row) => money(row.insurance) },
                 {
                   key: "action",
                   header: "Action",

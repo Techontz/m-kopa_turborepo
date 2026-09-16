@@ -287,7 +287,7 @@ class LoanRecoveryTest extends TestCase
         $this->assertEquals([134000, 16000], [$payment->allocated_amount, $payment->unallocated_amount]);
         $this->assertSame(PaymentStatus::Unallocated, $payment->status);
         $this->assertSame($recovery->id, PaymentAllocation::sole()->loan_recovery_id);
-        $this->assertEquals(16000, $this->balance($this->admin, Account::Suspense, $this->admin->branch_id));
+        $this->assertEquals(16000, $this->balance($this->admin, Account::Suspense, null));
         $this->assertSame(LoanStatus::WrittenOff, $loan->fresh()->status);
 
         $this->postJson("/api/v1/payments/suspense/{$payment->id}/allocate", ['loan_id' => $loan->id, 'amount' => 10000])->assertUnprocessable()
@@ -300,7 +300,7 @@ class LoanRecoveryTest extends TestCase
         $payment->refresh();
         $this->assertEquals([0, 150000], [$payment->allocated_amount, $payment->unallocated_amount]);
         $this->assertNotNull(PaymentAllocation::sole()->reversed_at);
-        $this->assertEquals(150000, $this->balance($this->admin, Account::Suspense, $this->admin->branch_id));
+        $this->assertEquals(150000, $this->balance($this->admin, Account::Suspense, null));
         $this->assertIntegrityPasses($this->admin);
     }
 

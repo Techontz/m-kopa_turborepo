@@ -4,6 +4,7 @@ namespace Tests\Feature\Api\Loans;
 
 use App\Enums\Account;
 use App\Enums\TransactionType;
+use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\JournalEntry;
 use App\Models\Loan;
@@ -85,6 +86,23 @@ class LoanMoneyRulesTest extends TestCase
         $this->assertSame($deductions, $service->deductions($loan->fresh()));
         $this->assertSame($this->allocation($service->deposit($twin, 50000, CarbonImmutable::today(), 'CASH', $this->admin)), $this->allocation($service->deposit($loan, 50000, CarbonImmutable::today(), 'CASH', $this->admin)));
         $this->assertSame(0, JournalEntry::whereHas('lines.account', fn ($account) => $account->where('key', Account::FeeIncome->value))->count());
+    }
+
+    /**
+     * Specification §47: insurance is not part of the architecture. A loan priced now carries none, even when an old
+     * category still lists an insurance amount; loans issued before keep theirs (see the legacy fixtures above).
+     */
+    public function test_a_new_loan_carries_no_insurance_whatever_its_category_says(): void
+    {
+        $customer = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id]);
+        $category = LoanCategory::factory()->create(['company_id' => $this->admin->company_id, 'insurance' => 1000, 'fee_value' => 0]);
+        $loans = app(LoanService::class);
+
+        $loan = $loans->apply($customer, ['loan_category_id' => $category->id, 'amount_applied' => 100000, 'sessions' => 1, 'formula' => 'SIMPLE', 'fee_deduct' => false, 'reason' => 'BIASHARA']);
+        $this->assertEquals([0, 130000], [$loan->insurance, $loan->restoration]);
+
+        $loans->approve($loan, 100000);
+        $this->assertEquals([0, 130000], [$loan->fresh()->insurance, $loan->fresh()->total_payable]);
     }
 
     public function test_rule_7_a_deducted_fee_is_still_income_withheld_from_the_cash_paid_out(): void

@@ -105,7 +105,9 @@ class PaymentWebhookTest extends TestCase
         $this->assertSame(PaymentStatus::Unallocated, $credit->status);
         $this->assertEquals(20000, $credit->amount);
         $this->assertSame($loan->customer_id, $credit->customer_id);
-        $this->assertSame(20000.0, $this->balance($admin, Account::Suspense, $admin->branch_id));
+        // §11: one central pending account at HQ, never a branch-level one; the branch stays on the payment.
+        $this->assertSame(20000.0, $this->balance($admin, Account::Suspense, null));
+        $this->assertSame(0.0, $this->balance($admin, Account::Suspense, $admin->branch_id));
 
         $this->postJson("/api/v1/payments/suspense/{$credit->id}/flag", ['reason' => 'Confirm with customer'])->assertOk()->assertJsonPath('message', 'Payment flagged successfully');
         $this->postJson("/api/v1/payments/suspense/{$credit->id}/refund", ['reason' => 'Refunded to customer'])->assertOk();

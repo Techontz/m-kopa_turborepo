@@ -17,6 +17,7 @@ interface DashboardData {
   account_balances_total: number | null;
   account_memos: Array<{ label: string; amount: number; tone: string }> | null;
   branch_accounts: Array<Record<string, number | string>> | null;
+  operating_income: { total: number; sources: Array<{ key: string; label: string; amount: number }> } | null;
   today: Record<string, number | null>;
   customer_types: Array<{ label: string; route: string; all: number; active: number; pending: number; close: number; default: number; male: number; female: number }>;
 }
@@ -111,6 +112,15 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+        {data.operating_income && (
+          /* §5 / §45: one Operating Income pool; the categories say where it came from and are never added on top of it. */
+          <p className="mb-0 mt-3">
+            <b>Operating Income: {money(data.operating_income.total)}</b>
+            <small className="text-muted">
+              {" "}— from {data.operating_income.sources.map((source) => `${source.label} ${money(source.amount)}`).join(" · ")}
+            </small>
+          </p>
+        )}
       </Card>
 
       <Card>

@@ -12,6 +12,7 @@ use App\Models\Employee;
 use App\Models\Loan;
 use App\Models\LoanCategory;
 use App\Models\LoanDisbursement;
+use App\Models\LoanOffset;
 use App\Services\Ledger;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -277,6 +278,22 @@ class LoanLifecycleApiTest extends TestCase
         $this->assertSame(LoanStatus::Closed, $old->fresh()->status);
         $this->assertSame(LoanStatus::Active, $new->fresh()->status);
         $this->assertDatabaseHas('loan_disbursements', ['loan_id' => $new->id, 'amount' => 135000]);
+
+        // Specification §13/§14: the old debt was cleared out of the top-up, not paid in cash, so it is recorded as an
+        // offset with the components it was made of and the cash the customer actually received.
+        $offset = LoanOffset::where('new_loan_id', $new->id)->firstOrFail();
+        $settlement = $old->transactions()->where('method', 'TOPUP')->firstOrFail();
+        $this->assertSame($old->id, (int) $offset->old_loan_id);
+        $this->assertEquals($settlement->amount, $offset->amount);
+        $this->assertEquals($settlement->principal, $offset->principal_amount);
+        $this->assertEquals($settlement->interest, $offset->interest_amount);
+        $this->assertEquals($settlement->penalty, $offset->penalty_amount);
+        $this->assertEquals(135000, $offset->cash_disbursed);
+        $this->assertEquals(
+            $offset->amount,
+            round($offset->principal_amount + $offset->penalty_amount + $offset->interest_amount + $offset->insurance_amount, 2),
+            'the components add up to the offset',
+        );
     }
 
     public function test_preview_categories_and_withdrawal_report(): void

@@ -132,7 +132,7 @@ class LoanRepaymentReversalTest extends TestCase
         $suspense = Payment::sole();
         $this->assertSame(PaymentStatus::Unallocated, $suspense->status);
         $this->assertSame(130000.0, $suspense->unallocated_amount);
-        $this->assertSame(130000.0, $this->balance($admin, Account::Suspense, $admin->branch_id));
+        $this->assertSame(130000.0, $this->balance($admin, Account::Suspense, null), 'the central HQ pending account (§11)');
         $this->assertSame(0.0, $this->balance($admin, Account::InterestIncome, $admin->branch_id));
     }
 

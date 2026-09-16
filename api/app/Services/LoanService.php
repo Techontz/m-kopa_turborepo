@@ -87,7 +87,9 @@ class LoanService
     public function price(Loan $loan, float $principal): void
     {
         $category = $loan->category ?? LoanCategory::findOrFail($loan->loan_category_id);
-        $insurance = (float) $category->insurance;
+        // Specification §47: insurance is not part of the architecture, so a loan priced now carries none, whatever an
+        // old category still says. Loans that already carry insurance keep it and are collected exactly as issued (§65).
+        $insurance = 0.0;
         $figures = $this->calculator->calculate($loan->formula, $principal, (float) $loan->interest_rate, $loan->sessions, $insurance);
 
         $loan->fill([
@@ -272,7 +274,7 @@ class LoanService
                 throw ValidationException::withMessages(['depost' => 'This loan is not active.']);
             }
 
-            $allocation = $this->allocate($loan, $amount);
+            $allocation = $this->allocate($loan, $amount, $date);
             if ($allocation['excess'] > 0.001) {
                 throw ValidationException::withMessages(['depost' => 'Amount exceeds the outstanding balance of '.money($amount - $allocation['excess']).'.']);
             }
@@ -351,23 +353,68 @@ class LoanService
     }
 
     /**
-     * Split an amount across outstanding components in the order Principal → Penalty → Interest → Insurance.
+     * Split an amount across the outstanding components, in the order the specification mandates (§10):
+     *
+     *  1. the PRINCIPAL DUE on the instalments reached so far — not the whole loan's principal;
+     *  2. PENALTY;
+     *  3. the INTEREST DUE on those same instalments;
+     *  4. anything beyond that expected amount reduces the OUTSTANDING PRINCIPAL outside the current instalment;
+     *  5. then the rest of the interest, and (legacy loans only) the insurance new loans no longer carry, so that an early
+     *     full settlement still clears everything.
+     *
+     * The spec's worked example: an instalment of principal 100,000, penalty 10,000 and interest 20,000 paid with 150,000
+     * settles 100,000 + 10,000 + 20,000 and puts the last 20,000 against principal, so 120,000 of principal is paid.
+     * Taking the whole loan's principal first (the earlier behaviour) would have swallowed all 150,000 and collected no
+     * penalty or interest at all.
      *
      * @return array{principal: float, penalty: float, interest: float, insurance: float, excess: float}
      */
-    public function allocate(Loan $loan, float $amount): array
+    public function allocate(Loan $loan, float $amount, ?CarbonImmutable $date = null): array
     {
         $remaining = round($amount, 2);
         $outstanding = $this->outstanding($loan);
-        $allocation = [];
-
-        foreach (['principal', 'penalty', 'interest', 'insurance'] as $component) {
-            $portion = min($remaining, $outstanding[$component]);
-            $allocation[$component] = round($portion, 2);
+        $reached = $this->instalmentsReached($loan, $date ?? CarbonImmutable::today());
+        $take = function (float $available) use (&$remaining): float {
+            $portion = round(min($remaining, max(0.0, $available)), 2);
             $remaining = round($remaining - $portion, 2);
-        }
 
-        return $allocation + ['excess' => max(0, $remaining)];
+            return $portion;
+        };
+
+        $principal = $take($this->dueNow((float) $loan->amount_approved, $outstanding['principal'], $reached, $loan));
+        $penalty = $take($outstanding['penalty']);
+        $interest = $take($this->dueNow((float) $loan->interest_amount, $outstanding['interest'], $reached, $loan));
+        $principal += $take($outstanding['principal'] - $principal);
+        $interest += $take($outstanding['interest'] - $interest);
+
+        return [
+            'principal' => round($principal, 2),
+            'penalty' => $penalty,
+            'interest' => round($interest, 2),
+            'insurance' => $take($outstanding['insurance']),
+            'excess' => max(0, $remaining),
+        ];
+    }
+
+    /**
+     * Instalments whose due date has arrived. Someone paying before the first due date is paying that first instalment
+     * early, so one always counts: "the principal due for the relevant installment" (§10) is never nothing.
+     */
+    private function instalmentsReached(Loan $loan, CarbonImmutable $date): int
+    {
+        return max(1, $loan->schedules()->whereDate('due_date', '<=', $date->toDateString())->count());
+    }
+
+    /**
+     * The part of a component (principal or interest) the borrower owes by now: its share of the instalments reached, less
+     * what has already been paid. Instalments are level — restoration = (principal + interest + insurance) / sessions — so
+     * one instalment carries the loan's total spread over its sessions.
+     */
+    private function dueNow(float $total, float $outstanding, int $reached, Loan $loan): float
+    {
+        $due = min($total, round($total / max(1, (int) $loan->sessions) * $reached, 2));
+
+        return max(0.0, min($outstanding, round($due - ($total - $outstanding), 2)));
     }
 
     /**

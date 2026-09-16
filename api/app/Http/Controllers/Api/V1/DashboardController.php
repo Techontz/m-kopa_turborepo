@@ -44,6 +44,7 @@ class DashboardController extends ApiController
             'account_balances_total' => $accountBalances === null ? null : round(array_sum($accountBalances), 2),
             'account_memos' => $accountBalances === null ? null : $statistics->accountMemos($company, $branchIds),
             'branch_accounts' => $showFinance ? $statistics->branchAccounts($company)->values() : null,
+            'operating_income' => $showFinance ? $statistics->operatingIncome($company) : null,
             'today' => $statistics->today($company, $today, $branchIds),
             'finance_kpis' => $statistics->financeKpis($employee, [
                 'penalty' => $employee->can('penalties.manage'),

@@ -471,7 +471,14 @@ class LedgerIntegrity
      */
     private function suspense(int $companyId): array
     {
-        $ledger = $this->balancesBy($companyId, Account::Suspense, 'branch_id');
+        // One central pending account (§11): a branch's share is the branch its entries were recorded for; lines from
+        // before centralisation still carry the branch on the account row.
+        $ledger = $this->lines($companyId)
+            ->where('accounts.key', Account::Suspense->value)
+            ->groupByRaw('COALESCE(accounts.branch_id, journal_entries.branch_id)')
+            ->selectRaw('COALESCE(accounts.branch_id, journal_entries.branch_id) AS grouping_key, SUM(journal_lines.credit) - SUM(journal_lines.debit) AS balance')
+            ->get()
+            ->mapWithKeys(fn ($row): array => [(string) $row->grouping_key => round((float) $row->balance, 2)]);
         $held = DB::table('payments')
             ->where('company_id', $companyId)
             ->whereIn('status', PaymentStatus::values(PaymentStatus::PendingVerification, PaymentStatus::Deposited, PaymentStatus::Unallocated, PaymentStatus::Flagged))
@@ -486,9 +493,16 @@ class LedgerIntegrity
             'difference' => round((float) ($ledger[$branchId] ?? 0) - (float) ($held[$branchId] ?? 0), 2),
         ])->values()->all();
 
-        return $this->check('suspense', 'Suspense vs unallocated payments', self::INFO,
-            'Suspense per branch compared with pending teller receipts and unallocated payments (information).',
-            ['branches' => $rows]);
+        // Money still sitting on a branch-level suspense account: `mkopa:centralise-pending-receipts` moves it to HQ.
+        $inBranchAccounts = round((float) $this->lines($companyId)->where('accounts.key', Account::Suspense->value)->whereNotNull('accounts.branch_id')
+            ->sum(DB::raw('journal_lines.credit - journal_lines.debit')), 2);
+        $centralised = abs($inBranchAccounts) < self::TOLERANCE;
+
+        return $this->check('suspense', 'Suspense vs unallocated payments', $centralised ? self::INFO : self::WARN,
+            $centralised
+                ? 'Suspense per branch compared with pending teller receipts and unallocated payments (information).'
+                : 'Branch-level suspense accounts still hold '.$this->money($inBranchAccounts).'; run mkopa:centralise-pending-receipts.',
+            ['branches' => $rows, 'in_branch_accounts' => $inBranchAccounts]);
     }
 
     /**

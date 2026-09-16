@@ -152,6 +152,7 @@ export const menu: MenuTab[] = [
           { label: "Loan Application", href: "/loans/apply", permission: "loans.apply" },
           { label: "Loan Pending Approve", href: "/loans/pending", permission: ["loans.view"] },
           { label: "Credit Review", href: "/loans/credit-review", permission: "loans.credit_review" },
+          { label: "Credit Assessment", href: "/loans/credit-assessments", permission: ["loans.credit_review", "loans.approve_manager"] },
           { label: "Disbursement", href: "/loans/disbursement", permission: ["loans.prepare_disbursement", "loans.disburse"] },
           { label: "Loan Disbursed", href: "/loans/disbursed", permission: "loans.view" },
           { label: "Loan Withdrawal", href: "/loans/withdrawal", permission: "loans.view" },

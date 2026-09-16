@@ -91,7 +91,7 @@ class AgentTransactionService
     {
         $this->ledger->transfer(
             $transaction->company_id,
-            ['account' => Account::Suspense, 'branch' => $transaction->branch_id],
+            ['account' => Account::Suspense, 'branch' => null],
             ['account' => Account::Agent, 'branch' => $transaction->branch_id],
             (float) $transaction->amount,
             $description,

@@ -205,8 +205,36 @@ class ControlReports
             ->where('journal_entries.company_id', $scope->companyId)
             ->where('accounts.key', Account::Suspense->value)
             ->whereDate('journal_entries.entry_date', '<=', $asOf->toDateString());
-        $ledgerBalance = round((float) $scope->apply($ledgerQuery, 'accounts.branch_id')->sum(DB::raw('journal_lines.credit - journal_lines.debit')), 2);
+        // One central pending account at HQ (specification §11), so a branch's share is found through the branch the
+        // entry was recorded for. Lines posted before centralisation still carry their branch on the account itself.
+        if (! $scope->isCompanyWide()) {
+            $attribution = 'COALESCE(accounts.branch_id, journal_entries.branch_id)';
+            $ledgerQuery->where(function ($inner) use ($scope, $attribution): void {
+                $scope->branchIds === null
+                    ? $inner->whereRaw("{$attribution} IS NOT NULL")
+                    : $inner->whereIn(DB::raw($attribution), $scope->branchIds === [] ? [0] : $scope->branchIds);
+                if ($scope->includeHq) {
+                    $inner->orWhereRaw("{$attribution} IS NULL");
+                }
+            });
+        }
+        $ledgerBalance = round((float) $ledgerQuery->sum(DB::raw('journal_lines.credit - journal_lines.debit')), 2);
         $open = round($rows->sum('unallocated'), 2);
+
+        // Branch receipts Finance has not approved yet: no journal exists, so they are not in the ledger balance, but
+        // they are pending/unverified money all the same (§11) and HQ must see them beside the rest.
+        $awaiting = Payment::query()
+            ->where('company_id', $scope->companyId)
+            ->whereDate('paid_on', '<=', $asOf->toDateString())
+            ->where('status', PaymentStatus::PendingApproval->value);
+        $this->scopeBranch($awaiting, $scope);
+        $awaitingTotal = round((float) $awaiting->sum('amount'), 2);
+
+        $byBranch = $rows->where('type', 'PENDING ALLOCATION')->groupBy('branch')->map(fn (Collection $group): float => round($group->sum('unallocated'), 2));
+        foreach ((clone $awaiting)->with('branch:id,name')->get() as $receipt) {
+            $name = $receipt->branch?->name ?? 'HQ';
+            $byBranch[$name] = round(($byBranch[$name] ?? 0) + (float) $receipt->amount, 2);
+        }
 
         return [
             'as_of' => $asOf->toDateString(),
@@ -217,6 +245,10 @@ class ControlReports
             'pending_allocation_total' => round($rows->where('type', 'PENDING ALLOCATION')->sum('unallocated'), 2),
             'deposits_total' => round($depositRows->sum('amount'), 2),
             'open_total' => $open,
+            'awaiting_approval_total' => $awaitingTotal,
+            // §11: money a branch says it received that Finance has not verified — never income or repayment yet.
+            'unverified_total' => round($rows->where('type', 'PENDING ALLOCATION')->sum('unallocated') + $awaitingTotal, 2),
+            'unverified_by_branch' => $byBranch->sortKeys()->map(fn (float $amount, string $branch): array => ['branch' => $branch, 'amount' => $amount])->values()->all(),
             'ledger_balance' => $ledgerBalance,
             'difference' => round($ledgerBalance - $open, 2),
         ];

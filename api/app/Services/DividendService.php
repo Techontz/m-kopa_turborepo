@@ -142,6 +142,10 @@ class DividendService
         $closed = null;
 
         if ($accountingPeriod !== null) {
+            // Specification §15: the offset is excluded from the COMMISSION base and added back before dividend and
+            // reinvestment. Commission is already calculated on (distributable − offset), so distributable − commission
+            // is that add-back: §59's 10,000,000 distributable with 3,000,000 offset gives a commission base of
+            // 7,000,000, commission 700,000, and a distribution base of 6,300,000 + 3,000,000 = 9,300,000.
             $closed = round((float) $accountingPeriod->results()->sum('distributable_profit'), 2);
             $commission = $this->commission->commissionByBranch($accountingPeriod);
             $base = round(max(0.0, $closed - $commission['total']), 2);

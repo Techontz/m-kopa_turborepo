@@ -562,6 +562,11 @@ class ProfitChainTest extends TestCase
         $loans->approve($loan, $amount);
         $loans->withdraw($loan->fresh(), CarbonImmutable::today(), $this->admin);
 
+        // New loans carry no insurance (specification §47); this chain covers a loan issued before that rule, which keeps its
+        // 1,000 insurance and is collected exactly as issued.
+        $loan->refresh()->forceFill(['insurance' => 1000, 'restoration' => round((float) $loan->restoration + 1000, 2)])->save();
+        $loan->schedules()->increment('amount', 1000);
+
         return $loan->fresh();
     }
 

@@ -52,7 +52,8 @@ class AgentApiTest extends TestCase
         ])->assertCreated()->assertJsonPath('message', 'Transaction Recorded successfully');
 
         $this->assertEquals(50000, $ledger->balance($admin->company_id, Account::Agent, $admin->branch_id));
-        $this->assertEquals(50000, $ledger->balance($admin->company_id, Account::Suspense, $admin->branch_id));
+        // §11: the central HQ pending account, not a branch-level one.
+        $this->assertEquals(50000, $ledger->balance($admin->company_id, Account::Suspense, null));
 
         $this->getJson('/api/v1/agent/transactions')->assertOk()
             ->assertJsonPath('data.0.agent', 'JUMA AGENT')

@@ -1,3 +1,4 @@
+import type { CreditAssessment } from "@/components/credit/types";
 import type { BadgeTone } from "@/components/ui/Badge";
 
 import type { CustomerFreeze, FreezeState } from "./freeze";
@@ -222,6 +223,8 @@ export interface LoanDetail {
   customer_freeze: CustomerFreeze;
   /** normal eligibility rules of the loan's customer (LoanWorkflow::borrowingStatus()['eligible']) */
   customer_eligible: boolean;
+  /** CreditAssessment::forDisplay() — latest stored snapshot or an unstored preview; null when neither applies (§37) */
+  credit_assessment?: CreditAssessment | null;
 }
 
 /** A loan transaction on the loan detail page; repayments carry the server-computed reversal eligibility. */

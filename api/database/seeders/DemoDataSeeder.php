@@ -208,7 +208,7 @@ class DemoDataSeeder extends Seeder
                 'transaction_date' => $today,
                 'transaction_time' => '10:30',
             ]);
-            $ledger->transfer($company, ['account' => Account::Suspense, 'branch' => $branch], ['account' => Account::Agent, 'branch' => $branch], (float) $transaction->amount, 'AGENT', $transaction);
+            $ledger->transfer($company, ['account' => Account::Suspense, 'branch' => null], ['account' => Account::Agent, 'branch' => $branch], (float) $transaction->amount, 'AGENT', $transaction);
         }
 
         foreach (Customer::where('company_id', $company->id)->take(5)->get() as $index => $customer) {

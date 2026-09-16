@@ -9,6 +9,7 @@ use App\Models\BranchPeriodResult;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Models\JournalLine;
+use App\Models\LoanOffset;
 use App\Services\Reports\Financial\InterestReserves;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -205,7 +206,7 @@ class PeriodClose
      * Net debit/credit per (branch, account key) for the period, excluding closing entries, plus the reserve cut from
      * interest ({@see InterestReserves}: `reserve` = all reserve, `legacy_reserve` = the part still inside interest income).
      *
-     * @return array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, branches: list<int>}
+     * @return array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, offsets: Collection<int|string, float>, branches: list<int>}
      */
     private function figures(int $companyId, CarbonImmutable $start, CarbonImmutable $end): array
     {
@@ -228,13 +229,21 @@ class PeriodClose
         $reserve = collect($reserves['total']);
         $legacyReserve = collect($reserves['legacy']);
 
-        $branches = $totals->pluck('branch')->merge($reserve->keys())->map(fn ($id): int => (int) $id)->unique()->values()->all();
+        // Offset settled in the period (§15): old debt cleared by a top-up, never collected in cash.
+        $offsets = LoanOffset::query()->active()
+            ->where('company_id', $companyId)
+            ->whereBetween('settled_on', [$start->toDateString(), $end->toDateString()])
+            ->groupBy('branch_id')
+            ->selectRaw('COALESCE(branch_id, 0) AS branch, SUM(amount) AS total')
+            ->toBase()->get()->pluck('total', 'branch')->map(fn ($total): float => round((float) $total, 2));
 
-        return ['totals' => $totals, 'reserve' => $reserve, 'legacy_reserve' => $legacyReserve, 'branches' => $branches];
+        $branches = $totals->pluck('branch')->merge($reserve->keys())->merge($offsets->keys())->map(fn ($id): int => (int) $id)->unique()->values()->all();
+
+        return ['totals' => $totals, 'reserve' => $reserve, 'legacy_reserve' => $legacyReserve, 'offsets' => $offsets, 'branches' => $branches];
     }
 
     /**
-     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, branches: list<int>}  $figures
+     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, offsets: Collection<int|string, float>, branches: list<int>}  $figures
      * @return array{interest_income: float, reserve_amount: float, fee_income: float, penalty_income: float, recovery_income: float, total_income: float, expenses: float, gross_profit: float}
      */
     private function incomeFigures(array $figures, int $branchId): array
@@ -270,7 +279,7 @@ class PeriodClose
     }
 
     /**
-     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, branches: list<int>}  $figures
+     * @param  array{totals: Collection<string, object>, reserve: Collection<int|string, float>, legacy_reserve: Collection<int|string, float>, offsets: Collection<int|string, float>, branches: list<int>}  $figures
      * @return array<string, float|bool>
      */
     private function branchResult(array $figures, int $branchId, float $lossBroughtForward): array
@@ -287,6 +296,8 @@ class PeriodClose
             'hq_hold_percent' => self::HQ_HOLD_PERCENT,
             'hq_hold_amount' => $hold,
             'distributable_profit' => $distributable,
+            // Stored with the period so a later top-up can never move a commission that has already been calculated.
+            'offset_amount' => min($distributable, (float) ($figures['offsets'][$branchId] ?? 0)),
             'commission_eligible' => $distributable > 0,
         ];
     }

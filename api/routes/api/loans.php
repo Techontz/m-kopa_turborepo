@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Loans\CreditAssessmentController;
 use App\Http\Controllers\Api\V1\Loans\LoanController;
 use App\Http\Controllers\Api\V1\Loans\LoanRecoveryController;
 use App\Http\Controllers\Api\V1\Loans\LoanSecurityController;
@@ -16,6 +17,14 @@ Route::prefix('loans')->name('loans.')->group(function (): void {
         Route::get('{loan}', 'show')->whereNumber('loan')->name('show');
         Route::put('{loan}', 'update')->whereNumber('loan')->name('update');
         Route::delete('{loan}', 'destroy')->whereNumber('loan')->name('destroy');
+    });
+
+    // Credit assessment engine (§36 / §37 / §63): advisory recommendation with its evidence. Reads and records only.
+    Route::controller(CreditAssessmentController::class)->group(function (): void {
+        Route::get('credit-assessments/queue', 'queue')->name('credit-assessment.queue');
+        Route::get('{loan}/credit-assessment', 'show')->whereNumber('loan')->name('credit-assessment.show');
+        Route::post('{loan}/credit-assessment', 'store')->whereNumber('loan')->name('credit-assessment.store');
+        Route::get('{loan}/credit-assessments', 'index')->whereNumber('loan')->name('credit-assessment.index');
     });
 
     Route::controller(LoanSecurityController::class)->group(function (): void {

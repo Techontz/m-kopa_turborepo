@@ -20,6 +20,7 @@ use App\Models\LoanRecovery;
 use App\Models\LoanTransaction;
 use App\Models\WriteOffRequest;
 use App\Services\Approvals\SegregationOfDuties;
+use App\Services\Credit\CreditAssessment;
 use App\Services\CustomerEligibility;
 use App\Services\LoanCalculator;
 use App\Services\LoanRecoveryService;
@@ -59,6 +60,7 @@ class LoanController extends LoanApiController
         private readonly LoanService $loans,
         private readonly LoanWorkflow $workflow,
         private readonly LoanRecoveryService $recoveries,
+        private readonly CreditAssessment $assessments,
     ) {}
 
     /**
@@ -256,6 +258,7 @@ class LoanController extends LoanApiController
             'customer_loans' => LoanResource::collection($customer->loans()->with('category')->latest('id')->get()),
             'customer_freeze' => $eligibility->freeze($customer),
             'customer_eligible' => $this->workflow->borrowingStatus($customer)['eligible'],
+            'credit_assessment' => $this->assessments->forDisplay($loan),
         ]]);
     }
 
@@ -462,7 +465,7 @@ class LoanController extends LoanApiController
     }
 
     /**
-     * Formula preview for the application form (LoanCalculator + product fee and insurance).
+     * Formula preview for the application form (LoanCalculator + product fee; no insurance, §47).
      */
     public function preview(Request $request, LoanCalculator $calculator): JsonResponse
     {
@@ -478,7 +481,7 @@ class LoanController extends LoanApiController
 
         $category = LoanCategory::findOrFail($validated['category_id']);
         $principal = (float) $validated['how_loan'];
-        $figures = $calculator->calculate($validated['rate'], $principal, (float) $category->interest_rate, (int) $validated['session'], (float) $category->insurance);
+        $figures = $calculator->calculate($validated['rate'], $principal, (float) $category->interest_rate, (int) $validated['session']);
         $fee = $category->feeFor($principal);
         $deductFee = ($validated['fee_status'] ?? 'YES') === 'YES';
         $start = now()->toImmutable();
@@ -489,7 +492,8 @@ class LoanController extends LoanApiController
             'interest_rate' => (float) $category->interest_rate,
             'interest' => $figures['interest'],
             'total' => $figures['total'],
-            'insurance' => (float) $category->insurance,
+            // §47: new loans carry no insurance.
+            'insurance' => 0.0,
             'restoration' => $figures['restoration'],
             'loan_fee' => $fee,
             'take_home' => round($principal - ($deductFee ? $fee : 0), 2),

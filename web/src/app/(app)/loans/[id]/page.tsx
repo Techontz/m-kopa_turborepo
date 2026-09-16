@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { CreditAssessmentCard } from "@/components/credit/CreditAssessmentCard";
 import { DisbursementChainCard } from "@/components/loans/DisbursementChainCard";
 import { FreezeStatus } from "@/components/loans/FreezeStatus";
 import { LoanActions } from "@/components/loans/LoanActions";
@@ -228,6 +229,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
           </div>
         </form>
       </Card>
+
+      <CreditAssessmentCard loanId={detail.loan.id} assessment={detail.credit_assessment ?? null} />
 
       {detail.mandate && (
         <Card title="Bank E-Mandate">

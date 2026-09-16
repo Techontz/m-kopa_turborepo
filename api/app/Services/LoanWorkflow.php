@@ -14,11 +14,15 @@ use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\Loan;
+use App\Models\LoanAssessment;
 use App\Models\LoanCategory;
 use App\Models\LoanDisbursement;
 use App\Models\LoanMandate;
+use App\Models\LoanOffset;
+use App\Models\LoanTransaction;
 use App\Models\SmsLog;
 use App\Services\Approvals\SegregationOfDuties;
+use App\Services\Credit\CreditAssessment;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -146,7 +150,7 @@ class LoanWorkflow
             throw ValidationException::withMessages(['customer_id' => $status['reasons']]);
         }
 
-        return DB::transaction(function () use ($customer, $data, $employee, $status): Loan {
+        $loan = DB::transaction(function () use ($customer, $data, $employee, $status): Loan {
             $loan = $this->loans->apply($customer, $data, $employee);
             if ($status['topup'] !== null) {
                 $loan->update(['topup_of_loan_id' => $status['topup']['loan_id']]);
@@ -155,6 +159,25 @@ class LoanWorkflow
 
             return $loan;
         });
+
+        $this->recordCreditAssessment($loan, $employee);
+
+        return $loan;
+    }
+
+    /**
+     * §36: a new application arrives with its advisory credit recommendation already attached, so a Credit Officer never
+     * opens a request without one. It writes a single loan_assessments row outside the application transaction and
+     * changes nothing on the loan; the assessment is advisory, so a failure here is reported and never blocks the
+     * application.
+     */
+    private function recordCreditAssessment(Loan $loan, Employee $employee): void
+    {
+        if (! config('credit.record_on_application')) {
+            return;
+        }
+
+        rescue(fn (): LoanAssessment => app(CreditAssessment::class)->record($loan, $employee), report: true);
     }
 
     /**
@@ -703,7 +726,8 @@ class LoanWorkflow
             if ($previous !== null && in_array($previous->status, LoanStatus::repayable(), true)) {
                 $balance = $this->loans->outstanding($previous)['total'];
                 if ($balance > 0) {
-                    $this->loans->deposit($previous, $balance, $today, 'TOPUP', $employee);
+                    $settlement = $this->loans->deposit($previous, $balance, $today, 'TOPUP', $employee);
+                    $this->recordOffset($loan, $previous, $settlement, (float) $disbursement->amount);
                     $this->record($previous->fresh(), 'SETTLED_BY_TOPUP', $previous->status, $employee, ['amount' => $balance, 'new_loan' => $loan->loan_number]);
                 }
             }
@@ -842,6 +866,33 @@ class LoanWorkflow
         if ($available + 0.001 < $required) {
             throw ValidationException::withMessages(['source_account' => 'Insufficient balance in '.$disbursement->sourceLabel().': available '.money($available).', required '.money($required)]);
         }
+    }
+
+    /**
+     * Record what the top-up settled internally (specification §13/§14): the old debt the customer never paid in cash,
+     * split into the components it was made of, beside the cash they actually received. The money has already moved
+     * through the ordinary repayment posting; this is the tracking attribute that keeps the offset out of the commission
+     * base and puts it back before the dividend (§15).
+     */
+    private function recordOffset(Loan $loan, Loan $previous, LoanTransaction $settlement, float $cashDisbursed): void
+    {
+        LoanOffset::updateOrCreate(['new_loan_id' => $loan->id], [
+            'company_id' => $loan->company_id,
+            'branch_id' => $loan->branch_id,
+            'customer_id' => $loan->customer_id,
+            'old_loan_id' => $previous->id,
+            'loan_transaction_id' => $settlement->id,
+            'amount' => (float) $settlement->amount,
+            'principal_amount' => (float) $settlement->principal,
+            'penalty_amount' => (float) $settlement->penalty,
+            'interest_amount' => (float) $settlement->interest,
+            // The customer's salary advance is settled on its own product, never out of the top-up; it stays 0 here until
+            // that flow exists, so the column never carries a figure the ledger cannot back.
+            'salary_advance_amount' => 0,
+            'insurance_amount' => (float) $settlement->insurance,
+            'cash_disbursed' => round($cashDisbursed, 2),
+            'settled_on' => $settlement->transaction_date,
+        ]);
     }
 
     /**

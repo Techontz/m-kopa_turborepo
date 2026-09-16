@@ -52,7 +52,10 @@ class TellerCashFlowTest extends TestCase
         $payment = Payment::sole();
         $this->assertNotNull($payment->receipt_number);
         $this->assertSame(50000.0, $this->balance($admin, Account::TellerCash, $admin->branch_id, employeeId: $teller->id));
-        $this->assertSame(50000.0, $this->balance($admin, Account::Suspense, $admin->branch_id));
+        // §11: unverified cash is held in the one central HQ pending account; the payment keeps its branch.
+        $this->assertSame(50000.0, $this->balance($admin, Account::Suspense, null));
+        $this->assertSame(0.0, $this->balance($admin, Account::Suspense, $admin->branch_id));
+        $this->assertSame($admin->branch_id, $payment->branch_id);
         $this->assertSame(0, $loan->transactions()->where('type', 'deposit')->count());
 
         $this->actingAs($teller)->getJson("/api/v1/teller/receipts/{$payment->id}")->assertOk()->assertJsonPath('data.receipt_number', $payment->receipt_number);

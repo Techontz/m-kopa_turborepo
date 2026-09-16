@@ -21,6 +21,7 @@ use App\Models\PaymentAllocation;
 use App\Models\SmsLog;
 use App\Models\TellerDeposit;
 use App\Services\Approvals\SegregationOfDuties;
+use App\Services\Reports\Financial\ControlReports;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
@@ -39,10 +40,15 @@ use Throwable;
  *     no loan, income or profit effect → Finance approves (a different user) → CONFIRMED → ALLOCATED → POSTED, or rejects.
  * Money a branch has received but Finance has not confirmed changes no loan balance, income, profit, commission or dividend.
  *
- * Loan allocation always goes through LoanService::allocate()/deposit() (Principal → Penalty → Interest → Insurance).
+ * Loan allocation always goes through LoanService::allocate()/deposit(): the principal due on the instalments reached so
+ * far, then penalty, then interest, then anything left against the outstanding principal (specification §10).
+ *
+ * Pending / unverified receipts (specification §11): there is ONE central Suspense account, held at HQ (branch = null).
+ * Branches never get a pending account of their own; every receipt keeps its branch on the payment and on the journal
+ * entry, so HQ sees the total and each branch sees its own share (SUSPENSE report, {@see ControlReports::suspense()}).
  *
  * Ledger (every step is balanced and immutable):
- *  - teller cash received:      Dr Teller Cash (branch, teller)  Cr Suspense (branch)
+ *  - teller cash received:      Dr Teller Cash (branch, teller)  Cr Suspense (HQ)
  *  - cash confirmed:            Dr Bank (slip bank A/C)          Cr Teller Cash
  *  - unmatched / excess money:  Dr Bank                          Cr Suspense
  *  - any allocation to a loan:  Dr Suspense                      Cr Bank, then LoanService::deposit()
@@ -152,7 +158,7 @@ class PaymentService
 
             $entry = $this->ledger->journal($loan->company_id, 'TELLER CASH '.$loan->loan_number, [
                 ['account' => Account::TellerCash, 'branch' => $loan->branch_id, 'employee' => $teller->id, 'debit' => $amount],
-                ['account' => Account::Suspense, 'branch' => $loan->branch_id, 'credit' => $amount],
+                ['account' => Account::Suspense, 'branch' => null, 'credit' => $amount],
             ], $payment, $date, $loan->branch_id, $teller);
 
             $payment->forceFill(['journal_entry_id' => $entry->id, 'receipt_number' => $this->receiptNumber($payment)])->save();
@@ -701,7 +707,7 @@ class PaymentService
 
         if ($fromSuspense) {
             $this->ledger->journal($payment->company_id, 'SUSPENSE ALLOCATION '.$loan->loan_number, [
-                ['account' => Account::Suspense, 'branch' => $payment->branch_id, 'debit' => $posted],
+                ['account' => Account::Suspense, 'branch' => null, 'debit' => $posted],
                 ['account' => Account::Bank, 'bank' => $payment->bank_account_id, 'credit' => $posted],
             ], $payment, $date, $loan->branch_id, $employee);
         }
@@ -750,7 +756,7 @@ class PaymentService
 
             $amount = $payment->unallocated_amount;
             $this->ledger->journal($payment->company_id, 'SUSPENSE REFUND '.$payment->receipt_number, [
-                ['account' => Account::Suspense, 'branch' => $payment->branch_id, 'debit' => $amount],
+                ['account' => Account::Suspense, 'branch' => null, 'debit' => $amount],
                 ['account' => Account::Bank, 'bank' => $payment->bank_account_id, 'credit' => $amount],
             ], $payment, CarbonImmutable::today(), $payment->branch_id, $finance);
 
@@ -875,13 +881,13 @@ class PaymentService
     private function applyToLoan(Payment $payment, Loan $loan, float $amount, CarbonImmutable $date, ?Employee $employee, bool $fromSuspense = true): float
     {
         $loan = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
-        $allocation = $this->loans->allocate($loan, $amount);
+        $allocation = $this->loans->allocate($loan, $amount, $date);
         $posted = round($amount - $allocation['excess'], 2);
 
         if ($posted > 0) {
             if ($fromSuspense) {
                 $this->ledger->journal($payment->company_id, 'SUSPENSE ALLOCATION '.$loan->loan_number, [
-                    ['account' => Account::Suspense, 'branch' => $payment->branch_id, 'debit' => $posted],
+                    ['account' => Account::Suspense, 'branch' => null, 'debit' => $posted],
                     ['account' => Account::Bank, 'bank' => $payment->bank_account_id, 'credit' => $posted],
                 ], $payment, $date, $loan->branch_id, $employee);
             }
@@ -916,7 +922,7 @@ class PaymentService
 
         $entry = $this->ledger->journal($payment->company_id, $what.' REVERSED TO SUSPENSE '.$payment->receipt_number, [
             ['account' => Account::Bank, 'bank' => $payment->bank_account_id, 'debit' => $amount],
-            ['account' => Account::Suspense, 'branch' => $payment->branch_id, 'credit' => $amount],
+            ['account' => Account::Suspense, 'branch' => null, 'credit' => $amount],
         ], $payment, CarbonImmutable::today(), $payment->branch_id, $employee, TransactionType::SuspenseReceipt);
 
         $allocation->update(['reversed_at' => now(), 'reversal_journal_entry_id' => $entry->id]);
@@ -1004,7 +1010,7 @@ class PaymentService
     {
         $entry = $this->ledger->journal($payment->company_id, 'SUSPENSE '.$payment->channel.' '.($payment->transaction_id ?? $payment->receipt_number), [
             ['account' => Account::Bank, 'bank' => $payment->bank_account_id, 'debit' => $amount],
-            ['account' => Account::Suspense, 'branch' => $payment->branch_id, 'credit' => $amount],
+            ['account' => Account::Suspense, 'branch' => null, 'credit' => $amount],
         ], $payment, $date, $payment->branch_id, $employee);
 
         $payment->forceFill(['journal_entry_id' => $entry->id])->save();

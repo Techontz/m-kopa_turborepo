@@ -183,6 +183,7 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertNull($data['account_balances_total']);
         $this->assertNull($data['header_accounts']);
         $this->assertNull($data['branch_accounts']);
+        $this->assertNull($data['operating_income'], 'a branch never sees HQ operating income');
         foreach (DashboardStatistics::COMPANY_MONEY_MOVEMENTS as $key) {
             $this->assertNull($data['today'][$key], $key);
         }
@@ -249,6 +250,11 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertArrayNotHasKey('Assets', $data['account_balances']);
         $this->assertNull($data['finance_kpis']['company_accounts']);
         $this->assertStringNotContainsString('9000000', json_encode($data['cards']).json_encode($data['account_balances']));
+
+        // §5 / §45: one Operating Income total; the categories are its sources and add up to it — never extra cash.
+        $this->assertEquals(150000 + 50000, $data['operating_income']['total']);
+        $this->assertSame(['interest', 'loan_fee', 'penalty'], array_column($data['operating_income']['sources'], 'key'));
+        $this->assertEquals($data['operating_income']['total'], array_sum(array_column($data['operating_income']['sources'], 'amount')));
     }
 
     public function test_branch_scoped_dashboard_cards_cover_the_employee_branch_only(): void

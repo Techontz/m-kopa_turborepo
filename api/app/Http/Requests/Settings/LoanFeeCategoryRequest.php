@@ -24,7 +24,8 @@ class LoanFeeCategoryRequest extends FormRequest
             'interest_formular' => ['required', 'numeric', 'min:0', 'max:1000'],
             'fee_category_type' => ['required', 'in:MONEY,PERCENTAGE'],
             'fee_value' => ['required', 'numeric', 'min:0'],
-            'insurance' => ['required', 'numeric', 'min:0'],
+            // §47: insurance is no longer charged; the field is accepted from older clients and ignored.
+            'insurance' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 
@@ -40,7 +41,7 @@ class LoanFeeCategoryRequest extends FormRequest
             'interest_rate' => $this->float('interest_formular'),
             'fee_type' => $this->input('fee_category_type') === 'PERCENTAGE' ? 'percentage' : 'money',
             'fee_value' => $this->float('fee_value'),
-            'insurance' => $this->float('insurance'),
+            'insurance' => 0,
         ];
     }
 }

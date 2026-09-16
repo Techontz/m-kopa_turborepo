@@ -16,7 +16,8 @@ use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 /**
- * Business rule: repayments are allocated Principal → Penalty → Interest.
+ * Business rule (specification §10): a repayment pays the PRINCIPAL DUE on the instalments reached so far, then PENALTY,
+ * then INTEREST, and anything still left reduces the outstanding principal beyond the current instalment.
  */
 class RepaymentAllocationTest extends TestCase
 {
@@ -86,5 +87,35 @@ class RepaymentAllocationTest extends TestCase
         $this->expectException(ValidationException::class);
 
         app(LoanService::class)->deposit($this->loan, 150000, CarbonImmutable::today());
+    }
+
+    /**
+     * The specification's own example (§10): an instalment of principal 100,000, penalty 10,000 and interest 20,000 paid
+     * with 150,000 settles all three and puts the last 20,000 against principal — 120,000 of principal paid in total.
+     * Before this rule the whole 150,000 went to principal and neither the penalty nor the interest was collected.
+     */
+    public function test_a_payment_covers_the_instalment_due_then_penalty_then_interest_then_principal(): void
+    {
+        $admin = $this->signInAdmin();
+        $customer = Customer::factory()->create(['company_id' => $admin->company_id, 'branch_id' => $admin->branch_id]);
+        $category = LoanCategory::factory()->create(['company_id' => $admin->company_id, 'insurance' => 0, 'fee_value' => 0, 'interest_rate' => 20]);
+        $loans = app(LoanService::class);
+
+        // 200,000 over 2 instalments at 20%: principal 100,000 and interest 20,000 per instalment.
+        $loan = $loans->apply($customer, ['loan_category_id' => $category->id, 'amount_applied' => 200000, 'sessions' => 2,
+            'formula' => 'SIMPLE', 'fee_deduct' => false, 'reason' => 'BIASHARA']);
+        $loans->approve($loan, 200000);
+        $loans->withdraw($loan->fresh(), CarbonImmutable::today()->subDays(40));
+        $loan = $loan->fresh();
+        Penalty::create(['company_id' => $admin->company_id, 'branch_id' => $admin->branch_id, 'customer_id' => $customer->id,
+            'loan_id' => $loan->id, 'amount' => 10000, 'penalty_date' => today()->subDays(2)]);
+
+        $schedule = $loan->schedules()->orderBy('due_date')->first();
+        $transaction = $loans->deposit($loan, 150000, CarbonImmutable::parse($schedule->due_date));
+
+        $this->assertEquals(10000, $transaction->penalty, 'the penalty is collected, not swallowed by principal');
+        $this->assertEquals(20000, $transaction->interest);
+        $this->assertEquals(120000, $transaction->principal, 'one instalment of principal plus the 20,000 left over');
+        $this->assertEquals(150000, round($transaction->principal + $transaction->penalty + $transaction->interest, 2));
     }
 }

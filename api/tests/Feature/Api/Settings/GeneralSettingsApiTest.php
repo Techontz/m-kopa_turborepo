@@ -58,7 +58,7 @@ class GeneralSettingsApiTest extends TestCase
         $this->getJson('/api/v1/settings/loan-fees')->assertOk()
             ->assertJsonPath('data.mode', 'GENERAL')
             ->assertJsonPath('data.categories.0.fee_type', 'percentage')
-            ->assertJsonPath('data.categories.0.insurance', 3000);
+            ->assertJsonPath('data.categories.0.insurance', 0); // §47: insurance is no longer charged, whatever a client sends
 
         $this->putJson("/api/v1/settings/loan-fees/{$category->id}", ['fee_category_type' => 'X'])->assertUnprocessable();
     }

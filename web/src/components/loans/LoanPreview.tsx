@@ -44,7 +44,7 @@ export function LoanPreview({ form }: { form: LoanForm }) {
           <tbody>
             <tr><th>Loan Amount</th><td>{money(data.principal)}</td><th>Loan Interest</th><td>{data.interest_rate}%</td></tr>
             <tr><th>Interest</th><td>{money(data.interest)}</td><th>Loan + interest</th><td>{money(data.total)}</td></tr>
-            <tr><th>Restoration</th><td>{money(data.restoration)}</td><th>Insurance</th><td>{money(data.insurance)}</td></tr>
+            <tr><th>Restoration</th><td>{money(data.restoration)}</td>{data.insurance > 0 ? <><th>Insurance</th><td>{money(data.insurance)}</td></> : <><th /><td /></>}</tr>
             <tr><th>Loan Fee</th><td>{money(data.loan_fee)}</td><th>Take Home</th><td>{money(data.take_home)}</td></tr>
             <tr><th>Restoration Type</th><td>{data.duration_label}</td><th>End Date</th><td>{data.end_date}</td></tr>
           </tbody>

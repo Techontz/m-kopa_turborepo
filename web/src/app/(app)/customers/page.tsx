@@ -8,6 +8,7 @@ import { CustomerAvatar, CustomerStatusBadges, Pager, usePaged } from "@/compone
 import { CUSTOMER_TYPE_FILTER, CUSTOMER_TYPE_LABEL, CUSTOMER_TYPES_ENDPOINT, customerTypeOptions } from "@/components/customers/customerTypes";
 import type { Customer, CustomerType } from "@/components/customers/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox } from "@/components/ui/SelectBox";
 import { confirmAction } from "@/components/ui/notify";
@@ -143,7 +144,7 @@ export default function AllCustomersPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="mf-loading">Loading...</td></tr>
+                <tr><td colSpan={9} className="mf-loading"><Loading inline /></td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={9} className="text-center">No customers match these filters.</td></tr>
               ) : (

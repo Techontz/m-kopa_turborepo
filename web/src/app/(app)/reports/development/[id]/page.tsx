@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { StatusBadge } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { DataTable } from "@/components/ui/DataTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { confirmAction } from "@/components/ui/notify";
@@ -90,7 +91,7 @@ export default function CustomerDevelopmentShowPage() {
               </thead>
               <tbody>
                 {isLoading || !summary ? (
-                  <tr><td colSpan={11} className="mf-loading">Loading...</td></tr>
+                  <tr><td colSpan={11} className="mf-loading"><Loading inline /></td></tr>
                 ) : (
                   <tr>
                     <td>{summary.phone}</td>

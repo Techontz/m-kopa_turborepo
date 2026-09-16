@@ -499,7 +499,7 @@ function RelationRowsTab<T extends GuarantorResource | NextOfKinResource>({ cust
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} className="mf-loading">Loading...</td></tr>
+              <tr><td colSpan={7} className="mf-loading"><Loading inline /></td></tr>
             ) : (data ?? []).length === 0 ? (
               <tr><td colSpan={7} className="text-center">{guarantor ? "No guarantors are on file." : "No next of kin are on file."}</td></tr>
             ) : (
@@ -575,7 +575,7 @@ export function AuditTrailTab({ customerId }: { customerId: number }) {
         <thead className="thead-info"><tr><th>When</th><th>Action</th><th>By</th><th>Changes</th></tr></thead>
         <tbody>
           {isLoading ? (
-            <tr><td colSpan={4} className="mf-loading">Loading...</td></tr>
+            <tr><td colSpan={4} className="mf-loading"><Loading inline /></td></tr>
           ) : (data ?? []).length === 0 ? (
             <tr><td colSpan={4} className="text-center">No audit entries.</td></tr>
           ) : (

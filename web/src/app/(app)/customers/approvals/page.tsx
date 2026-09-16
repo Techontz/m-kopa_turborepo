@@ -9,6 +9,7 @@ import { CustomerAvatar, CustomerStatusBadges, Pager, formatDateTime, usePaged }
 import { toastError, toastSuccess } from "@/components/customers/toast";
 import type { Customer } from "@/components/customers/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SelectBox } from "@/components/ui/SelectBox";
 import { confirmAction, promptReason } from "@/components/ui/notify";
@@ -83,7 +84,7 @@ export default function CustomerApprovalsPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={7} className="mf-loading">Loading...</td></tr>
+                <tr><td colSpan={7} className="mf-loading"><Loading inline /></td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={7} className="text-center">No registrations are waiting for approval.</td></tr>
               ) : (

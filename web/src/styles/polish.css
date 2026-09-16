@@ -111,7 +111,9 @@ select.form-control { appearance: none; padding-right: 2rem; background-image: l
 .swal2-popup .swal2-validation-message { border-radius: 5px; font-size: 13px; }
 .swal2-popup .swal2-close { color: rgba(0, 0, 0, .35); }
 
-/* The loader is the same card: the live system never blanks the screen, it shows a dialog. */
+/* The loader: the live system's own spinner (assets/loan_disk/css/style_new5.css `.loader` + `load2`) — a ring with two
+ * #0dc5c1 halves sweeping round — in the same white card as the dialogs above.
+ */
 .mf-loading-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .4); }
 .mf-loading-card {
     width: 478px;
@@ -122,22 +124,34 @@ select.form-control { appearance: none; padding-right: 2rem; background-image: l
     text-align: center;
     animation: mf-loading-in .3s;
 }
-.mf-loading-spinner {
-    display: block;
-    width: 80px;
-    height: 80px;
-    margin: 0 auto 6px;
-    border: 4px solid #e6eef2;
-    border-top-color: #7cd1f9;
-    border-radius: 50%;
-    animation: mf-loading-spin .9s linear infinite;
-}
 .mf-loading-title { display: block; padding: 13px 16px 0; font-size: 27px; font-weight: 600; line-height: normal; color: rgba(0, 0, 0, .65); }
 
-@keyframes mf-loading-spin { to { transform: rotate(360deg); } }
+.mf-loader,
+.mf-loader::before,
+.mf-loader::after { border-radius: 50%; }
+.mf-loader {
+    color: #fff;
+    font-size: 11px;
+    text-indent: -99999em;
+    margin: 5px auto;
+    position: relative;
+    width: 5em;
+    height: 5em;
+    box-shadow: inset 0 0 0 1em;
+    transform: translateZ(0);
+}
+.mf-loader::before,
+.mf-loader::after { position: absolute; content: ''; background: #0dc5c1; width: 2.6em; height: 5.1em; top: -.1em; }
+.mf-loader::before { border-radius: 5.1em 0 0 5.1em; left: -.1em; transform-origin: 2.6em 2.55em; animation: mf-load2 2s infinite ease 1.5s; }
+.mf-loader::after { border-radius: 0 5.1em 5.1em 0; left: 2.55em; transform-origin: 0 2.55em; animation: mf-load2 2s infinite ease; }
+
+/* Inside a table the spinner sits in the rows, on the card instead of a white block. */
+.mf-loading .mf-loader { color: var(--mf-surface); }
+
+@keyframes mf-load2 { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 @keyframes mf-loading-in { 0% { transform: scale(.7); } 45% { transform: scale(1.05); } 80% { transform: scale(.95); } 100% { transform: scale(1); } }
 
 @media (prefers-reduced-motion: reduce) {
-    .mf-loading-spinner { animation-duration: 2.4s; }
+    .mf-loader::before, .mf-loader::after { animation-duration: 6s; }
     .mf-loading-card { animation: none; }
 }

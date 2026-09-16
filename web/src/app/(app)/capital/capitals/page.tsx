@@ -10,6 +10,7 @@ import { ApprovalActions, ApprovalStatus } from "@/components/finance/Approval";
 import { ReverseButton, ReversedStatus } from "@/components/finance/Reversal";
 import { ownershipLabel, payMethodTone, type Contribution } from "@/components/capital/contributions";
 import { Badge } from "@/components/ui/Badge";
+import { Loading } from "@/components/ui/Loading";
 import { Card } from "@/components/ui/Card";
 import { Field } from "@/components/ui/Field";
 import { FileField } from "@/components/ui/FileField";
@@ -238,7 +239,7 @@ export default function CapitalsPage() {
               <tr><th>S/No</th><th>Shareholder</th><th>Amount</th><th>Pay Method</th><th>Receiving Account</th><th>Receipt No</th><th>Cheque No</th><th>Date</th><th>Recorded By</th><th>Journal Ref / Shares</th><th>Action</th></tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={11} className="mf-loading">Loading...</td></tr>}
+              {isLoading && <tr><td colSpan={11} className="mf-loading"><Loading inline /></td></tr>}
               {data?.share_holders.map((holder, index) => (
                 <Fragment key={holder.id}>
                   <tr>

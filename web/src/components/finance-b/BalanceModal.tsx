@@ -1,6 +1,7 @@
 "use client";
 
 import { Modal } from "@/components/ui/Modal";
+import { Loading } from "@/components/ui/Loading";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
@@ -24,7 +25,7 @@ export function BalanceModal({ open, onClose, title, path, totalLabel = "TOTAL" 
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={3} className="mf-loading">Loading...</td></tr>
+              <tr><td colSpan={3} className="mf-loading"><Loading inline /></td></tr>
             )}
             {(rows ?? []).map((row, index) => (
               <tr key={row.branch_id}>

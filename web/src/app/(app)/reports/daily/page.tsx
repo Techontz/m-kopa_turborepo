@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { cleanQuery, FilterModal, SearchButton, type ReportFilters } from "@/components/reports/ReportKit";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
@@ -46,7 +47,7 @@ export default function DailyReportPage() {
             </thead>
             <tbody>
               {isLoading || !data ? (
-                <tr><td colSpan={2} className="mf-loading">Loading...</td></tr>
+                <tr><td colSpan={2} className="mf-loading"><Loading inline /></td></tr>
               ) : (
                 <>
                   <tr><td><b>OPENING</b></td><td><b>{money(data.opening)}</b></td></tr>

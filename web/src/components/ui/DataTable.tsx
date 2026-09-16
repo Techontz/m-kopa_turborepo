@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { Loading } from "@/components/ui/Loading";
 
 export interface Column<T> {
   key: string;
@@ -109,7 +110,7 @@ export function DataTable<T>({
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={columns.length} className="mf-loading">Loading...</td></tr>
+              <tr><td colSpan={columns.length} className="mf-loading"><Loading inline /></td></tr>
             ) : visible.length === 0 ? (
               <tr><td colSpan={columns.length} className="text-center">{emptyMessage}</td></tr>
             ) : (

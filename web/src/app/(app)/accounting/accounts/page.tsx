@@ -5,6 +5,7 @@ import { Fragment, useState } from "react";
 import { BranchScopeSelect } from "@/components/accounting/BranchScopeSelect";
 import type { ChartType } from "@/components/accounting/types";
 import { Card } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Loading";
 import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { money, todayIso } from "@/lib/format";
@@ -62,7 +63,7 @@ export default function ChartOfAccountsPage() {
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={6} className="mf-loading">Loading...</td></tr>
+                <tr><td colSpan={6} className="mf-loading"><Loading inline /></td></tr>
               )}
               {(tree ?? []).map((type) => (
                 <Fragment key={type.type}>

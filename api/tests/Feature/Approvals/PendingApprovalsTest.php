@@ -16,12 +16,14 @@ use App\Models\ExpenseType;
 use App\Models\FloatTransfer;
 use App\Models\HqTransaction;
 use App\Models\Loan;
+use App\Models\NegligenceDeduction;
 use App\Models\Payment;
 use App\Models\PayrollRun;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
 use App\Models\ShareHolder;
 use App\Models\ShareIssuanceRequest;
+use App\Models\StaffAllowance;
 use App\Models\StaffLoan;
 use App\Models\StaffLoanCategory;
 use App\Models\StaffSalaryAdvance;
@@ -162,6 +164,57 @@ class PendingApprovalsTest extends TestCase
         $this->assertSame(2, $all[ApprovalPolicy::BRANCH_RECEIPTS]['count']);
     }
 
+    public function test_pending_allowances_and_negligence_deductions_follow_the_finance_approval_and_segregation_rules(): void
+    {
+        $hr = $this->secondApprover($this->admin, 'hr');
+        $hr->permissionOverrides()->create(['permission' => 'approvals.view', 'granted' => true]);
+        $hr = $hr->fresh();
+        $this->seedPending($hr, $this->admin->branch_id);
+        $receiver = StaffAllowance::sole()->employee;
+        $sections = [PendingApprovals::ALLOWANCES => ['/hrm/allowances', 10500.0], PendingApprovals::NEGLIGENCE_DEDUCTIONS => ['/hrm/negligence-deductions', 10700.0]];
+
+        // Finance (payroll.pay) sees and may approve both.
+        $finance = collect($this->actingAs($this->secondApprover($this->admin, 'finance'))->getJson('/api/v1/approvals/pending')->assertOk()->json('data.groups'))->keyBy('workflow');
+        foreach ($sections as $workflow => [$link, $amount]) {
+            $this->assertSame(1, $finance[$workflow]['count'], $workflow);
+            $this->assertEquals($amount, $finance[$workflow]['amount'], $workflow);
+            $this->assertSame($link, $finance[$workflow]['rows'][0]['link']);
+            $this->assertSame($hr->full_name, $finance[$workflow]['rows'][0]['requested_by']);
+            $this->assertTrue($finance[$workflow]['rows'][0]['can_approve'], $workflow);
+        }
+
+        // HR (the creator, without payroll.pay) sees them view-only.
+        $own = collect($this->actingAs($hr)->getJson('/api/v1/approvals/pending')->assertOk()->json('data.groups'))->keyBy('workflow');
+        foreach (array_keys($sections) as $workflow) {
+            $this->assertFalse($own[$workflow]['rows'][0]['can_approve'], $workflow);
+            $this->assertNull($own[$workflow]['rows'][0]['approve_blocked_reason'], $workflow);
+        }
+
+        // The receiving employee, even holding payroll.pay, is blocked; the payroll policy + explicit grant lift it.
+        $receiver->update(['role_id' => $this->admin->company->roles()->where('key', 'finance')->value('id')]);
+        $receiver = $receiver->fresh();
+        $blocked = collect($this->actingAs($receiver)->getJson('/api/v1/approvals/pending')->assertOk()->json('data.groups'))->keyBy('workflow');
+        foreach (array_keys($sections) as $workflow) {
+            $this->assertFalse($blocked[$workflow]['rows'][0]['can_approve'], $workflow);
+            $this->assertSame(SegregationOfDuties::INITIATOR_MESSAGE, $blocked[$workflow]['rows'][0]['approve_blocked_reason'], $workflow);
+        }
+
+        $this->grantSelfApproval($receiver, false);
+        $this->allowSelfApprovalPolicy((int) $receiver->company_id, [ApprovalPolicy::PAYROLL]);
+        $lifted = collect($this->actingAs($receiver->fresh())->getJson('/api/v1/approvals/pending')->json('data.groups'))->keyBy('workflow');
+        foreach (array_keys($sections) as $workflow) {
+            $this->assertTrue($lifted[$workflow]['rows'][0]['can_approve'], $workflow);
+        }
+
+        // Approved items leave the list.
+        StaffAllowance::query()->update(['status' => StaffAllowance::STATUS_APPROVED]);
+        NegligenceDeduction::query()->update(['status' => NegligenceDeduction::STATUS_APPROVED]);
+        $after = collect($this->getJson('/api/v1/approvals/pending')->json('data.groups'))->keyBy('workflow');
+        foreach (array_keys($sections) as $workflow) {
+            $this->assertSame(0, $after[$workflow]['count'], $workflow);
+        }
+    }
+
     /**
      * One pending item of every workflow, initiated by $initiator in the given branch.
      */
@@ -194,10 +247,12 @@ class PendingApprovalsTest extends TestCase
         SalaryAdvance::create(['company_id' => $companyId, 'branch_id' => $branchId, 'customer_id' => $customer->id, 'salary_advance_category_id' => $advanceCategory->id, 'employee_id' => $staff->id, 'amount' => 8000, 'interest_rate' => 10, 'total_payable' => 8800, 'status' => 'pending']);
 
         $loanCategory = StaffLoanCategory::create(['company_id' => $companyId, 'name' => 'SL', 'amount_from' => 1000, 'amount_to' => 10000, 'interest_rate' => 10, 'duration' => 'monthly', 'repayment_from' => 1, 'repayment_to' => 3, 'fee' => 0]);
-        StaffLoan::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'staff_loan_category_id' => $loanCategory->id, 'amount_applied' => 9000, 'duration' => 'monthly', 'sessions' => 2, 'reason' => 'Fees', 'status' => 'pending', 'requested_by' => $initiator->id]);
+        StaffLoan::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'staff_loan_category_id' => $loanCategory->id, 'amount_applied' => 9000, 'duration' => 'monthly', 'sessions' => 2, 'reason' => 'Fees', 'status' => 'submitted', 'requested_by' => $initiator->id]);
         $staffAdvanceCategory = StaffSalaryAdvanceCategory::create(['company_id' => $companyId, 'name' => 'SSA', 'amount_from' => 1000, 'amount_to' => 10000, 'fee' => 0]);
-        StaffSalaryAdvance::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'staff_salary_advance_category_id' => $staffAdvanceCategory->id, 'amount' => 9500, 'status' => 'pending', 'requested_by' => $initiator->id]);
+        StaffSalaryAdvance::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'staff_salary_advance_category_id' => $staffAdvanceCategory->id, 'amount' => 9500, 'status' => 'submitted', 'requested_by' => $initiator->id]);
         PayrollRun::firstOrCreate(['company_id' => $companyId, 'period' => today()->startOfMonth()], ['status' => PayrollRun::STATUS_DRAFT, 'prepared_by' => $initiator->id, 'total_net' => 10000]);
+        StaffAllowance::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'amount' => 10500, 'reason' => 'overtime', 'payroll_period' => today()->startOfMonth(), 'recurring' => false, 'status' => StaffAllowance::STATUS_PENDING, 'created_by' => $initiator->id]);
+        NegligenceDeduction::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'amount' => 10700, 'recovered_amount' => 0, 'reason' => 'Cash shortage', 'status' => NegligenceDeduction::STATUS_PENDING, 'created_by' => $initiator->id]);
 
         TellerDeposit::create(['company_id' => $companyId, 'branch_id' => $branchId, 'employee_id' => $staff->id, 'bank_account_id' => $bank->id, 'slip_number' => "S-{$branchId}", 'amount' => 11000, 'deposit_date' => today(), 'status' => TellerDeposit::STATUS_PENDING]);
         Payment::create(['company_id' => $companyId, 'branch_id' => $branchId, 'customer_id' => $customer->id, 'loan_id' => $activeLoan->id, 'employee_id' => $initiator->id, 'amount' => 12000, 'channel' => 'VODACOM', 'transaction_id' => "TX-{$branchId}", 'paid_on' => today(), 'source' => Payment::SOURCE_TELLER, 'status' => 'pending_approval']);

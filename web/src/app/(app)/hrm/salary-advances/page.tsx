@@ -2,17 +2,14 @@
 
 import { useState } from "react";
 
-import { BranchStaffFields, FilterModal, HeaderButton, statusTone, sum, type Filters } from "@/components/hrm/common";
+import { BranchStaffFields, FilterModal, HeaderButton, sum, type Filters } from "@/components/hrm/common";
+import { StaffCreditActions, StaffCreditStatus, StaffCreditTrail } from "@/components/hrm/StaffCreditActions";
 import type { StaffAdvance } from "@/components/hrm/types";
-import { Badge } from "@/components/ui/Badge";
-import { BlockedApproveButton } from "@/components/finance/Approval";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { SelectBox, type Option } from "@/components/ui/SelectBox";
-import { confirmAction } from "@/components/ui/notify";
 import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
@@ -21,6 +18,7 @@ interface Lists {
   pending: StaffAdvance[];
   approved: StaffAdvance[];
   disbursed: StaffAdvance[];
+  rejected: StaffAdvance[];
 }
 
 interface Category {
@@ -31,26 +29,16 @@ interface Category {
 }
 
 const EMPTY = { blanch_id: "", empl_id: "", fee: "", advance_amount: "" };
-const SOURCES: Option[] = [
-  { value: "staff_fund_cash", label: "STAFF FUND A/C" },
-  { value: "company_cash", label: "COMPANY ACCOUNT (HQ)" },
-];
 
 export default function StaffSalaryAdvancePage() {
   const { can } = useAuth();
   const [filters, setFilters] = useState<Filters>({});
   const [modal, setModal] = useState<"request" | "approved" | "filter" | null>(null);
   const [form, setForm] = useState(EMPTY);
-  const [disbursing, setDisbursing] = useState<StaffAdvance | null>(null);
-  const [source, setSource] = useState("staff_fund_cash");
   const { data, isLoading } = useApi<Lists>("hrm/salary-advances", { ...filters });
   const { data: categories = [] } = useApi<Category[]>("hrm/staff-salary-advance-categories");
 
   const create = useAction<typeof EMPTY>("post", "hrm/salary-advances");
-  const act = useAction<{ id: number; action: string }>("post", (body) => `hrm/salary-advances/${body.id}/${body.action}`);
-  const disburse = useAction<{ id: number; ac_id: string }>("post", (body) => `hrm/salary-advances/${body.id}/disburse`);
-  const hr = can(["hrm.manage", "payroll.approve"]);
-  const finance = can("payroll.pay");
 
   const waiting = [...(data?.pending ?? []), ...(data?.approved ?? [])];
 
@@ -77,31 +65,17 @@ export default function StaffSalaryAdvancePage() {
             { key: "employee", header: "Staff name" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "created_at", header: "Date" },
-            { key: "status", header: "status", render: (row) => <Badge tone={row.status === "pending" ? "danger" : "info"}>{row.status.toUpperCase()}</Badge> },
+            { key: "status", header: "status", value: (row) => row.status_label, render: (row) => <StaffCreditStatus row={row} /> },
+            { key: "trail", header: "Stages", sortable: false, render: (row) => <StaffCreditTrail row={row} /> },
             {
               key: "action",
               header: "Action",
               sortable: false,
               className: "text-nowrap",
-              render: (row) => (
-                <>
-                  {!row.can_approve && row.approve_blocked_reason && ((row.status === "pending" && hr) || (row.status === "approved" && finance)) && (
-                    <BlockedApproveButton reason={row.approve_blocked_reason} label={row.status === "pending" ? "Approve" : "Disburse"} />
-                  )}
-                  {row.status === "pending" && hr && row.can_approve !== false && (
-                    <button type="button" className="btn btn-sm btn-icon btn-success mr-1" title="Approve" disabled={act.isPending} onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "approve" })}><i className={act.isPending && act.variables?.id === row.id && act.variables.action === "approve" ? "fa fa-spinner fa-spin" : "icon-like"} /></button>
-                  )}
-                  {row.status === "approved" && finance && row.can_approve !== false && (
-                    <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Disburse" onClick={() => setDisbursing(row)}><i className="icon-wallet" /></button>
-                  )}
-                  {hr && (
-                    <button type="button" className="btn btn-sm btn-icon btn-danger" title="Delete" onClick={async () => (await confirmAction("Are You Sure?")) && act.mutate({ id: row.id, action: "reject" })}><i className="icon-trash" /></button>
-                  )}
-                </>
-              ),
+              render: (row) => <StaffCreditActions row={row} resource="salary-advances" />,
             },
           ]}
-          footer={<tr><td>TOTAL</td><td /><td /><td>{money(sum(waiting, (row) => row.amount))}</td><td /><td /><td /></tr>}
+          footer={<tr><td>TOTAL</td><td /><td /><td>{money(sum(waiting, (row) => row.amount))}</td><td /><td /><td /><td /></tr>}
         />
       </Card>
 
@@ -130,19 +104,24 @@ export default function StaffSalaryAdvancePage() {
             { key: "employee", header: "Staff name" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "created_at", header: "Date" },
-            { key: "status", header: "status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status}</Badge> },
+            { key: "status", header: "status", value: (row) => row.status_label, render: (row) => <StaffCreditStatus row={row} /> },
+            { key: "trail", header: "Stages", sortable: false, render: (row) => <StaffCreditTrail row={row} /> },
             { key: "fee", header: "Fee", render: (row) => money(row.fee) },
             { key: "outstanding_amount", header: "Remain to recover", render: (row) => money(row.outstanding_amount) },
             { key: "source_account", header: "Paid from", render: (row) => (row.source_account === "company_cash" ? "COMPANY ACCOUNT" : "STAFF FUND A/C") },
           ]}
         />
-      </Modal>
-
-      <Modal open={disbursing !== null} onClose={() => setDisbursing(null)} title="Disburse Salary Advance" submitLabel="Disburse" submitting={disburse.isPending} onSubmit={() => disbursing && disburse.mutate({ id: disbursing.id, ac_id: source }, { onSuccess: () => setDisbursing(null) })}>
-        <p>{disbursing?.employee}: <strong>{money(disbursing?.amount)}</strong> (charger {money(disbursing?.fee)})</p>
-        <Field label="Account:" className="col-12 px-0" error={disburse.fieldError("amount") ?? disburse.fieldError("ac_id")}>
-          <SelectBox options={SOURCES} value={source} onChange={(value) => setSource(value ?? "staff_fund_cash")} />
-        </Field>
+        <h6 className="m-t-20">Rejected</h6>
+        <DataTable
+          rows={data?.rejected}
+          rowKey={(row) => row.id}
+          columns={[
+            { key: "employee", header: "Staff name" },
+            { key: "amount", header: "Amount", render: (row) => money(row.amount) },
+            { key: "trail", header: "Stages", sortable: false, render: (row) => <StaffCreditTrail row={row} /> },
+            { key: "created_at", header: "Date" },
+          ]}
+        />
       </Modal>
 
       <FilterModal open={modal === "filter"} onClose={() => setModal(null)} onApply={setFilters} />

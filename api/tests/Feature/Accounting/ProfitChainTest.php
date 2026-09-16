@@ -27,6 +27,7 @@ use App\Services\DividendService;
 use App\Services\ExpenseApproval;
 use App\Services\FloatService;
 use App\Services\Hrm\CommissionEngine;
+use App\Services\Hrm\CommissionPayments;
 use App\Services\Hrm\PayrollEngine;
 use App\Services\Ledger;
 use App\Services\LoanService;
@@ -215,15 +216,28 @@ class ProfitChainTest extends TestCase
         $this->assertBalance(37530.28, Account::DividendPayable);
         $this->assertBalance(4943704.59, Account::Company);
 
-        // 10. Payroll approval recognises the allocated commission from COMMISSION PAYABLE.
+        // 10. Payroll no longer carries commission (spec §21 / §22); the commission payment flow clears COMMISSION PAYABLE from
+        //     the branch INTEREST A/Cs, and the dividend figures of the month do not move.
         $payroll = app(PayrollEngine::class);
         $run = $payroll->generate($companyId, CarbonImmutable::parse('2026-07-01'), $this->admin);
-        $this->assertEquals(34167.70, round((float) $run->items()->sum('commission'), 2));
+        $this->assertEquals(0, round((float) $run->items()->sum('commission'), 2));
         $payroll->approve($run, $this->admin);
         $this->assertSame(PayrollRun::STATUS_APPROVED, $run->fresh()->status);
+        $this->assertBalance(34167.70, Account::CommissionPayable, allBranches: true);
+        $available = app(DividendService::class)->availableProfit($companyId, CarbonImmutable::parse('2026-07-01'));
+
+        $payments = app(CommissionPayments::class);
+        $july = fn () => $payments->select($companyId, CarbonImmutable::parse('2026-07-01'));
+        $payments->request($july(), $this->admin);
+        $payments->approve($july(), $this->admin);
+        $payments->pay($july(), $this->admin, CarbonImmutable::today(), CommissionPayments::PAYING_INTEREST);
+        $this->assertSame([CommissionAllocation::STATUS_PAID], CommissionAllocation::where('amount', '>', 0)->distinct()->pluck('payment_status')->all());
         $this->assertBalance(0, Account::CommissionPayable, allBranches: true);
         $this->assertBalance(0, Account::CommissionExpense, allBranches: true);
-        $this->assertSame(CommissionEngine::STATUS_LOCKED_IN_PAYROLL, $commission->report($companyId, CarbonImmutable::parse('2026-07-01'))['allocation_status']);
+        $this->assertBalance(87502.20 - 24206, Account::Interest, $a);
+        $this->assertBalance(33571.19 - 9961.70, Account::Interest, $b);
+        $this->assertSame($available, app(DividendService::class)->availableProfit($companyId, CarbonImmutable::parse('2026-07-01')));
+        $this->assertSame(CommissionEngine::STATUS_LOCKED_BY_DIVIDEND, $commission->report($companyId, CarbonImmutable::parse('2026-07-01'))['allocation_status']);
 
         // 11. Integrity: every check passes.
         $integrity = app(LedgerIntegrity::class)->run($companyId);
@@ -457,8 +471,10 @@ class ProfitChainTest extends TestCase
         $period = AccountingPeriod::create(['company_id' => $this->admin->company_id, 'period_start' => '2026-06-01', 'period_end' => '2026-06-30', 'status' => AccountingPeriod::STATUS_CLOSED, 'closed_at' => now()]);
         $period->results()->create(['branch_id' => $this->branchA->id, 'net_profit' => 10000, 'distributable_profit' => 10000, 'commission_eligible' => true]);
         $run = PayrollRun::create(['company_id' => $this->admin->company_id, 'period' => '2026-06-01', 'status' => PayrollRun::STATUS_DRAFT]);
-        CommissionAllocation::create(['company_id' => $this->admin->company_id, 'accounting_period_id' => $period->id, 'branch_id' => $this->branchA->id, 'employee_id' => $staff->id, 'kind' => CommissionAllocation::KIND_BRANCH_STAFF, 'distributable_profit' => 10000, 'pool_percent' => 10, 'pool_amount' => 1000, 'base_salary' => 100000, 'total_salary' => 100000, 'share_percent' => 100, 'amount' => 1000, 'payroll_run_id' => $run->id]);
-        $run->items()->create(app(PayrollEngine::class)->preview($this->admin->company_id, $month)->map(fn (array $line): array => collect($line)->except(['employee', 'branch'])->all())->first());
+        CommissionAllocation::create(['company_id' => $this->admin->company_id, 'accounting_period_id' => $period->id, 'branch_id' => $this->branchA->id, 'employee_id' => $staff->id, 'kind' => CommissionAllocation::KIND_BRANCH_STAFF, 'distributable_profit' => 10000, 'pool_percent' => 10, 'pool_amount' => 1000, 'base_salary' => 100000, 'total_salary' => 100000, 'share_percent' => 100, 'amount' => 1000, 'payroll_run_id' => $run->id, 'payment_status' => CommissionAllocation::STATUS_PAYROLL]);
+        // A legacy draft generated before commission got its own payment flow: the line still carries the commission.
+        $line = app(PayrollEngine::class)->preview($this->admin->company_id, $month)->map(fn (array $line): array => collect($line)->except(['employee', 'branch', 'allowance_ids', 'negligence_outstanding', 'net_commission'])->all())->first();
+        $run->items()->create(['commission' => 1000, 'gross' => $line['gross'] + 1000, 'take_home' => $line['take_home'] + 1000] + $line);
 
         $report = app(CommissionEngine::class)->report($this->admin->company_id, $month);
         $this->assertSame(CommissionEngine::RULE_LEGACY, $report['rule']);

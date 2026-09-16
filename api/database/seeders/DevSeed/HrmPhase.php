@@ -3,6 +3,7 @@
 namespace Database\Seeders\DevSeed;
 
 use App\Enums\Account;
+use App\Enums\StaffCreditStatus;
 use App\Models\Attendance;
 use App\Models\Employee;
 use App\Models\Leave;
@@ -94,9 +95,9 @@ final class HrmPhase
     private function salaryAdvances(): void
     {
         $advances = [
-            ['BH_TL', 80000, '2026-06-10 09:00', ['approve' => '2026-06-11 10:00', 'disburse' => ['2026-06-12 11:00', Account::Company]]],
+            ['BH_TL', 80000, '2026-08-10 09:00', ['approve' => '2026-08-11 10:00', 'finance' => '2026-08-12 10:00', 'disburse' => '2026-08-12 11:00']],
             ['UV_TL', 100000, '2026-07-20 09:00', ['reject' => '2026-07-21 10:00']],
-            ['KB_TL', 60000, '2026-08-05 09:00', ['approve' => '2026-08-05 15:00', 'disburse' => ['2026-08-06 11:00', Account::StaffFundCash]]],
+            ['KB_TL', 60000, '2026-08-05 09:00', ['approve' => '2026-08-05 15:00', 'finance' => '2026-08-06 10:00', 'disburse' => '2026-08-06 11:00']],
             ['KM_LO2', 50000, '2026-09-11 09:00', []],
         ];
 
@@ -110,14 +111,16 @@ final class HrmPhase
             }, fn (): bool => $advance() !== null);
 
             if (isset($steps['reject'])) {
-                $this->ctx->timeline->at($steps['reject'], "staff salary advance rejected {$staff}", fn () => $this->ctx->api->call($this->hr(), 'POST', "hrm/salary-advances/{$advance()->id}/reject"), fn (): bool => $advance()?->status !== 'pending');
+                $this->ctx->timeline->at($steps['reject'], "staff salary advance rejected {$staff}", fn () => $this->ctx->api->call($this->hr(), 'POST', "hrm/salary-advances/{$advance()->id}/reject"), fn (): bool => $advance()?->status !== StaffCreditStatus::Submitted->value);
             }
             if (isset($steps['approve'])) {
-                $this->ctx->timeline->at($steps['approve'], "staff salary advance approved {$staff}", fn () => $this->ctx->api->call($this->hr(), 'POST', "hrm/salary-advances/{$advance()->id}/approve"), fn (): bool => $advance()?->status !== 'pending');
+                $this->ctx->timeline->at($steps['approve'], "staff salary advance approved {$staff}", fn () => $this->ctx->api->call($this->hr(), 'POST', "hrm/salary-advances/{$advance()->id}/approve"), fn (): bool => $advance()?->status !== StaffCreditStatus::Submitted->value);
+            }
+            if (isset($steps['finance'])) {
+                $this->ctx->timeline->at($steps['finance'], "staff salary advance finance approved {$staff}", fn () => $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/salary-advances/{$advance()->id}/finance-approve"), fn (): bool => ! in_array($advance()?->status, [StaffCreditStatus::Submitted->value, ...StaffCreditStatus::reviewed()], true));
             }
             if (isset($steps['disburse'])) {
-                [$at, $source] = $steps['disburse'];
-                $this->ctx->timeline->at($at, "staff salary advance disbursed {$staff}", fn () => $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/salary-advances/{$advance()->id}/disburse", ['ac_id' => $source->value]), fn (): bool => ! in_array($advance()?->status, ['pending', 'approved'], true));
+                $this->ctx->timeline->at($steps['disburse'], "staff salary advance disbursed {$staff}", fn () => $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/salary-advances/{$advance()->id}/disburse", ['ac_id' => Account::StaffFundCash->value]), fn (): bool => ! in_array($advance()?->status, StaffCreditStatus::awaitingDisbursement(), true));
             }
         }
     }
@@ -125,7 +128,7 @@ final class HrmPhase
     private function staffLoans(): void
     {
         $loans = [
-            ['KM_LO', 600000, 4, 'SL1', '2026-07-06 09:00', ['approve' => '2026-07-07 10:00', 'disburse' => '2026-07-08 11:00', 'pay' => ['2026-08-08 12:00', 165000]]],
+            ['KM_LO', 600000, 4, 'SL1', '2026-07-06 09:00', ['approve' => '2026-07-07 10:00', 'finance' => '2026-07-08 10:00', 'disburse' => '2026-07-08 11:00', 'pay' => ['2026-08-08 12:00', 165000]]],
             ['BH_BM', 1000000, 5, 'SL2', '2026-09-09 09:00', ['approve' => '2026-09-10 10:00']],
             ['KS_LO', 400000, 2, 'SL3', '2026-09-11 09:00', []],
         ];
@@ -148,10 +151,13 @@ final class HrmPhase
             }, fn (): bool => $loan() !== null);
 
             if (isset($steps['approve'])) {
-                $this->ctx->timeline->at($steps['approve'], "staff loan {$code} approved", fn () => $this->ctx->api->call($this->hr(), 'POST', "hrm/staff-loans/{$loan()->id}/approve"), fn (): bool => $loan()?->status !== 'pending');
+                $this->ctx->timeline->at($steps['approve'], "staff loan {$code} approved", fn () => $this->ctx->api->call($this->hr(), 'POST', "hrm/staff-loans/{$loan()->id}/approve"), fn (): bool => $loan()?->status !== StaffCreditStatus::Submitted->value);
+            }
+            if (isset($steps['finance'])) {
+                $this->ctx->timeline->at($steps['finance'], "staff loan {$code} finance approved", fn () => $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/staff-loans/{$loan()->id}/finance-approve"), fn (): bool => ! in_array($loan()?->status, [StaffCreditStatus::Submitted->value, ...StaffCreditStatus::reviewed()], true));
             }
             if (isset($steps['disburse'])) {
-                $this->ctx->timeline->at($steps['disburse'], "staff loan {$code} disbursed", fn () => $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/staff-loans/{$loan()->id}/disburse"), fn (): bool => ! in_array($loan()?->status, ['pending', 'approved'], true));
+                $this->ctx->timeline->at($steps['disburse'], "staff loan {$code} disbursed", fn () => $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/staff-loans/{$loan()->id}/disburse"), fn (): bool => ! in_array($loan()?->status, StaffCreditStatus::awaitingDisbursement(), true));
             }
             if (isset($steps['pay'])) {
                 [$at, $payment] = $steps['pay'];
@@ -160,9 +166,16 @@ final class HrmPhase
         }
 
         $reason = 'Dharura ya kifamilia '.Context::marker('SFW1');
-        $this->ctx->timeline->at('2026-08-28 11:00', 'staff fund withdrawal KB_LO2', function () use ($reason): void {
-            $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', 'hrm/staff-fund/withdrawals', ['empl_id' => $this->ctx->staff('KB_LO2')->id, 'amount' => 40000, 'reason' => $reason]);
-        }, fn (): bool => StaffFundWithdrawal::where('reason', $reason)->exists());
+        $claim = fn (): ?StaffFundWithdrawal => StaffFundWithdrawal::where('reason', $reason)->first();
+        $this->ctx->timeline->at('2026-08-28 11:00', 'staff benefit claim KB_LO2 prepared', function () use ($reason): void {
+            $this->ctx->api->call($this->hr(), 'POST', 'hrm/staff-fund/claims', ['empl_id' => $this->ctx->staff('KB_LO2')->id, 'amount' => 40000, 'reason' => $reason]);
+        }, fn (): bool => $claim() !== null);
+        $this->ctx->timeline->at('2026-08-28 14:00', 'staff benefit claim KB_LO2 approved', function () use ($claim): void {
+            $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/staff-fund/claims/{$claim()->id}/approve");
+        }, fn (): bool => in_array($claim()?->status, [StaffFundWithdrawal::STATUS_APPROVED, StaffFundWithdrawal::STATUS_PAID], true));
+        $this->ctx->timeline->at('2026-08-28 15:00', 'staff benefit claim KB_LO2 paid', function () use ($claim): void {
+            $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', "hrm/staff-fund/claims/{$claim()->id}/pay");
+        }, fn (): bool => $claim()?->status === StaffFundWithdrawal::STATUS_PAID);
     }
 
     private function reviews(): void

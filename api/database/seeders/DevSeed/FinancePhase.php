@@ -113,6 +113,18 @@ final class FinancePhase
             $this->ctx->api->call($this->ctx->staff('HQ_HR'), 'POST', 'hrm/commission/calculate', ['period' => self::PAYROLL_PERIOD]);
         }, fn (): bool => CommissionAllocation::whereIn('accounting_period_id', AccountingPeriod::where('company_id', $this->ctx->company->id)->whereDate('period_start', self::PAYROLL_PERIOD.'-01')->pluck('id'))->exists());
 
+        // Spec §21 / §22: commission is paid through its own flow — HR requests, Finance approves and pays on its own date.
+        $june = fn () => CommissionAllocation::whereIn('accounting_period_id', AccountingPeriod::where('company_id', $this->ctx->company->id)->whereDate('period_start', self::PAYROLL_PERIOD.'-01')->pluck('id'))->where('amount', '>', 0);
+        $this->ctx->timeline->at('2026-07-02 09:30', 'commission June 2026 payment requested', function (): void {
+            $this->ctx->api->call($this->ctx->staff('HQ_HR'), 'POST', 'hrm/commission/payments/request', ['period' => self::PAYROLL_PERIOD]);
+        }, fn (): bool => ! $june()->whereIn('payment_status', [CommissionAllocation::STATUS_CALCULATED, CommissionAllocation::STATUS_AWAITING_REQUEST])->exists());
+        $this->ctx->timeline->at('2026-07-04 09:00', 'commission June 2026 approved', function (): void {
+            $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', 'hrm/commission/payments/approve', ['period' => self::PAYROLL_PERIOD]);
+        }, fn (): bool => ! $june()->where('payment_status', CommissionAllocation::STATUS_REQUESTED)->exists());
+        $this->ctx->timeline->at('2026-07-04 10:00', 'commission June 2026 paid', function (): void {
+            $this->ctx->api->call($this->ctx->staff('HQ_FIN1'), 'POST', 'hrm/commission/payments/pay', ['period' => self::PAYROLL_PERIOD, 'ac_id' => 'company']);
+        }, fn (): bool => ! $june()->where('payment_status', CommissionAllocation::STATUS_FINANCE_APPROVED)->exists());
+
         $this->ctx->timeline->at('2026-07-02 10:00', 'payroll June 2026 generated', function (): void {
             $this->ctx->api->call($this->ctx->staff('HQ_HR'), 'POST', 'hrm/payroll/generate', ['period' => self::PAYROLL_PERIOD]);
         }, fn (): bool => $run() !== null);

@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One recovery of a negligence deduction from the commission paid by a payroll (spec §57): the commission of that period,
+ * One recovery of a negligence deduction from a commission payment (spec §57) — or, legacy, from the commission of a payroll: the commission of that period,
  * the amount recovered into the PRINCIPAL A/C and the balance still outstanding afterwards.
  */
 class NegligenceRecovery extends Model
@@ -34,6 +34,11 @@ class NegligenceRecovery extends Model
     public function payrollRun(): BelongsTo
     {
         return $this->belongsTo(PayrollRun::class);
+    }
+
+    public function commissionAllocation(): BelongsTo
+    {
+        return $this->belongsTo(CommissionAllocation::class);
     }
 
     public function salaryPayment(): BelongsTo

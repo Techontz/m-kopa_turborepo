@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api\V1\Hrm;
 
 use App\Enums\Account;
+use App\Enums\StaffCreditStatus;
 use App\Http\Requests\Api\Hrm\StaffRequest;
 use App\Http\Requests\Api\Hrm\StaffSalaryRequest;
+use App\Http\Resources\Api\V1\Hrm\SalaryChangeRequestResource;
 use App\Http\Resources\Api\V1\Hrm\SalaryPaymentResource;
 use App\Http\Resources\Api\V1\Hrm\StaffLoanResource;
 use App\Http\Resources\Api\V1\Hrm\StaffResource;
@@ -13,8 +15,10 @@ use App\Models\AuditLog;
 use App\Models\Branch;
 use App\Models\Employee;
 use App\Models\NegligenceDeduction;
+use App\Models\SalaryChangeRequest;
 use App\Models\StaffAllowance;
 use App\Services\Hrm\EmployeeNumberGenerator;
+use App\Services\Hrm\SalaryChanges;
 use App\Services\Hrm\StaffFund;
 use App\Services\Hrm\StaffPasswordReset;
 use App\Services\Ledger;
@@ -107,7 +111,7 @@ class StaffController extends HrmController
             'allowances' => fn ($query) => $query->latest('id'),
             'deductions' => fn ($query) => $query->latest('id'),
             'salaryAdvances' => fn ($query) => $query->latest('id'),
-            'staffLoans' => fn ($query) => $query->whereNotIn('status', ['pending'])->withSum('payments', 'amount')->latest('id'),
+            'staffLoans' => fn ($query) => $query->whereNotIn('status', [StaffCreditStatus::Submitted->value])->withSum('payments', 'amount')->latest('id'),
             'salaryPayments' => fn ($query) => $query->latest('id'),
         ]);
 
@@ -128,6 +132,7 @@ class StaffController extends HrmController
             'deductions' => $employee->deductions->map($amountRow),
             'salary_advances' => StaffSalaryAdvanceResource::collection($employee->salaryAdvances)->resolve(),
             'staff_loans' => StaffLoanResource::collection($employee->staffLoans)->resolve(),
+            'salary_changes' => SalaryChangeRequestResource::collection(SalaryChangeRequest::where('employee_id', $employee->id)->with(['employee', 'requester', 'approver', 'rejecter'])->latest('id')->limit(20)->get())->resolve(),
             'salary_payments' => SalaryPaymentResource::collection($employee->salaryPayments)->resolve(),
             'staff_fund_balance' => app(Ledger::class)->balance($employee->company_id, Account::StaffFund, employee: $employee->id),
             'staff_fund_benefit' => app(StaffFund::class)->benefitRecord((int) $employee->company_id, $employee->id),
@@ -192,25 +197,29 @@ class StaffController extends HrmController
     }
 
     /**
-     * Salary structure (STAFF COMMISSION §3). Salary can not be changed while the employee is on an
-     * approved payroll that has not been paid (§16 "Salary haiwezi kubadilishwa baada ya approval").
+     * Salary structure (STAFF COMMISSION §3). Salary can not be changed while the employee is on an approved payroll that has
+     * not been paid (§16 "Salary haiwezi kubadilishwa baada ya approval"). Spec §32: a change of an existing salary's pay terms
+     * (and any change of the proposer's own salary) becomes a request approved by Finance / Admin ({@see SalaryChanges}); the
+     * first salary of a new employee and banking details are saved directly.
      */
-    public function salary(StaffSalaryRequest $request, Employee $employee): JsonResponse
+    public function salary(StaffSalaryRequest $request, Employee $employee, SalaryChanges $changes): JsonResponse
     {
         $this->authorizeAny('hrm.manage', 'payroll.approve');
         $this->ensureVisible($employee);
 
-        $locked = $employee->salaryInfo !== null
-            && (float) $employee->salaryInfo->salary !== (float) $request->input('salary')
-            && DB::table('payroll_items')->join('payroll_runs', 'payroll_runs.id', '=', 'payroll_items.payroll_run_id')
-                ->where('payroll_items.employee_id', $employee->id)->where('payroll_runs.status', 'approved')->exists();
+        $values = $request->salaryData();
+        if ($changes->isLocked($employee, $values)) {
+            return $this->message(SalaryChanges::LOCKED_MESSAGE, 422, ['errors' => ['salary' => [SalaryChanges::LOCKED_MESSAGE]]]);
+        }
 
-        if ($locked) {
-            return $this->message('Salary can not be changed after payroll approval', 422, ['errors' => ['salary' => ['Salary can not be changed after payroll approval']]]);
+        if ($changes->requiresApproval($employee, $values, $this->currentEmployee())) {
+            $change = $changes->propose($employee, $values, $this->currentEmployee(), $request->string('reason')->trim()->toString() ?: null);
+
+            return $this->message('Salary change submitted for approval', 202, ['data' => ['salary_change_id' => $change->id, 'approval_stage' => $change->approval_stage]]);
         }
 
         $before = $employee->salaryInfo?->only(['salary', 'salary_type', 'commission_eligible', 'payment_method', 'account_number']);
-        $salary = $employee->salaryInfo()->updateOrCreate(['employee_id' => $employee->id], $request->salaryData());
+        $salary = $employee->salaryInfo()->updateOrCreate(['employee_id' => $employee->id], $values);
         $this->audit('EmployeeSalary.saved', $employee, $before, $salary->only(['salary', 'salary_type', 'commission_eligible', 'payment_method', 'account_number']));
 
         return $this->message('Salary Information Saved successfully');

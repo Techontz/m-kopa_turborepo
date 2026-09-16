@@ -4,10 +4,10 @@ namespace App\Services\Hrm;
 
 use App\Enums\Account;
 use App\Enums\SalaryType;
+use App\Enums\StaffCreditStatus;
 use App\Models\CommissionAllocation;
 use App\Models\Employee;
 use App\Models\HrmSetting;
-use App\Models\NegligenceDeduction;
 use App\Models\NegligenceRecovery;
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
@@ -26,8 +26,13 @@ use Illuminate\Validation\ValidationException;
 /**
  * Monthly payroll engine (STAFF COMMISSION §4, §10–11, §16).
  *
- *   Gross     = Base Salary + Commission + Allowance
- *   Take Home = Gross − (Negligence + Staff Fund + Salary Advance + Deduction + Loan Restoration)
+ *   Gross     = Base Salary + Allowance
+ *   Take Home = Gross − (Staff Fund + Salary Advance + Deduction + Loan Restoration)
+ *
+ * Spec §21 / §22 (commission payment flow): commission is NOT a payroll column any more — each employee's commission of a
+ * closed period is requested by HR, approved and paid by Finance on its own date ({@see CommissionPayments}), and negligence is
+ * recovered from that payment. LEGACY: runs generated before that change carry commission (and its negligence recovery) in
+ * their lines; their allocations are linked to the run (status `payroll`) and approve/pay still handle them exactly as before.
  *
  * Workflow: HR generates and approves (payroll.approve) → Finance pays (payroll.pay).
  *
@@ -51,8 +56,8 @@ use Illuminate\Validation\ValidationException;
  * staff fund share (staff_fund_percent, 20 %) is withheld from it and goes into the STAFF FUND A/C as real cash — basic
  * 1,000,000: expense 1,000,000, staff receives 800,000, fund receives 200,000. There is no separate company contribution.
  *
- * Spec §23 — approved negligence is recovered from the COMMISSION of the line only (never from salary), oldest first; what
- * the commission cannot cover is carried forward to the next payroll ({@see NegligenceDeductions}).
+ * Spec §23 — negligence is never deducted from salary. It is recovered from commission payments ({@see CommissionPayments});
+ * only legacy runs that still carry commission recover it from the commission of their lines ({@see NegligenceDeductions}).
  *
  * Branch staff and zone managers are paid from the INTEREST A/C of their branch, HQ staff from the
  * COMPANY ACCOUNT (Documents: "Matumizi na Mishahara inatoka kwenye interest account", "HQ matumizi yake
@@ -80,14 +85,6 @@ class PayrollEngine
     public function preview(int $companyId, CarbonImmutable $month): Collection
     {
         $settings = HrmSetting::forCompany($companyId);
-        $negligence = NegligenceDeduction::recoverable()->where('company_id', $companyId)->get()
-            ->groupBy('employee_id')
-            ->map(fn (Collection $deductions): float => round((float) $deductions->sum(fn (NegligenceDeduction $deduction): float => $deduction->outstandingAmount()), 2));
-        $period = $this->commission->closedPeriod($companyId, $month);
-        $commissions = $period === null ? collect() : CommissionAllocation::where('accounting_period_id', $period->id)
-            ->selectRaw('employee_id, SUM(amount) AS total')
-            ->groupBy('employee_id')
-            ->pluck('total', 'employee_id');
 
         $employees = Employee::staff()->where('company_id', $companyId)
             ->where('status', 'active')
@@ -95,10 +92,10 @@ class PayrollEngine
             ->with([
                 'salaryInfo',
                 'branch',
-                'salaryAdvances' => fn ($query) => $query->where('status', 'disbursed')->orderBy('id'),
+                'salaryAdvances' => fn ($query) => $query->whereIn('status', StaffCreditStatus::recovering())->orderBy('id'),
                 'allowances' => fn ($query) => $query->payableIn($month)->orderBy('id'),
                 'deductions' => fn ($query) => $query->where('status', 'active'),
-                'staffLoans' => fn ($query) => $query->where('status', 'active')->withSum('payments', 'amount')->orderBy('id'),
+                'staffLoans' => fn ($query) => $query->whereIn('status', StaffCreditStatus::recovering())->withSum('payments', 'amount')->orderBy('id'),
             ])
             ->orderBy('id')
             ->get();
@@ -106,14 +103,15 @@ class PayrollEngine
         return $employees->map(fn (Employee $employee): array => $this->line(
             $employee,
             (float) $settings->staff_fund_percent,
-            (float) ($commissions[$employee->id] ?? 0),
-            (float) ($negligence[$employee->id] ?? 0),
+            0.0,
+            0.0,
         ));
     }
 
     /**
-     * STEP 1 "POST /payroll/generate": (re)build the draft payroll for a month. Commission is calculated
-     * first when the month has been closed by accounting.
+     * STEP 1 "POST /payroll/generate": (re)build the draft payroll for a month. Commission is not part of it (spec §21 / §22:
+     * it is paid through {@see CommissionPayments}); regenerating a draft that still carried commission (legacy) releases its
+     * allocations to the commission payment flow.
      */
     public function generate(int $companyId, CarbonImmutable $month, Employee $preparer): PayrollRun
     {
@@ -124,9 +122,6 @@ class PayrollEngine
 
         return DB::transaction(function () use ($companyId, $month, $preparer, $existing): PayrollRun {
             $period = $this->commission->closedPeriod($companyId, $month);
-            if ($period !== null && ! $this->commission->isLocked($period)) {
-                $this->commission->calculate($companyId, $month, $preparer);
-            }
 
             $run = $existing ?? PayrollRun::create(['company_id' => $companyId, 'period' => $month->startOfMonth()->toDateString(), 'status' => PayrollRun::STATUS_DRAFT]);
             $run->items()->delete();
@@ -138,9 +133,8 @@ class PayrollEngine
                 StaffAllowance::whereIn('id', $line['allowance_ids'])->where('status', StaffAllowance::STATUS_APPROVED)->update(['payroll_run_id' => $run->id]);
             }
 
-            if ($period !== null) {
-                CommissionAllocation::where('accounting_period_id', $period->id)->update(['payroll_run_id' => $run->id]);
-            }
+            CommissionAllocation::where('payroll_run_id', $run->id)->where('payment_status', CommissionAllocation::STATUS_PAYROLL)
+                ->update(['payroll_run_id' => null, 'payment_status' => CommissionAllocation::STATUS_CALCULATED]);
 
             $run->update([
                 'prepared_by' => $preparer->id,
@@ -168,6 +162,9 @@ class PayrollEngine
         }
         if (! $run->items()->exists()) {
             throw ValidationException::withMessages(['status' => 'Payroll has no staff to approve']);
+        }
+        if ((float) $run->items()->sum('commission') > 0 && ! CommissionAllocation::where('payroll_run_id', $run->id)->exists()) {
+            throw ValidationException::withMessages(['status' => 'This draft payroll still carries commission, which is now paid through the commission payment flow. Generate the payroll again before approving it.']);
         }
 
         DB::transaction(function () use ($run, $approver): void {
@@ -320,11 +317,11 @@ class PayrollEngine
         $paying = $this->payingAccount($item);
         $gross = (float) $item->gross;
 
-        $advances = StaffSalaryAdvance::where('employee_id', $employee->id)->where('status', 'disbursed')->orderBy('id')->get();
-        $loans = StaffLoan::where('employee_id', $employee->id)->where('status', 'active')->withSum('payments', 'amount')->orderBy('id')->get();
+        $advances = StaffSalaryAdvance::where('employee_id', $employee->id)->whereIn('status', StaffCreditStatus::recovering())->orderBy('id')->get();
+        $loans = StaffLoan::where('employee_id', $employee->id)->whereIn('status', StaffCreditStatus::recovering())->withSum('payments', 'amount')->orderBy('id')->get();
         $deductions = StaffDeduction::where('employee_id', $employee->id)->where('status', 'active')->orderBy('id')->get();
 
-        $recoveries = $this->negligence->recover($employee->id, (float) $item->negligence, (float) $item->commission, $run);
+        $recoveries = $this->negligence->recover($employee->id, (float) $item->negligence, (float) $item->commission, $run->period, $run);
         $negligenceTaken = round((float) $recoveries->sum('amount'), 2);
 
         $lines = [['account' => Account::StaffPayable, 'employee' => $employee->id, 'debit' => $gross]];
@@ -343,7 +340,7 @@ class PayrollEngine
             $advanceLeft = round($advanceLeft - $portion, 2);
             $advanceTaken += $portion;
             $recovered = round((float) $advance->recovered_amount + $portion, 2);
-            $advance->update(['recovered_amount' => $recovered, 'status' => $recovered >= (float) $advance->amount ? 'done' : 'disbursed']);
+            $advance->update($this->credit->advanceRecoveryValues($advance, $recovered));
 
             $lines[] = ['account' => Account::StaffAdvanceReceivable, 'employee' => $employee->id, 'credit' => $portion];
             if ($advance->source_account === Account::Company->value) {

@@ -14,7 +14,7 @@ export interface CommissionBranchStatus {
 }
 
 /** Accounting status of a month's commission (API `allocation_status`). */
-export type AllocationStatus = "NOT_CALCULATED" | "ALLOCATED" | "LOCKED_IN_PAYROLL" | "LOCKED_BY_DIVIDEND_DECLARATION";
+export type AllocationStatus = "NOT_CALCULATED" | "ALLOCATED" | "LOCKED_IN_PAYROLL" | "LOCKED_BY_DIVIDEND_DECLARATION" | "LOCKED_IN_COMMISSION_PAYMENT";
 
 /** "profit_allocation" = posted Dr PROFIT ACCOUNT / Cr COMMISSION PAYABLE; "legacy_expense" = stored before that rule (June 2026). */
 export type CommissionRule = "profit_allocation" | "legacy_expense" | null;
@@ -57,6 +57,8 @@ export function periodBadges(report: CommissionReportFlags): Badgeable[] {
   ];
   if (report.allocation_status === "LOCKED_BY_DIVIDEND_DECLARATION") {
     badges.push({ tone: "info", label: "LOCKED BY DIVIDEND DECLARATION" });
+  } else if (report.allocation_status === "LOCKED_IN_COMMISSION_PAYMENT") {
+    badges.push({ tone: "info", label: "LOCKED (FINALISED FOR PAYMENT)" });
   } else if (report.locked) {
     badges.push({ tone: "info", label: "LOCKED (IN APPROVED PAYROLL)" });
   }
@@ -99,4 +101,50 @@ export function calculateButtonState(report: CommissionReportFlags | undefined, 
   const title = pending ? undefined : report && !report.period_closed ? CLOSE_PERIOD_TOOLTIP : (report?.calculate_blocked_reason ?? undefined);
 
   return { disabled: true, className: "btn btn-sm btn-secondary mf-btn-disabled", title };
+}
+
+/**
+ * Commission payment flow per employee (spec §21 / §22 / §49): Calculated → Awaiting Payment Request → Payment Requested →
+ * Finance Approved → Paid. "payroll" = legacy commission carried by a payroll run before the flow existed.
+ */
+export type CommissionPaymentStatus = "calculated" | "awaiting_request" | "requested" | "finance_approved" | "paid" | "payroll";
+
+export interface CommissionPaymentFlags {
+  status: CommissionPaymentStatus;
+  calculated_amount: number;
+  payroll_run_id?: number | null;
+}
+
+export function paymentStatusTone(status: CommissionPaymentStatus): BadgeTone {
+  switch (status) {
+    case "calculated":
+      return "warning";
+    case "awaiting_request":
+      return "info";
+    case "requested":
+      return "danger";
+    case "finance_approved":
+      return "primary";
+    case "paid":
+      return "success";
+    default:
+      return "default";
+  }
+}
+
+/** HR (payroll.approve) may request payment of a calculated or finalised commission with an amount to pay. */
+export function canRequestPayment(row: CommissionPaymentFlags): boolean {
+  return (row.status === "calculated" || row.status === "awaiting_request") && row.calculated_amount > 0 && !row.payroll_run_id;
+}
+
+/** Counts of rows per bulk action of the month: what HR can finalise / request and Finance can approve / pay. */
+export function bulkCounts(rows: CommissionPaymentFlags[] | undefined): { finalize: number; request: number; approve: number; pay: number } {
+  const list = rows ?? [];
+
+  return {
+    finalize: list.filter((row) => row.status === "calculated" && !row.payroll_run_id).length,
+    request: list.filter(canRequestPayment).length,
+    approve: list.filter((row) => row.status === "requested").length,
+    pay: list.filter((row) => row.status === "finance_approved").length,
+  };
 }

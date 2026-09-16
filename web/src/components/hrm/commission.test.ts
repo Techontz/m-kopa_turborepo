@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CLOSE_PERIOD_TOOLTIP, allocationStatusLabel, branchEligibilityBadge, calculateButtonState, canCalculateCommission, periodBadges } from "./commission";
+import { CLOSE_PERIOD_TOOLTIP, allocationStatusLabel, branchEligibilityBadge, bulkCounts, calculateButtonState, canCalculateCommission, canRequestPayment, paymentStatusTone, periodBadges } from "./commission";
 
 describe("commission report helpers", () => {
   it("labels zero profit as no distributable profit, not a loss", () => {
@@ -59,5 +59,33 @@ describe("Calculate Commission button state", () => {
   it("is disabled while loading or while a calculation is running", () => {
     expect(calculateButtonState(undefined).disabled).toBe(true);
     expect(calculateButtonState(closedMay, true).disabled).toBe(true);
+  });
+});
+
+describe("commission payment flow helpers", () => {
+  it("shows the payment lock badge once HR finalised the month", () => {
+    expect(periodBadges({ period_closed: true, calculated: true, locked: true, allocation_status: "LOCKED_IN_COMMISSION_PAYMENT", rule: "profit_allocation" }).map((badge) => badge.label)).toEqual(["CALCULATED", "LOCKED (FINALISED FOR PAYMENT)", "ALLOCATED FROM PROFIT"]);
+  });
+
+  it("lets HR request only unpaid commission with an amount, never legacy payroll commission", () => {
+    expect(canRequestPayment({ status: "calculated", calculated_amount: 75000 })).toBe(true);
+    expect(canRequestPayment({ status: "awaiting_request", calculated_amount: 75000 })).toBe(true);
+    expect(canRequestPayment({ status: "awaiting_request", calculated_amount: 0 })).toBe(false);
+    expect(canRequestPayment({ status: "requested", calculated_amount: 75000 })).toBe(false);
+    expect(canRequestPayment({ status: "payroll", calculated_amount: 75000, payroll_run_id: 3 })).toBe(false);
+  });
+
+  it("counts the bulk actions of the month and colours each status", () => {
+    const rows = [
+      { status: "calculated" as const, calculated_amount: 10 },
+      { status: "awaiting_request" as const, calculated_amount: 10 },
+      { status: "requested" as const, calculated_amount: 10 },
+      { status: "finance_approved" as const, calculated_amount: 10 },
+      { status: "paid" as const, calculated_amount: 10 },
+    ];
+    expect(bulkCounts(rows)).toEqual({ finalize: 1, request: 2, approve: 1, pay: 1 });
+    expect(bulkCounts(undefined)).toEqual({ finalize: 0, request: 0, approve: 0, pay: 0 });
+    expect(paymentStatusTone("paid")).toBe("success");
+    expect(paymentStatusTone("payroll")).toBe("default");
   });
 });

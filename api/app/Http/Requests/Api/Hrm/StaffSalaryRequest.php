@@ -38,6 +38,7 @@ class StaffSalaryRequest extends FormRequest
             'salary_type' => ['required', Rule::enum(SalaryType::class)],
             'commission_eligible' => ['required', 'boolean'],
             'payment_method' => ['required', Rule::in(['bank', 'mobile'])],
+            'reason' => ['nullable', 'string', 'max:1000'],
         ];
     }
 

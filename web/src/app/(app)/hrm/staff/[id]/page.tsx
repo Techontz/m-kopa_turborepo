@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { SALARY_TYPES, statusTone } from "@/components/hrm/common";
+import { StaffCreditStatus } from "@/components/hrm/StaffCreditActions";
 import { StaffForm, staffToForm, type StaffFormValues } from "@/components/hrm/StaffForm";
 import type { AmountItem, StaffDetail } from "@/components/hrm/types";
 import { Badge } from "@/components/ui/Badge";
@@ -188,6 +189,21 @@ export default function StaffProfilePage() {
             ]}
           />
           <p className="m-t-10 mb-0">Staff Fund balance: <strong>{money(staff.staff_fund_balance)}</strong></p>
+          <h6 className="m-t-20">Salary changes (Finance / Admin approval)</h6>
+          <DataTable
+            rows={staff.salary_changes}
+            searchable={false}
+            rowKey={(row) => row.id}
+            columns={[
+              { key: "created_at", header: "Proposed" },
+              { key: "requested_by_name", header: "By" },
+              { key: "current_salary", header: "Current", render: (row) => money(row.current_salary) },
+              { key: "proposed_salary", header: "Proposed", render: (row) => money(row.proposed_salary) },
+              { key: "approval_stage", header: "Approver", render: (row) => (row.approval_stage === "admin" ? "Admin" : "Finance") },
+              { key: "status", header: "Status", render: (row) => <Badge tone={statusTone(row.status)}>{row.status.toUpperCase()}</Badge> },
+              { key: "decided", header: "Decision", sortable: false, render: (row) => (row.approved_by_name ? `${row.approved_by_name} (${row.approved_at})` : row.rejected_by_name ? `${row.rejected_by_name} (${row.rejected_at})${row.rejection_reason ? `: ${row.rejection_reason}` : ""}` : <Link href="/hrm/salary-changes">Waiting</Link>) },
+            ]}
+          />
         </Card>
       )}
 
@@ -202,7 +218,7 @@ export default function StaffProfilePage() {
             columns={[
               { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
               { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-              { key: "status", header: "status", render: (row) => <Badge tone={row.status === "pending" ? "danger" : row.status === "rejected" ? "warning" : "success"}>{row.status}</Badge> },
+              { key: "status", header: "status", value: (row) => row.status_label, render: (row) => <StaffCreditStatus row={row} /> },
               { key: "created_at", header: "Date" },
             ]}
           />
@@ -223,7 +239,7 @@ export default function StaffProfilePage() {
               { key: "restoration", header: "Restoration", render: (row) => money(row.restoration) },
               { key: "paid_amount", header: "Paid Amount", render: (row) => money(row.paid_amount) },
               { key: "remaining_amount", header: "Remain Amount", render: (row) => money(row.remaining_amount) },
-              { key: "status", header: "Status", render: (row) => <Badge tone="success">{row.status === "active" ? "Approved" : row.status}</Badge> },
+              { key: "status", header: "Status", value: (row) => row.status_label, render: (row) => <StaffCreditStatus row={row} /> },
               { key: "created_at", header: "Date" },
             ]}
           />

@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { allocationStatusLabel, branchEligibilityBadge, calculateButtonState, periodBadges, type AllocationStatus, type CommissionRule, type ProfitStatus } from "@/components/hrm/commission";
+import { CommissionPayments } from "@/components/hrm/CommissionPayments";
 import { currentMonth, Stat } from "@/components/hrm/common";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -125,7 +126,7 @@ export default function CommissionPage() {
         </div>
         {report?.period_closed && (
           <p className="text-muted small mb-0 mt-2">
-            Commission is a profit allocation: calculating posts Dr PROFIT ACCOUNT / Cr COMMISSION PAYABLE per branch (dated today); payroll approval moves it to staff payable.
+            Commission is a profit allocation: calculating posts Dr PROFIT ACCOUNT / Cr COMMISSION PAYABLE per branch (dated today); it is then paid through the commission payment flow below, not in the payroll.
             {report.rule === "legacy_expense" && " This month was calculated before that rule and is recognised as commission expense by its payroll."}
             {" "}Status: <b>{allocationStatusLabel(report.allocation_status)}</b>
             {(report.journal_references ?? []).length > 0 && <> · Journals: {(report.journal_references ?? []).map((entry) => entry.reference).join(", ")}</>}
@@ -133,7 +134,7 @@ export default function CommissionPage() {
             The zone manager&apos;s share is always carved out of each branch pool and staff share the remaining 95%. Without an eligible zone manager that share returns to profit; a branch with no eligible staff allocates nothing and its whole pool (including the zone manager share) returns to profit (no journal, stays in the Profit Account and in the dividend base).
           </p>
         )}
-        {report?.period_closed && !report.can_calculate && report.calculate_blocked_reason && report.allocation_status !== "LOCKED_IN_PAYROLL" && (
+        {report?.period_closed && !report.can_calculate && report.calculate_blocked_reason && report.allocation_status !== "LOCKED_IN_PAYROLL" && report.allocation_status !== "LOCKED_IN_COMMISSION_PAYMENT" && (
           <div className="alert alert-warning mt-2 mb-0">{report.calculate_blocked_reason}</div>
         )}
         {report && !report.period_closed && (
@@ -186,6 +187,8 @@ export default function CommissionPage() {
               ]}
             />
           </Card>
+
+          {report.calculated && <CommissionPayments period={period} />}
 
           <Card title="Zone Manager Commission">
             <DataTable

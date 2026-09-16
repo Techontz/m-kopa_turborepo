@@ -600,7 +600,8 @@ class LedgerIntegrity
     }
 
     /**
-     * COMMISSION PAYABLE = Σ journal-posted commission allocations not yet recognised in an approved payroll (D1).
+     * COMMISSION PAYABLE = Σ journal-posted commission allocations not yet paid by the commission payment flow (spec §22) nor
+     * recognised in an approved payroll (legacy, D1).
      *
      * @return Check
      */
@@ -610,12 +611,13 @@ class LedgerIntegrity
         $pending = round((float) CommissionAllocation::query()
             ->where('company_id', $companyId)
             ->whereNotNull('journal_entry_id')
+            ->where('payment_status', '!=', CommissionAllocation::STATUS_PAID)
             ->where(fn ($query) => $query->whereNull('payroll_run_id')->orWhereHas('payrollRun', fn ($run) => $run->where('status', PayrollRun::STATUS_DRAFT)))
             ->sum('amount'), 2);
         $ok = abs($ledger - $pending) < self::TOLERANCE;
 
-        return $this->check('commission_payable', 'Commission payable = allocated commission not yet in an approved payroll', $ok ? self::PASS : self::FAIL,
-            $ok ? 'Commission payable agrees with the allocations awaiting payroll approval.' : 'Commission payable differs from allocations awaiting payroll by '.$this->money($ledger - $pending).'.',
+        return $this->check('commission_payable', 'Commission payable = allocated commission not yet paid', $ok ? self::PASS : self::FAIL,
+            $ok ? 'Commission payable agrees with the allocations awaiting payment.' : 'Commission payable differs from allocations awaiting payment by '.$this->money($ledger - $pending).'.',
             ['ledger' => $ledger, 'allocations_pending_payroll' => $pending, 'difference' => round($ledger - $pending, 2)]);
     }
 
@@ -901,7 +903,7 @@ class LedgerIntegrity
     private function reserveUntouchedByProfitChain(int $companyId): array
     {
         $types = array_map(fn (TransactionType $type): string => $type->value, [
-            TransactionType::MonthEndClosing, TransactionType::HqProfitHold, TransactionType::CommissionAllocation,
+            TransactionType::MonthEndClosing, TransactionType::HqProfitHold, TransactionType::CommissionAllocation, TransactionType::CommissionPayment,
             TransactionType::PayrollRecognition, TransactionType::PayrollPayment, TransactionType::DividendDeclaration,
             TransactionType::ProfitReinvestment, TransactionType::DividendPayment,
         ]);

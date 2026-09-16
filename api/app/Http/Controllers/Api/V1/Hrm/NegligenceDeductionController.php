@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * HRM → Negligence / Loss Deductions (spec §23, §57): HR creates → Finance approves → payroll recovers it from commission only,
+ * HRM → Negligence / Loss Deductions (spec §23, §57): HR creates → Finance approves → the commission payment recovers it,
  * carrying any balance forward to the next commission.
  */
 class NegligenceDeductionController extends HrmController
@@ -59,6 +59,7 @@ class NegligenceDeductionController extends HrmController
                 'amount' => (float) $recovery->amount,
                 'outstanding_after' => (float) $recovery->outstanding_after,
                 'salary_payment_id' => $recovery->salary_payment_id,
+                'commission_allocation_id' => $recovery->commission_allocation_id,
             ])->values()->all(),
             ...$this->duties->flags([$deduction->created_by, $deduction->employee_id], $this->currentEmployee(), $deduction->status === NegligenceDeduction::STATUS_PENDING, $canApprove, workflow: ApprovalPolicy::PAYROLL),
         ])]);

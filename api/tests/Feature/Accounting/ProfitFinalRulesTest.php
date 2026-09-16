@@ -341,9 +341,9 @@ class ProfitFinalRulesTest extends TestCase
         $this->assertEquals([9050000, 950000], [(float) $declaration->base_amount, (float) $declaration->commission_amount]);
         $this->assertNotNull($period->fresh()->commission_calculated_at);
 
-        // Payroll generation does not recalculate the locked month.
+        // Payroll generation does not recalculate the locked month, and no longer carries commission (spec §21 / §22).
         $run = app(PayrollEngine::class)->generate($companyId, $this->july(), $this->admin);
-        $this->assertEquals(950000, $run->items()->sum('commission'));
+        $this->assertEquals(0, $run->items()->sum('commission'));
         $this->assertSame($allocations, CommissionAllocation::count());
         $this->assertSame(1, JournalEntry::where('transaction_type', TransactionType::CommissionAllocation->value)->count());
         $this->assertSame('pass', $this->integrity()['profit_distribution']['status']);

@@ -6,10 +6,12 @@ use App\Http\Controllers\Api\V1\Hrm\CategoryController;
 use App\Http\Controllers\Api\V1\Hrm\CommissionController;
 use App\Http\Controllers\Api\V1\Hrm\DeductionController;
 use App\Http\Controllers\Api\V1\Hrm\LeaveController;
+use App\Http\Controllers\Api\V1\Hrm\MyStaffCreditController;
 use App\Http\Controllers\Api\V1\Hrm\NegligenceDeductionController;
 use App\Http\Controllers\Api\V1\Hrm\PayrollController;
 use App\Http\Controllers\Api\V1\Hrm\PerformanceController;
 use App\Http\Controllers\Api\V1\Hrm\SalaryAdvanceController;
+use App\Http\Controllers\Api\V1\Hrm\SalaryChangeController;
 use App\Http\Controllers\Api\V1\Hrm\SettingController;
 use App\Http\Controllers\Api\V1\Hrm\StaffController;
 use App\Http\Controllers\Api\V1\Hrm\StaffFundController;
@@ -80,6 +82,7 @@ Route::prefix('hrm')->name('hrm.')->group(function (): void {
         Route::get('staff-loans/active', 'active')->name('staff-loans.active');
         Route::post('staff-loans', 'store')->name('staff-loans.store');
         Route::post('staff-loans/{loan}/approve', 'approve')->name('staff-loans.approve');
+        Route::post('staff-loans/{loan}/finance-approve', 'financeApprove')->name('staff-loans.finance-approve');
         Route::post('staff-loans/{loan}/reject', 'reject')->name('staff-loans.reject');
         Route::post('staff-loans/{loan}/disburse', 'disburse')->name('staff-loans.disburse');
         Route::post('staff-loans/{loan}/pay', 'pay')->name('staff-loans.pay');
@@ -89,8 +92,23 @@ Route::prefix('hrm')->name('hrm.')->group(function (): void {
         Route::get('salary-advances', 'index')->name('salary-advances.index');
         Route::post('salary-advances', 'store')->name('salary-advances.store');
         Route::post('salary-advances/{advance}/approve', 'approve')->name('salary-advances.approve');
+        Route::post('salary-advances/{advance}/finance-approve', 'financeApprove')->name('salary-advances.finance-approve');
         Route::post('salary-advances/{advance}/reject', 'reject')->name('salary-advances.reject');
         Route::post('salary-advances/{advance}/disburse', 'disburse')->name('salary-advances.disburse');
+    });
+
+    Route::controller(MyStaffCreditController::class)->group(function (): void {
+        Route::get('my/staff-credit-categories', 'categories')->name('my.staff-credit-categories');
+        Route::get('my/staff-loans', 'loans')->name('my.staff-loans.index');
+        Route::post('my/staff-loans', 'storeLoan')->name('my.staff-loans.store');
+        Route::get('my/salary-advances', 'advances')->name('my.salary-advances.index');
+        Route::post('my/salary-advances', 'storeAdvance')->name('my.salary-advances.store');
+    });
+
+    Route::controller(SalaryChangeController::class)->group(function (): void {
+        Route::get('salary-changes', 'index')->name('salary-changes.index');
+        Route::post('salary-changes/{salaryChange}/approve', 'approve')->name('salary-changes.approve');
+        Route::post('salary-changes/{salaryChange}/reject', 'reject')->name('salary-changes.reject');
     });
 
     Route::controller(PayrollController::class)->group(function (): void {
@@ -102,11 +120,28 @@ Route::prefix('hrm')->name('hrm.')->group(function (): void {
         Route::get('salary-payments/{payment}', 'payslip')->name('salary-payments.show');
     });
 
-    Route::get('commission', [CommissionController::class, 'show'])->name('commission.show');
-    Route::post('commission/calculate', [CommissionController::class, 'calculate'])->name('commission.calculate');
+    Route::controller(CommissionController::class)->group(function (): void {
+        Route::get('commission', 'show')->name('commission.show');
+        Route::post('commission/calculate', 'calculate')->name('commission.calculate');
+        Route::get('commission/payments', 'payments')->name('commission.payments.index');
+        Route::get('commission/mine', 'mine')->name('commission.mine');
+        Route::post('commission/payments/finalize', 'finalize')->name('commission.payments.finalize');
+        Route::post('commission/payments/request', 'requestPayment')->name('commission.payments.request');
+        Route::post('commission/payments/approve', 'approve')->name('commission.payments.approve');
+        Route::post('commission/payments/reject', 'reject')->name('commission.payments.reject');
+        Route::post('commission/payments/pay', 'pay')->name('commission.payments.pay');
+    });
 
     Route::get('staff-fund', [StaffFundController::class, 'show'])->name('staff-fund.show');
-    Route::post('staff-fund/withdrawals', [StaffFundController::class, 'withdraw'])->name('staff-fund.withdraw');
+    Route::controller(StaffFundController::class)->group(function (): void {
+        Route::get('staff-fund/claims', 'claims')->name('staff-fund.claims.index');
+        Route::post('staff-fund/claims', 'withdraw')->name('staff-fund.claims.store');
+        Route::get('staff-fund/entitlements/{employee}', 'entitlement')->name('staff-fund.entitlements.show');
+        Route::post('staff-fund/claims/{claim}/review', 'reviewClaim')->name('staff-fund.claims.review');
+        Route::post('staff-fund/claims/{claim}/approve', 'approveClaim')->name('staff-fund.claims.approve');
+        Route::post('staff-fund/claims/{claim}/reject', 'rejectClaim')->name('staff-fund.claims.reject');
+        Route::post('staff-fund/claims/{claim}/pay', 'payClaim')->name('staff-fund.claims.pay');
+    });
 
     Route::controller(AttendanceController::class)->group(function (): void {
         Route::get('attendance', 'index')->name('attendance.index');

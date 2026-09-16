@@ -354,7 +354,7 @@ class SegregationOfDutiesTest extends TestCase
 
     public function test_staff_loan_requester_and_beneficiary_cannot_approve_and_approver_cannot_disburse(): void
     {
-        $staff = $this->employee('hr');
+        $staff = $this->employee('teller');
         $requester = $this->employee('hr');
         $category = StaffLoanCategory::create(['company_id' => $this->admin->company_id, 'name' => 'SL', 'amount_from' => 1000, 'amount_to' => 10000, 'interest_rate' => 10, 'duration' => 'monthly', 'repayment_from' => 1, 'repayment_to' => 3, 'fee' => 0]);
         $this->actingAs($requester)->postJson('/api/v1/hrm/staff-loans', ['blanch_id' => $staff->branch_id, 'empl_id' => $staff->id, 'category_id' => $category->id, 'loan_amount' => 5000, 'day' => 'monthly', 'session' => 2, 'reason' => 'Fees'])->assertCreated();
@@ -365,8 +365,8 @@ class SegregationOfDutiesTest extends TestCase
         $this->actingAs($staff)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/approve")->assertForbidden();
         $approver = $this->employeeWith('hr', 'payroll.pay');
         $this->actingAs($approver)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/approve")->assertOk();
-        $this->actingAs($approver)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::STAGE_MESSAGE);
-        $this->assertSame('approved', $loan->fresh()->status);
+        $this->actingAs($approver)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/finance-approve")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::STAGE_MESSAGE);
+        $this->assertSame('hr_approved', $loan->fresh()->status);
     }
 
     public function test_teller_cannot_verify_or_confirm_own_bank_deposit(): void

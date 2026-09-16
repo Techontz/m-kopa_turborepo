@@ -4,6 +4,7 @@ namespace App\Services\Approvals;
 
 use App\Enums\Account;
 use App\Enums\LoanStatus;
+use App\Enums\StaffCreditStatus;
 use App\Models\ApprovalPolicy;
 use App\Models\BankTransfer;
 use App\Models\Capital;
@@ -13,10 +14,12 @@ use App\Models\ExpenseRequest;
 use App\Models\FloatTransfer;
 use App\Models\HqTransaction;
 use App\Models\Loan;
+use App\Models\NegligenceDeduction;
 use App\Models\Payment;
 use App\Models\PayrollRun;
 use App\Models\SalaryAdvance;
 use App\Models\ShareIssuanceRequest;
+use App\Models\StaffAllowance;
 use App\Models\StaffLoan;
 use App\Models\StaffSalaryAdvance;
 use App\Models\TellerDeposit;
@@ -34,6 +37,7 @@ use App\Services\PaymentService;
 use App\Services\Shares\ShareIssuance;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 
 /**
  * C6 Pending Approvals: one read-only list of every item waiting for a checker, across the two-step workflows. Each workflow
@@ -44,6 +48,16 @@ use Illuminate\Database\Eloquent\Builder;
  */
 class PendingApprovals
 {
+    /**
+     * Group key of staff allowances waiting for Finance (spec §24 / §58). Approval follows the {@see ApprovalPolicy::PAYROLL} policy.
+     */
+    public const ALLOWANCES = 'hrm.allowance';
+
+    /**
+     * Group key of negligence / loss deductions waiting for Finance (spec §23 / §57). Approval follows the {@see ApprovalPolicy::PAYROLL} policy.
+     */
+    public const NEGLIGENCE_DEDUCTIONS = 'hrm.negligence_deduction';
+
     /**
      * Group key => heading, in display order.
      *
@@ -63,6 +77,8 @@ class PendingApprovals
         ApprovalPolicy::SALARY_ADVANCES => 'Salary Advances',
         ApprovalPolicy::STAFF_CREDIT => 'Staff Loans & Salary Advances',
         ApprovalPolicy::PAYROLL => 'Payroll',
+        self::ALLOWANCES => 'Staff Allowances',
+        self::NEGLIGENCE_DEDUCTIONS => 'Negligence / Loss Deductions',
         ApprovalPolicy::TELLER_DEPOSITS => 'Teller Deposits',
         ApprovalPolicy::BRANCH_RECEIPTS => 'Branch Receipts',
     ];
@@ -138,6 +154,8 @@ class PendingApprovals
             ApprovalPolicy::SALARY_ADVANCES => fn (): ?array => $this->salaryAdvances(),
             ApprovalPolicy::STAFF_CREDIT => fn (): ?array => $this->staffCredit(),
             ApprovalPolicy::PAYROLL => fn (): ?array => $this->payroll(),
+            self::ALLOWANCES => fn (): ?array => $this->allowances(),
+            self::NEGLIGENCE_DEDUCTIONS => fn (): ?array => $this->negligenceDeductions(),
             ApprovalPolicy::TELLER_DEPOSITS => fn (): ?array => $this->tellerDeposits(),
             ApprovalPolicy::BRANCH_RECEIPTS => fn (): ?array => $this->branchReceipts(),
         ];
@@ -423,7 +441,7 @@ class PendingApprovals
                 $stage = $visible[$loan->status->value];
                 $reason = $workflow->segregationBlockedReason($loan, $this->viewer, $stage['earlier']);
 
-                return $this->row(
+                return array_merge($this->row(
                     ApprovalPolicy::LOAN_APPROVALS,
                     $loan->id,
                     $stage['label'].' — '.$loan->loan_number.' '.$loan->customer?->full_name,
@@ -435,7 +453,7 @@ class PendingApprovals
                     $stage['link'],
                     null,
                     true,
-                ) + ['can_approve' => $reason === null, 'approve_blocked_reason' => $reason];
+                ), ['can_approve' => $reason === null, 'approve_blocked_reason' => $reason]);
             })->all();
     }
 
@@ -499,21 +517,19 @@ class PendingApprovals
      */
     private function staffCredit(): ?array
     {
-        if (! $this->canAny('hrm.manage', 'payroll.pay', 'payroll.approve')) {
+        $credit = app(StaffCredit::class);
+        if (! $this->canAny('hrm.manage', 'payroll.pay', 'payroll.approve') && ! $credit->isAdmin($this->viewer)) {
             return null;
         }
 
-        $credit = app(StaffCredit::class);
-        $mayApprove = $this->canAny('hrm.manage', 'payroll.approve');
-        $mayPay = $this->canAny('payroll.pay');
-        $present = function (StaffLoan|StaffSalaryAdvance $row, string $label, float $amount, string $link) use ($credit, $mayApprove, $mayPay): array {
-            $permitted = $row->status === 'pending' ? $mayApprove : $mayPay;
-            $reason = $permitted ? $credit->stepBlockedReason($row, $this->viewer) : null;
+        $labels = ['approve' => 'APPROVE (HR) ', 'admin_approve' => 'APPROVE (ADMIN) ', 'finance_approve' => 'FINANCE APPROVE ', 'disburse' => 'DISBURSE '];
+        $present = function (StaffLoan|StaffSalaryAdvance $row, string $label, float $amount, string $link) use ($credit, $labels): array {
+            $step = $credit->nextStep($row, $this->viewer);
 
-            return $this->row(
+            return array_merge($this->row(
                 ApprovalPolicy::STAFF_CREDIT,
                 $row->id,
-                ($row->status === 'pending' ? 'APPROVE ' : 'DISBURSE ').$label.' — '.$row->employee?->full_name,
+                ($labels[$step['action']] ?? '').$label.' — '.$row->employee?->full_name,
                 $row->branch?->name,
                 $amount,
                 null,
@@ -521,14 +537,14 @@ class PendingApprovals
                 $row->status,
                 $link,
                 null,
-                $permitted,
-            ) + ['can_approve' => $permitted && $reason === null, 'approve_blocked_reason' => $reason];
+                $step['permitted'],
+            ), ['can_approve' => $step['permitted'] && $step['blocked_reason'] === null, 'approve_blocked_reason' => $step['blocked_reason']]);
         };
 
         return [
-            ...$this->access->scope(StaffLoan::query(), $this->viewer)->whereIn('status', ['pending', 'approved'])->with(['employee', 'branch'])->get()
+            ...$this->access->scope(StaffLoan::query(), $this->viewer)->whereIn('status', StaffCreditStatus::awaitingDisbursement())->with(['employee', 'branch'])->get()
                 ->map(fn (StaffLoan $row): array => $present($row, 'STAFF LOAN', (float) ($row->amount_approved ?: $row->amount_applied), '/hrm/staff-loans'))->all(),
-            ...$this->access->scope(StaffSalaryAdvance::query(), $this->viewer)->whereIn('status', ['pending', 'approved'])->with(['employee', 'branch'])->get()
+            ...$this->access->scope(StaffSalaryAdvance::query(), $this->viewer)->whereIn('status', StaffCreditStatus::awaitingDisbursement())->with(['employee', 'branch'])->get()
                 ->map(fn (StaffSalaryAdvance $row): array => $present($row, 'STAFF SALARY ADVANCE', (float) $row->amount, '/hrm/salary-advances'))->all(),
         ];
     }
@@ -560,6 +576,72 @@ class PendingApprovals
                 $this->canAny($row->status === PayrollRun::STATUS_DRAFT ? 'payroll.approve' : 'payroll.pay'),
             ))->all();
     }
+    /**
+     * Staff allowances HR created and Finance has not approved yet. As on the module page: HR or Finance see them, Finance
+     * (`payroll.pay`) approves, and neither the HR creator nor the receiving employee may approve (payroll policy).
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    private function allowances(): ?array
+    {
+        if (! $this->canAny('hrm.manage', 'payroll.pay')) {
+            return null;
+        }
+
+        $permitted = $this->canAny('payroll.pay');
+
+        return $this->access->scope(StaffAllowance::query(), $this->viewer)
+            ->where('status', StaffAllowance::STATUS_PENDING)
+            ->with(['branch', 'employee', 'creator'])
+            ->get()
+            ->map(fn (StaffAllowance $row): array => array_merge($this->row(
+                self::ALLOWANCES,
+                $row->id,
+                'ALLOWANCE ('.strtoupper((string) $row->reason).') '.$row->payroll_period?->format('F Y').' — '.$row->employee?->full_name,
+                $row->branch?->name,
+                (float) $row->amount,
+                $row->creator?->full_name,
+                $row->created_at,
+                $row->status,
+                '/hrm/allowances',
+                [$row->created_by, $row->employee_id],
+                $permitted,
+            ), $this->duties->flags([$row->created_by, $row->employee_id], $this->viewer, true, $permitted, workflow: ApprovalPolicy::PAYROLL)))->all();
+    }
+
+    /**
+     * Negligence / loss deductions HR created and Finance has not approved yet (recovered later from commission only). Same
+     * visibility, permission and segregation rule as the module page.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    private function negligenceDeductions(): ?array
+    {
+        if (! $this->canAny('hrm.manage', 'payroll.pay')) {
+            return null;
+        }
+
+        $permitted = $this->canAny('payroll.pay');
+
+        return $this->access->scope(NegligenceDeduction::query(), $this->viewer)
+            ->where('status', NegligenceDeduction::STATUS_PENDING)
+            ->with(['branch', 'employee', 'creator'])
+            ->get()
+            ->map(fn (NegligenceDeduction $row): array => array_merge($this->row(
+                self::NEGLIGENCE_DEDUCTIONS,
+                $row->id,
+                'NEGLIGENCE / LOSS — '.$row->employee?->full_name.': '.Str::limit((string) $row->reason, 80),
+                $row->branch?->name,
+                (float) $row->amount,
+                $row->creator?->full_name,
+                $row->created_at,
+                $row->status,
+                '/hrm/negligence-deductions',
+                [$row->created_by, $row->employee_id],
+                $permitted,
+            ), $this->duties->flags([$row->created_by, $row->employee_id], $this->viewer, true, $permitted, workflow: ApprovalPolicy::PAYROLL)))->all();
+    }
+
 
     /**
      * @return list<array<string, mixed>>|null

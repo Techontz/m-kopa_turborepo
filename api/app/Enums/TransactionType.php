@@ -46,6 +46,7 @@ enum TransactionType: string
     case MonthEndClosing = 'month_end_closing';
     case HqProfitHold = 'hq_profit_hold';
     case CommissionAllocation = 'commission_allocation';
+    case CommissionPayment = 'commission_payment';
     case ProfitReinvestment = 'profit_reinvestment';
     case DividendDeclaration = 'dividend_declaration';
     case DividendPayment = 'dividend_payment';
@@ -137,7 +138,8 @@ enum TransactionType: string
                 str_starts_with($text, 'HQ 2% HOLD') => self::HqProfitHold,
                 default => null,
             },
-            'CommissionAllocation', 'BranchPeriodResult' => self::CommissionAllocation,
+            'CommissionAllocation' => str_starts_with($text, 'COMMISSION PAYMENT') ? self::CommissionPayment : self::CommissionAllocation,
+            'BranchPeriodResult' => self::CommissionAllocation,
             'DividendDeclaration' => str_starts_with($text, 'PROFIT REINVESTMENT') ? self::ProfitReinvestment : self::DividendDeclaration,
             'DividendPayment' => self::DividendPayment,
             'Saving' => match (true) {

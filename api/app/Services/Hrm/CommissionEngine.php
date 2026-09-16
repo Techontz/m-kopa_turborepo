@@ -42,10 +42,12 @@ use Illuminate\Validation\ValidationException;
  * Commission is a PROFIT ALLOCATION, not an expense (user decision D1). Calculating a closed month posts, per branch, a
  * journal dated today: Dr PROFIT ACCOUNT (branch) / Cr COMMISSION PAYABLE (branch, employee) — source: the branch period
  * result; every allocation row links its journal. Recalculating (while unlocked) reverses the previous allocation journals
- * and posts new ones. Payroll approval then moves COMMISSION PAYABLE to STAFF PAYABLE. Legacy allocations (no journal,
- * June 2026) keep their stored figures and are recognised as COMMISSION EXPENSE by their already approved payroll.
+ * and posts new ones. The commission is then paid through its own flow (spec §21 / §22, {@see CommissionPayments}): HR finalises
+ * and requests payment, Finance approves and pays — Dr COMMISSION PAYABLE / Cr paying account, less recovered negligence.
+ * LEGACY: allocations carried by a payroll run before that flow were moved to STAFF PAYABLE by the payroll approval; allocations
+ * without a journal (June 2026) keep their stored figures and are recognised as COMMISSION EXPENSE.
  *
- * Locks: an approved payroll, a dividend declaration request of the month awaiting approval, or a dividend declaration (C1:
+ * Locks: an approved payroll (legacy), commission finalised for payment, a dividend declaration request of the month awaiting approval, or a dividend declaration (C1:
  * dividends can only be declared after commission is calculated, so the declaration base subtracts the calculated commission and
  * commission can no longer change). Legacy declarations made without calculated commission keep locking the month as booked.
  *
@@ -75,6 +77,8 @@ class CommissionEngine
 
     public const LOCKED_BY_DIVIDEND_MESSAGE = 'Dividends for this period have already been declared from the profit after commission; commission cannot be recalculated.';
 
+    public const LOCKED_BY_PAYMENT_MESSAGE = 'Commission for this period has been finalised for payment and cannot be recalculated.';
+
     public const LOCKED_BY_DIVIDEND_REQUEST_MESSAGE = 'A dividend declaration for this period is awaiting approval; reject it before recalculating commission.';
 
     /** LEGACY only: a declaration booked before C1 without calculated commission distributed the full distributable profit. */
@@ -91,6 +95,9 @@ class CommissionEngine
     public const STATUS_LOCKED_IN_PAYROLL = 'LOCKED_IN_PAYROLL';
 
     public const STATUS_LOCKED_BY_DIVIDEND = 'LOCKED_BY_DIVIDEND_DECLARATION';
+
+    /** HR finalised the period's commission for payment (spec §21 / §22): awaiting request, requested, approved or paid. */
+    public const STATUS_LOCKED_IN_PAYMENT = 'LOCKED_IN_COMMISSION_PAYMENT';
 
     public function __construct(private readonly Ledger $ledger) {}
 
@@ -166,6 +173,7 @@ class CommissionEngine
             'rule' => $rule,
             'allocation_status' => match (true) {
                 $lockReason === self::LOCKED_MESSAGE => self::STATUS_LOCKED_IN_PAYROLL,
+                $lockReason === self::LOCKED_BY_PAYMENT_MESSAGE => self::STATUS_LOCKED_IN_PAYMENT,
                 $lockReason === self::LOCKED_BY_DIVIDEND_REQUEST_MESSAGE => $base['calculated'] ? self::STATUS_ALLOCATED : self::STATUS_NOT_CALCULATED,
                 $lockReason !== null => self::STATUS_LOCKED_BY_DIVIDEND,
                 $base['calculated'] => self::STATUS_ALLOCATED,
@@ -251,8 +259,11 @@ class CommissionEngine
                         'employee_id' => $line['employee_id'],
                         'kind' => CommissionAllocation::KIND_BRANCH_STAFF,
                         'distributable_profit' => $branch['distributable_profit'],
+                        'offset_amount' => $branch['offset_amount'],
+                        'commission_base' => $branch['commission_base'],
                         'pool_percent' => $computed['pool_percent'],
                         'pool_amount' => $branch['pool_amount'],
+                        'zone_allocation' => round($branch['pool_amount'] - $branch['staff_pool_amount'], 2),
                         'base_salary' => $line['base_salary'],
                         'total_salary' => $branch['total_salary'],
                         'share_percent' => $line['share_percent'],
@@ -274,6 +285,7 @@ class CommissionEngine
                     'distributable_profit' => 0,
                     'pool_percent' => $line['override_percent'],
                     'pool_amount' => $line['zone_pool'],
+                    'zone_allocation' => $line['amount'],
                     'base_salary' => $line['base_salary'],
                     'total_salary' => 0,
                     'share_percent' => $line['override_percent'],
@@ -317,10 +329,20 @@ class CommissionEngine
 
     /**
      * Why the commission of a closed period can no longer be (re)calculated: its allocations are in an approved payroll, a
-     * dividend declaration request of the month awaits approval, or dividends were declared for the month (C1: after commission
-     * was calculated; a LEGACY declaration without calculated commission locks it too). Null when unlocked.
+     * dividend declaration request of the month awaits approval, dividends were declared for the month (C1: after commission
+     * was calculated; a LEGACY declaration without calculated commission locks it too), or HR finalised the commission for
+     * payment (spec §21 / §22 — staff were shown the final figure, requests, approvals and payments refer to it). Null when
+     * unlocked.
      */
     public function lockReason(AccountingPeriod $period): ?string
+    {
+        return $this->payrollOrDividendLockReason($period)
+            ?? (CommissionAllocation::where('accounting_period_id', $period->id)->whereIn('payment_status', CommissionAllocation::FINALISED_STATUSES)->exists()
+                ? self::LOCKED_BY_PAYMENT_MESSAGE
+                : null);
+    }
+
+    private function payrollOrDividendLockReason(AccountingPeriod $period): ?string
     {
         $inPayroll = CommissionAllocation::where('accounting_period_id', $period->id)
             ->whereHas('payrollRun', fn ($query) => $query->where('status', '!=', PayrollRun::STATUS_DRAFT))

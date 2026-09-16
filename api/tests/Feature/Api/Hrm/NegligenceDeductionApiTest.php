@@ -5,11 +5,11 @@ namespace Tests\Feature\Api\Hrm;
 use App\Enums\Account;
 use App\Models\AccountingPeriod;
 use App\Models\BranchPeriodResult;
+use App\Models\CommissionAllocation;
 use App\Models\Employee;
 use App\Models\HrmSetting;
 use App\Models\NegligenceDeduction;
 use App\Models\PayrollRun;
-use App\Models\SalaryPayment;
 use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Ledger;
 use Carbon\CarbonImmutable;
@@ -17,8 +17,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Spec §23 + §57: negligence is approved by Finance and recovered from COMMISSION only, into the PRINCIPAL A/C, with any balance
- * carried forward to the next commission.
+ * Spec §23 + §57: negligence is approved by Finance and recovered from COMMISSION PAYMENTS only (spec §22 flow, never from
+ * payroll/salary), into the PRINCIPAL A/C, with any balance carried forward to the next commission.
  */
 class NegligenceDeductionApiTest extends TestCase
 {
@@ -116,33 +116,64 @@ class NegligenceDeductionApiTest extends TestCase
         $this->assertFalse(NegligenceDeduction::recoverable()->whereKey($own)->exists());
     }
 
-    public function test_section_57_negligence_is_recovered_from_commission_only_and_carried_forward(): void
+    /**
+     * Spec §21 / §22 commission payment flow: HR requests the month's commission, Finance approves and pays it from the branch
+     * INTEREST A/C on the given date.
+     */
+    private function payCommission(string $month, string $paidOn): void
+    {
+        $this->actingAs($this->hr)->postJson('/api/v1/hrm/commission/payments/request', ['period' => $month])->assertOk();
+        $this->actingAs($this->finance)->postJson('/api/v1/hrm/commission/payments/approve', ['period' => $month])->assertOk();
+        $this->actingAs($this->finance)->postJson('/api/v1/hrm/commission/payments/pay', ['period' => $month, 'ac_id' => 'interest', 'paid_on' => $paidOn])->assertOk();
+    }
+
+    private function fundInterest(float $amount): void
+    {
+        app(Ledger::class)->journal($this->admin->company_id, 'OPENING BALANCE interest', [
+            ['account' => Account::Interest, 'branch' => $this->admin->branch_id, 'debit' => $amount],
+            ['account' => Account::Capital, 'credit' => $amount],
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function commissionRow(string $month, int $employeeId): array
+    {
+        return collect($this->actingAs($this->finance)->getJson("/api/v1/hrm/commission/payments?period={$month}")->assertOk()->json('data.rows'))->firstWhere('employee_id', $employeeId);
+    }
+
+    public function test_section_57_negligence_is_recovered_from_commission_payments_only_and_carried_forward(): void
     {
         $staff = $this->staff(500000);
         $branchId = $this->admin->branch_id;
+        $this->fundInterest(2000000);
 
         $id = $this->actingAs($this->hr)->postJson('/api/v1/hrm/negligence-deductions', ['employee_id' => $staff->id, 'amount' => 300000, 'reason' => 'Loan disbursed without collateral'])->json('data.id');
 
-        // Pending negligence is never deducted: the July payroll preview is untouched until Finance approves.
+        // Pending negligence is never deducted: the July commission shows no deduction until Finance approves.
         $this->closeMonth('2026-07', 1800000);
         $this->actingAs($this->hr)->postJson('/api/v1/hrm/commission/calculate', ['period' => '2026-07'])->assertOk();
-        $preview = collect($this->actingAs($this->hr)->getJson('/api/v1/hrm/payroll?period=2026-07')->json('data.rows'))->firstWhere('employee_id', $staff->id);
-        $this->assertEquals([180000, 0, 180000], [$preview['commission'], $preview['negligence'], $preview['net_commission']]);
+        $row = $this->commissionRow('2026-07', $staff->id);
+        $this->assertEquals([180000, 0, 180000], [$row['calculated_amount'], $row['negligence_deduction'], $row['net_commission']]);
 
         $this->actingAs($this->finance)->postJson("/api/v1/hrm/negligence-deductions/{$id}/approve")->assertOk();
+        $row = $this->commissionRow('2026-07', $staff->id);
+        $this->assertEquals([180000, 180000, 0], [$row['calculated_amount'], $row['negligence_deduction'], $row['net_commission']]);
+        $this->assertTrue($row['negligence_expected']);
 
-        // July: commission 180,000 → recovery 180,000, net commission 0, outstanding 120,000. Salary is not touched:
-        // take home = 500,000 salary − 100,000 staff fund (20 %) = 400,000.
+        // Salary is not touched: the July payroll has no commission and no negligence — take home = 500,000 − 100,000 fund.
         $july = $this->runPayroll('2026-07');
         $item = $july->items()->where('employee_id', $staff->id)->sole();
-        $this->assertEquals([180000, 180000, 400000], [(float) $item->commission, (float) $item->negligence, (float) $item->take_home]);
-        $payment = SalaryPayment::where('payroll_run_id', $july->id)->where('employee_id', $staff->id)->sole();
-        $this->actingAs($this->finance)->getJson("/api/v1/hrm/salary-payments/{$payment->id}")->assertOk()
-            ->assertJsonPath('data.commission', 180000)
-            ->assertJsonPath('data.negligence', 180000)
-            ->assertJsonPath('data.net_commission', 0)
-            ->assertJsonPath('data.salary', 500000)
-            ->assertJsonPath('data.take_home', 400000);
+        $this->assertEquals([0, 0, 400000], [(float) $item->commission, (float) $item->negligence, (float) $item->take_home]);
+        $this->assertEquals(300000, NegligenceDeduction::findOrFail($id)->outstandingAmount());
+
+        // July commission paid: 180,000 → recovery 180,000, net commission 0, outstanding 120,000.
+        $this->payCommission('2026-07', '2026-08-02');
+        $row = $this->commissionRow('2026-07', $staff->id);
+        $this->assertEquals([180000, 180000, 0], [$row['calculated_amount'], $row['negligence_deduction'], $row['net_commission']]);
+        $this->assertSame(CommissionAllocation::STATUS_PAID, $row['status']);
+        $this->assertFalse($row['negligence_expected']);
 
         $deduction = NegligenceDeduction::findOrFail($id);
         $this->assertSame(NegligenceDeduction::STATUS_RECOVERING, $deduction->status);
@@ -152,15 +183,18 @@ class NegligenceDeductionApiTest extends TestCase
         $this->assertEquals(180000, $this->balance(Account::Principal));
         $this->assertEquals(-180000, $this->balance(Account::WriteOffExpense, $branchId));
         $this->assertEquals(100000, $this->balance(Account::StaffFundCash));
-        $this->assertEquals(-(400000 + 100000 + 180000), $this->balance(Account::Interest, $branchId));
+        $this->assertEquals(2000000 - (400000 + 100000) - 180000, $this->balance(Account::Interest, $branchId));
         $this->assertEquals(0, $this->balance(Account::StaffPayable));
+        $this->assertEquals(0, $this->balance(Account::CommissionPayable, $branchId));
 
         // August: commission 250,000 → the remaining 120,000 is recovered, staff receive 130,000 commission.
         $this->travelTo(CarbonImmutable::parse('2026-09-02 09:00:00'));
         $this->closeMonth('2026-08', 2500000);
-        $august = $this->runPayroll('2026-08');
-        $item = $august->items()->where('employee_id', $staff->id)->sole();
-        $this->assertEquals([250000, 120000, 500000 + 130000 - 100000], [(float) $item->commission, (float) $item->negligence, (float) $item->take_home]);
+        $this->actingAs($this->hr)->postJson('/api/v1/hrm/commission/calculate', ['period' => '2026-08'])->assertOk();
+        $this->assertEquals(500000 - 100000, (float) $this->runPayroll('2026-08')->items()->where('employee_id', $staff->id)->value('take_home'));
+        $this->payCommission('2026-08', '2026-09-01');
+        $row = $this->commissionRow('2026-08', $staff->id);
+        $this->assertEquals([250000, 120000, 130000], [$row['calculated_amount'], $row['negligence_deduction'], $row['net_commission']]);
 
         $deduction->refresh();
         $this->assertSame(NegligenceDeduction::STATUS_RECOVERED, $deduction->status);
@@ -172,12 +206,15 @@ class NegligenceDeductionApiTest extends TestCase
             ['period' => '2026-07', 'commission' => 180000, 'amount' => 180000, 'outstanding_after' => 120000],
             ['period' => '2026-08', 'commission' => 250000, 'amount' => 120000, 'outstanding_after' => 0],
         ], array_map(fn (array $recovery): array => collect($recovery)->only(['period', 'commission', 'amount', 'outstanding_after'])->map(fn ($value) => is_float($value) ? (int) $value : $value)->all(), $row['recoveries']));
+        $this->assertNotNull($row['recoveries'][0]['commission_allocation_id']);
 
         // September: nothing left to recover.
         $this->travelTo(CarbonImmutable::parse('2026-10-02 09:00:00'));
         $this->closeMonth('2026-09', 1000000);
-        $september = $this->runPayroll('2026-09');
-        $this->assertEquals(0, (float) $september->items()->where('employee_id', $staff->id)->value('negligence'));
+        $this->actingAs($this->hr)->postJson('/api/v1/hrm/commission/calculate', ['period' => '2026-09'])->assertOk();
+        $this->payCommission('2026-09', '2026-10-02');
+        $row = $this->commissionRow('2026-09', $staff->id);
+        $this->assertEquals([100000, 0, 100000], [$row['calculated_amount'], $row['negligence_deduction'], $row['net_commission']]);
     }
 
     public function test_negligence_never_reduces_salary_when_there_is_no_commission(): void

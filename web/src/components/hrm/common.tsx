@@ -72,14 +72,19 @@ export function sum<T>(rows: T[] | undefined, pick: (row: T) => number): number 
 export function statusTone(status: string): "success" | "warning" | "danger" | "info" | "primary" {
   switch (status) {
     case "pending":
+    case "submitted":
       return "warning";
     case "approved":
+    case "hr_approved":
+    case "admin_approved":
+    case "finance_approved":
       return "info";
     case "rejected":
     case "blocked":
       return "danger";
     case "done":
     case "paid":
+    case "completed":
       return "primary";
     default:
       return "success";

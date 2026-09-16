@@ -96,10 +96,13 @@ class StaffCreditApiTest extends TestCase
         $this->actingAs($approver)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/approve")->assertOk();
         $this->actingAs($this->admin);
         $loan->refresh();
-        $this->assertSame('approved', $loan->status);
+        $this->assertSame('hr_approved', $loan->status);
         $this->assertEquals(12000, $loan->total_payable);
         $this->assertEquals(6000, $loan->restoration);
 
+        $this->actingAs($requester)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/finance-approve")->assertForbidden();
+        $this->actingAs($payer)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/finance-approve")->assertOk();
+        $this->assertSame('finance_approved', $loan->fresh()->status);
         $this->actingAs($payer)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertUnprocessable()->assertJsonValidationErrors('amount');
         $this->fundTheStaffFund(15000);
 
@@ -109,7 +112,7 @@ class StaffCreditApiTest extends TestCase
         $this->actingAs($payer)->postJson("/api/v1/hrm/staff-loans/{$loan->id}/disburse")->assertOk();
         $this->actingAs($this->admin);
 
-        $this->assertSame('active', $loan->fresh()->status);
+        $this->assertSame('disbursed', $loan->fresh()->status);
         $this->assertEquals(5000, $this->balance(Account::StaffFundCash));
         $this->assertEquals(10000, $this->balance(Account::StaffLoanReceivable, $this->staff->id));
 
@@ -120,7 +123,7 @@ class StaffCreditApiTest extends TestCase
         $this->getJson('/api/v1/hrm/staff-loans/active')->assertJsonPath('data.0.remaining_amount', 6000);
 
         $this->postJson("/api/v1/hrm/staff-loans/{$loan->id}/pay", ['amount' => 6000])->assertOk();
-        $this->assertSame('done', $loan->fresh()->status);
+        $this->assertSame('completed', $loan->fresh()->status);
     }
 
     public function test_salary_advance_request_approve_disburse_and_reject(): void
@@ -135,19 +138,24 @@ class StaffCreditApiTest extends TestCase
         $this->postJson('/api/v1/hrm/salary-advances', $payload + ['advance_amount' => 20000])->assertCreated();
         $advance = StaffSalaryAdvance::firstOrFail();
 
-        $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'company_cash'])->assertUnprocessable();
+        $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'staff_fund_cash'])->assertUnprocessable();
 
-        // Rule 6: the requester approves nothing; second users approve and disburse.
+        // Rule 6: the requester approves nothing; second users approve, Finance approves and disburses from the fund only.
         $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/approve")->assertForbidden();
         $this->approveAsSecondUser($requester, "/api/v1/hrm/salary-advances/{$advance->id}/approve");
-        $this->approveAsSecondUser($requester, "/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'company_cash']);
+        $this->approveAsSecondUser($requester, "/api/v1/hrm/salary-advances/{$advance->id}/finance-approve");
+        $this->fundTheStaffFund(30000);
+        $this->asApprover($requester, fn () => $this->postJson("/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'company_cash'])->assertJsonValidationErrors('ac_id'));
+        $this->approveAsSecondUser($requester, "/api/v1/hrm/salary-advances/{$advance->id}/disburse", ['ac_id' => 'staff_fund_cash']);
 
         $this->assertSame('disbursed', $advance->fresh()->status);
-        $this->assertEquals(-19800, $this->balance(Account::Company));
+        $this->assertSame('staff_fund_cash', $advance->fresh()->source_account);
+        $this->assertEquals(0, $this->balance(Account::Company));
+        $this->assertEquals(10200, $this->balance(Account::StaffFundCash));
         $this->assertEquals(20000, $this->balance(Account::StaffAdvanceReceivable, $this->staff->id));
         $this->getJson('/api/v1/hrm/salary-advances')->assertJsonPath('data.disbursed.0.outstanding_amount', 20000);
 
-        $other = StaffSalaryAdvance::create(['company_id' => $this->admin->company_id, 'branch_id' => $this->staff->branch_id, 'employee_id' => $this->staff->id, 'staff_salary_advance_category_id' => $category->id, 'amount' => 15000]);
+        $other = StaffSalaryAdvance::create(['company_id' => $this->admin->company_id, 'branch_id' => $this->staff->branch_id, 'employee_id' => $this->staff->id, 'staff_salary_advance_category_id' => $category->id, 'amount' => 15000, 'status' => 'submitted']);
         $this->postJson("/api/v1/hrm/salary-advances/{$other->id}/reject")->assertOk();
         $this->assertSame('rejected', $other->fresh()->status);
     }

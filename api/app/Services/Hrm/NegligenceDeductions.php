@@ -3,11 +3,13 @@
 namespace App\Services\Hrm;
 
 use App\Models\ApprovalPolicy;
+use App\Models\CommissionAllocation;
 use App\Models\Employee;
 use App\Models\NegligenceDeduction;
 use App\Models\NegligenceRecovery;
 use App\Models\PayrollRun;
 use App\Services\Approvals\SegregationOfDuties;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -15,13 +17,14 @@ use Illuminate\Validation\ValidationException;
 /**
  * Staff negligence / loss deductions (spec §23, §57).
  *
- *  HR creates (pending) → FINANCE approves (approved) → payroll recovers it from the employee's COMMISSION (recovering →
- *  recovered). Salary is never touched: the recovery is capped at the commission of the payroll, and whatever the commission
+ *  HR creates (pending) → FINANCE approves (approved) → the employee's next COMMISSION PAYMENT recovers it (recovering →
+ *  recovered). Salary is never touched: the recovery is capped at the commission being paid, and whatever that commission
  *  could not cover stays outstanding and is carried forward automatically to the next commission.
  *
- * The money recovered goes to the PRINCIPAL A/C (operational capital), never to the Staff Fund: the payroll payment journal
- * posts Dr STAFF PAYABLE / Cr WRITE-OFF EXPENSE (loss recovered — a contra-expense, never income, like the principal part of a
- * written-off loan recovery) and Dr PRINCIPAL A/C / Cr paying account ({@see PayrollEngine}).
+ * The money recovered goes to the PRINCIPAL A/C (operational capital), never to the Staff Fund: the commission payment journal
+ * posts Dr COMMISSION PAYABLE / Cr WRITE-OFF EXPENSE (loss recovered — a contra-expense, never income, like the principal part of
+ * a written-off loan recovery) and Dr PRINCIPAL A/C / Cr paying account ({@see CommissionPayments}). Payroll runs that still
+ * carry commission (legacy, before the commission payment flow) recover it the same way through {@see PayrollEngine}.
  *
  * Segregation of duties: the HR employee who created the deduction, and the employee it is charged to, cannot approve it
  * (the Super Admin may — {@see SegregationOfDuties}).
@@ -78,11 +81,12 @@ class NegligenceDeductions
 
     /**
      * Recover up to $amount (never more than the commission being paid) from the employee's approved deductions, oldest first,
-     * and record one recovery row per deduction. The remainder of every deduction stays outstanding for the next commission.
+     * and record one recovery row per deduction against the commission period and the commission payment (or, legacy, the
+     * payroll run) it was taken from. The remainder of every deduction stays outstanding for the next commission.
      *
      * @return Collection<int, NegligenceRecovery>
      */
-    public function recover(int $employeeId, float $amount, float $commission, PayrollRun $run): Collection
+    public function recover(int $employeeId, float $amount, float $commission, CarbonInterface $period, ?PayrollRun $run = null, ?CommissionAllocation $allocation = null): Collection
     {
         $left = round(min($amount, $commission), 2);
         $recoveries = collect();
@@ -91,7 +95,7 @@ class NegligenceDeductions
             return $recoveries;
         }
 
-        return DB::transaction(function () use ($employeeId, $left, $commission, $run, $recoveries): Collection {
+        return DB::transaction(function () use ($employeeId, $left, $commission, $period, $run, $allocation, $recoveries): Collection {
             $deductions = NegligenceDeduction::recoverable()->where('employee_id', $employeeId)->orderBy('id')->lockForUpdate()->get();
 
             foreach ($deductions as $deduction) {
@@ -110,8 +114,9 @@ class NegligenceDeductions
 
                 $recoveries->push(NegligenceRecovery::create([
                     'negligence_deduction_id' => $deduction->id,
-                    'payroll_run_id' => $run->id,
-                    'period' => $run->period->toDateString(),
+                    'payroll_run_id' => $run?->id,
+                    'commission_allocation_id' => $allocation?->id,
+                    'period' => $period->toDateString(),
                     'commission' => round($commission, 2),
                     'amount' => $portion,
                     'outstanding_after' => max(0, $outstanding),

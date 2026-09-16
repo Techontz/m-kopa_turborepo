@@ -145,3 +145,47 @@ select.form-control { appearance: none; padding-right: 2rem; background-image: l
 @media (prefers-reduced-motion: reduce) {
     .mf-loader::before, .mf-loader::after { animation-duration: 6s; }
 }
+
+/* ---------------------------------------------------------------- Action buttons in tables
+ * Every list ends in an Action column whose buttons were written page by page (some with mr-1, some without), so they sat
+ * at different sizes and touched each other. These rules give them one square size, one gap and one baseline everywhere.
+ */
+.table td .btn,
+.table th .btn { vertical-align: middle; }
+.table td .btn-icon,
+.table th .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    line-height: 1;
+}
+.table td .btn-icon i,
+.table th .btn-icon i { margin: 0; font-size: 14px; }
+.table td .btn + .btn,
+.table td .btn + span > .btn,
+.table td span + .btn,
+.table td span + span > .btn { margin-left: .4rem; }
+.table td .btn.mr-1 { margin-right: 0 !important; }
+.table td:has(.btn) { white-space: nowrap; }
+.table td .btn-group .btn + .btn { margin-left: 0; }
+
+/* ---------------------------------------------------------------- Sidebar submenus
+ * The live theme prefixes every child link with "--"; a small dot reads as a list without the typographic noise.
+ */
+.sidebar-nav .metismenu ul a { padding-left: 52px; }
+.sidebar-nav .metismenu ul a::before {
+    content: "";
+    position: absolute;
+    left: 32px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .45;
+    transform: translateY(-50%);
+}
+.sidebar-nav .metismenu ul li.active a::before { opacity: 1; }

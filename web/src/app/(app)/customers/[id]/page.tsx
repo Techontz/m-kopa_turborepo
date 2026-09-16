@@ -64,7 +64,7 @@ export default function CustomerProfilePage() {
     return (
       <>
         <PageHeader crumbs={["Customer", "Customer Profile"]} />
-        <Card><Loading message={isLoading ? "Loading..." : error instanceof ApiError && error.status === 404 ? "Customer not found" : "The customer could not be loaded."} /></Card>
+        <Card>{isLoading ? <Loading inline /> : <p className="mb-0 text-center">{error instanceof ApiError && error.status === 404 ? "Customer not found" : "The customer could not be loaded."}</p>}</Card>
       </>
     );
   }

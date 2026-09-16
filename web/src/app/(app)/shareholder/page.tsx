@@ -21,7 +21,7 @@ export default function ShareholderDashboardPage() {
     return <Card title="Shareholder Portal"><p className="mb-0">Your account has no access to the shareholder dashboard.</p></Card>;
   }
   if (isLoading || !data) {
-    return <Loading message={error ? "Unable to load your dashboard." : "Loading..."} />;
+    return error ? <Card title="Shareholder Portal"><p className="mb-0">Unable to load your dashboard.</p></Card> : <Loading />;
   }
 
   return (

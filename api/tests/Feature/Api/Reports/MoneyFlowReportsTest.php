@@ -175,7 +175,7 @@ class MoneyFlowReportsTest extends TestCase
 
         $data = $this->actingAs($manager)->getJson('/api/v1/dashboard')->assertOk()->json('data');
 
-        $this->assertEquals(0, $data['cards']['account_balance'], 'the branch green card is its PETTY CASH A/C, never company money');
+        $this->assertEquals(0, $data['cards']['account_balance'], 'the branch green card is its petty cash used, never company money');
         $this->assertSame('Petty Cash', $data['cards']['account_balance_title']);
         $this->assertNull($data['account_balances']);
         $this->assertNull($data['account_balances_total']);
@@ -228,17 +228,24 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertEquals(130000 + 650000, $company['default_loan']);
     }
 
-    public function test_branch_dashboard_green_card_is_petty_cash_and_every_figure_covers_the_branch_only(): void
+    public function test_branch_dashboard_green_card_is_petty_cash_used_and_every_figure_covers_the_branch_only(): void
     {
-        $ledger = app(Ledger::class);
         $companyId = $this->admin->company_id;
         $branchId = $this->admin->branch_id;
         $otherBranch = $this->otherBranch();
-        $ledger->openingBalance($companyId, Account::PettyCash, 75000, branch: $branchId);
-        $ledger->openingBalance($companyId, Account::PettyCash, 999000, branch: $otherBranch);
 
         $this->repay($this->cashedOutLoan(daysAgo: 0), 130000);
         $this->repay($this->cashedOutLoan(daysAgo: 0, branch: $otherBranch, principal: 300000), 390000);
+
+        // Petty cash: a branch expense (water bill) paid out of interest income once HQ accepted it.
+        $type = ExpenseType::create(['company_id' => $companyId, 'scope' => 'branch', 'name' => 'WATER']);
+        $expense = fn (int $branch, float $amount): ExpenseRequest => ExpenseRequest::create([
+            'company_id' => $companyId, 'scope' => 'branch', 'branch_id' => $branch, 'expense_type_id' => $type->id,
+            'amount' => $amount, 'description' => 'water bill', 'status' => 'pending', 'request_date' => today(),
+        ]);
+        app(ExpenseApproval::class)->accept($expense($branchId, 7500), $this->admin, 7500, null);
+        app(ExpenseApproval::class)->accept($expense($otherBranch->id, 20000), $this->admin, 20000, null);
+        $pending = $expense($branchId, 5000);
 
         $company = $this->getJson('/api/v1/dashboard')->assertOk()->json('data');
         $this->assertSame('Account Balance', $company['cards']['account_balance_title']);
@@ -252,13 +259,15 @@ class MoneyFlowReportsTest extends TestCase
         $data = $this->actingAs($manager)->getJson('/api/v1/dashboard')->assertOk()->json('data');
         $today = $data['today'];
 
-        $this->assertEquals(75000, $data['cards']['account_balance']);
+        $this->assertEquals(7500, $data['cards']['account_balance'], 'this branch used 7,500 of petty cash this month, not the other branch 20,000');
         $this->assertSame('Petty Cash', $data['cards']['account_balance_title']);
+        $this->assertSame('pending', $pending->fresh()->status, 'a request awaiting HQ approval is not petty cash used');
         $this->assertEquals(1, $today['all_customers']);
         $this->assertEquals(1, $today['weekly_customers']);
         $this->assertEquals(130000, $today['weekly_deposit']);
         $this->assertEquals(100000, $today['weekly_withdrawal']);
         $this->assertEquals(round(30000 * 0.8, 2), $today['interest_income'], 'income from this branch ledger only');
+        $this->assertEquals(7500, $today['expenses'], 'the water bill is this branch expense only');
         $this->assertEquals(round(30000 * 0.2, 2), $today['reserve_amount']);
         $this->assertEquals(round($company['today']['interest_income'] - $today['interest_income'], 2), round(90000 * 0.8, 2));
         $this->assertEquals(1, collect($data['customer_types'])->firstWhere('label', 'All Customer')['all']);

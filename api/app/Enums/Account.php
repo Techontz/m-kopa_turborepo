@@ -25,8 +25,6 @@ enum Account: string
     case Agent = 'agent';
     case Insurance = 'insurance';
     case TellerCash = 'teller_cash';
-    /** Branch PETTY CASH A/C: branch spending money sent by HQ — the only money a branch holds. */
-    case PettyCash = 'petty_cash';
     case HqSalaryAdvance = 'hq_salary_advance';
     case HqDisbursement = 'hq_disbursement';
     case HqPenalty = 'hq_penalty';
@@ -114,7 +112,7 @@ enum Account: string
         return match ($this) {
             self::Company => '1000', self::Bank => '1010', self::InvestmentReserve => '1020', self::Principal => '1100', self::Interest => '1110',
             self::LoanFee => '1120', self::Penalty => '1130', self::Reserve => '1140', self::Agent => '1150',
-            self::Insurance => '1160', self::TellerCash => '1170', self::PettyCash => '1180', self::HqSalaryAdvance => '1200',
+            self::Insurance => '1160', self::TellerCash => '1170', self::HqSalaryAdvance => '1200',
             self::HqDisbursement => '1210', self::HqPenalty => '1220', self::HqInterest => '1230',
             self::HqReserve => '1240', self::HqLoanFee => '1250', self::HqSaving => '1260',
             self::LoanReceivable => '1300', self::LoanArrears => '1310', self::LoanDefault => '1320',
@@ -144,7 +142,6 @@ enum Account: string
             self::Agent => 'AGENT A/C',
             self::Insurance => 'INSURANCE A/C',
             self::TellerCash => 'TELLER CASH A/C',
-            self::PettyCash => 'PETTY CASH A/C',
             self::Bank => 'BANK',
             self::HqSalaryAdvance => 'SALARY ADVANCE ACCOUNT',
             self::HqDisbursement => 'DISBURSEMENT ACCOUNT',

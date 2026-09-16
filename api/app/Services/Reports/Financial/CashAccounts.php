@@ -45,7 +45,6 @@ class CashAccounts
         'branch_income_funds' => ['Branch income funds — INTEREST, LOAN FEE, PENALTY, RESERVE, INSURANCE A/C', [
             Account::Interest, Account::LoanFee, Account::Penalty, Account::Reserve, Account::Insurance,
         ]],
-        'branch_petty_cash' => ['Branch PETTY CASH A/C (sent by HQ)', [Account::PettyCash]],
         'teller_and_agent' => ['Teller cash and agent accounts', [Account::TellerCash, Account::Agent]],
         'staff_fund_cash' => ['Staff fund cash', [Account::StaffFundCash]],
     ];

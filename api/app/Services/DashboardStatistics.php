@@ -56,8 +56,8 @@ class DashboardStatistics
     /**
      * Stat cards. For the whole company ($branchIds null) the green card is the Investment: the total of
      * {@see accountBalances()} (COMPANY ACCOUNT + bank accounts + Investment reserve + assets). For branch- and zone-scoped
-     * employees it is the PETTY CASH A/C of their branches — branches hold no other money — and loan withdrawal, receivable
-     * and default loan cover those branches only.
+     * employees it is the petty cash their branches used this month ({@see pettyCashUsed()}) — a branch holds no money — and
+     * loan withdrawal, receivable and default loan cover those branches only.
      *
      * @param  list<int>|null  $branchIds
      * @return array{account_balance: float, account_balance_title: string, account_balance_label: string, loan_withdrawal: float, receivable: float, default_loan: float}
@@ -67,9 +67,9 @@ class DashboardStatistics
         $inBranches = fn (Builder $query): Builder => $branchIds === null ? $query : $query->whereIn('branch_id', $branchIds);
 
         return [
-            'account_balance' => $branchIds === null ? round(array_sum($this->accountBalances($company)), 2) : $this->pettyCash($company, $branchIds),
+            'account_balance' => $branchIds === null ? round(array_sum($this->accountBalances($company)), 2) : $this->pettyCashUsed($company, $branchIds, $today),
             'account_balance_title' => $branchIds === null ? 'Account Balance' : 'Petty Cash',
-            'account_balance_label' => $branchIds === null ? 'Company A/C + banks + reserve + assets' : 'Branch spending money sent by HQ',
+            'account_balance_label' => $branchIds === null ? 'Company A/C + banks + reserve + assets' : 'Used this month — paid from interest income with HQ approval',
             'loan_withdrawal' => (float) $inBranches(LoanTransaction::where('company_id', $company->id))->where('type', 'withdrawal')->whereNull('reversed_at')->whereDate('transaction_date', $today)->sum('amount'),
             'receivable' => (float) LoanSchedule::whereHas('loan', fn ($query) => $inBranches($query->where('company_id', $company->id))->status(...LoanStatus::repayable()))
                 ->whereDate('due_date', $today)->sum('amount'),
@@ -78,13 +78,20 @@ class DashboardStatistics
     }
 
     /**
-     * PETTY CASH A/C balance of the given branches.
+     * Petty cash used by the given branches this month: branch expenses (water bill, stationery …) accepted since the first of
+     * the month and paid out of interest income with HQ approval. A branch never holds money, so there is no petty cash balance.
      *
      * @param  list<int>  $branchIds
      */
-    public function pettyCash(Company $company, array $branchIds): float
+    public function pettyCashUsed(Company $company, array $branchIds, CarbonImmutable $today): float
     {
-        return round(array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($company, Account::PettyCash, $branchId), $branchIds)), 2) + 0.0;
+        return (float) ExpenseRequest::where('company_id', $company->id)
+            ->whereIn('branch_id', $branchIds)
+            ->where('scope', 'branch')
+            ->where('status', 'accepted')
+            ->whereNull('reversed_at')
+            ->whereDate('approved_at', '>=', $today->startOfMonth()->toDateString())
+            ->sum('amount');
     }
 
     /**

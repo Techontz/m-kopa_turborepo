@@ -53,7 +53,7 @@ const TYPE_LINKS: Record<string, string> = {
 
 /** Every role sees the same dashboard; the figures inside it are scoped to what the signed-in employee may see. */
 /** Branch List money columns, in display order. */
-const BRANCH_COLUMNS = ["petty_cash", "principal_repaid", "interest", "loan_fee", "penalty", "reserve", "cash_pending"];
+const BRANCH_COLUMNS = ["petty_cash", "principal_repaid", "interest", "loan_fee", "penalty", "reserve", "salary_advance", "cash_pending"];
 
 export default function DashboardPage() {
   const { data, isLoading } = useApi<DashboardData>("dashboard");
@@ -298,6 +298,7 @@ export default function DashboardPage() {
                 <th>Loan fee</th>
                 <th>Penalty</th>
                 <th>Reserve</th>
+                <th>Salary Advance</th>
                 <th>Cash Pending<small className="d-block">not yet verified</small></th>
               </tr>
             </thead>
@@ -318,7 +319,7 @@ export default function DashboardPage() {
           </table>
         </div>
         <small className="text-muted">
-          Every column covers {data.branch_accounts?.month} except Petty Cash, which is the balance each branch holds now — the only money a branch holds. Principal Repaid is already back in HQ&apos;s Operation Principal, and Interest (after the 20% reserve), Loan fee, Penalty and Reserve are what the branch collected for HQ. Cash Pending is teller cash collected this month that Finance has not yet verified as banked.
+          Every column covers {data.branch_accounts?.month} except Petty Cash, which is the balance each branch holds now — the only money a branch holds. Principal Repaid is already back in HQ&apos;s Operation Principal, and Interest (after the 20% reserve), Loan fee, Penalty and Reserve are what the branch collected for HQ. Salary Advance is the full amount customers repaid on salary advances this month (capital + profit), shown as a report only — the capital is already back in Operation Principal and the profit in Salary Advance income. Cash Pending is teller cash collected this month that Finance has not yet verified as banked.
         </small>
       </Modal>
     </>

@@ -201,16 +201,6 @@ enum Account: string
     }
 
     /**
-     * Branch accounts that can send money to a bank ("Bank Transaction" modal).
-     *
-     * @return array<int, self>
-     */
-    public static function transferableBranchAccounts(): array
-    {
-        return [self::Principal, self::Interest, self::Reserve, self::LoanFee, self::Penalty];
-    }
-
-    /**
      * Fixed (non-cash) asset accounts: excluded from cash positions and shown as "Fixed assets" on the Balance Sheet.
      *
      * @return list<self>

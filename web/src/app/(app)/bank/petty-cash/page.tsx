@@ -13,6 +13,7 @@ import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { useAction } from "@/lib/hooks";
 
@@ -44,6 +45,9 @@ const TABS: Array<[Tab, string]> = [["transfers", "Transfers"], ["balances", "Br
  * branch spends it only on expenses HQ accepts. Rule 6: requested as PENDING, posted when another authorised user approves.
  */
 export default function BranchPettyCashPage() {
+  const { can } = useAuth();
+  // Sending is Finance's leg; an owner reaching this page from Pending Approvals only reads it and decides.
+  const maySend = can("funds.transfer");
   const [filters, setFilters] = useState<Filters>({});
   const [modal, setModal] = useState<"filter" | "transfer" | null>(null);
   const [form, setForm] = useState<PettyCashForm>(EMPTY);
@@ -93,7 +97,7 @@ export default function BranchPettyCashPage() {
         title="Branch petty cash"
         actions={
           <>
-            <span className="mr-1"><HeaderButton icon="icon-pencil" title="Send petty cash" onClick={() => open()} /></span>
+            {maySend && <span className="mr-1"><HeaderButton icon="icon-pencil" title="Send petty cash" onClick={() => open()} /></span>}
             {tab === "transfers" && <HeaderButton onClick={() => setModal("filter")} />}
           </>
         }
@@ -153,9 +157,12 @@ export default function BranchPettyCashPage() {
                 key: "action",
                 header: "Action",
                 sortable: false,
-                render: (branch) => (
-                  <button type="button" className="btn btn-sm btn-info" onClick={() => open(String(branch.id))}><i className="icon-paper-plane" /> Send</button>
-                ),
+                render: (branch) =>
+                  maySend ? (
+                    <button type="button" className="btn btn-sm btn-info" onClick={() => open(String(branch.id))}><i className="icon-paper-plane" /> Send</button>
+                  ) : (
+                    "—"
+                  ),
               },
             ]}
             footer={

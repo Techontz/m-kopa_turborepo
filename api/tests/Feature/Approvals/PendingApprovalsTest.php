@@ -229,7 +229,7 @@ class PendingApprovalsTest extends TestCase
         $type = ExpenseType::create(['company_id' => $companyId, 'scope' => 'branch', 'name' => 'UMEME']);
         ExpenseRequest::create(['company_id' => $companyId, 'scope' => 'branch', 'branch_id' => $branchId, 'expense_type_id' => $type->id, 'employee_id' => $initiator->id, 'amount' => 1000, 'status' => 'pending', 'request_date' => today()]);
         FloatTransfer::create(['company_id' => $companyId, 'type' => 'company_to_branch', 'to_branch_id' => $branchId, 'from_account' => 'company_cash', 'to_account' => 'principal', 'amount' => 2000, 'status' => 'pending', 'transfer_date' => today(), 'requested_by' => $initiator->id]);
-        BankTransfer::create(['company_id' => $companyId, 'type' => 'branch_to_bank', 'branch_id' => $branchId, 'branch_account' => 'interest', 'bank_account_id' => $bank->id, 'employee_id' => $initiator->id, 'amount' => 3000, 'status' => 'pending', 'transfer_date' => today()]);
+        BankTransfer::create(['company_id' => $companyId, 'type' => 'petty_cash_to_branch', 'branch_id' => $branchId, 'branch_account' => 'petty_cash', 'bank_account_id' => $bank->id, 'employee_id' => $initiator->id, 'amount' => 3000, 'status' => 'pending', 'transfer_date' => today()]);
         HqTransaction::create(['company_id' => $companyId, 'employee_id' => $initiator->id, 'from_account' => 'hq_interest', 'to_account' => 'hq_disbursement', 'amount' => 4000, 'status' => 'pending']);
         Capital::create(['company_id' => $companyId, 'share_holder_id' => $holder->id, 'amount' => 5000, 'pay_method' => 'CASH', 'receiving_account' => 'company_cash', 'status' => 'pending', 'recorded_by' => $initiator->id, 'contributed_at' => now()]);
         app(AssetRegistry::class)->contribute($holder, [

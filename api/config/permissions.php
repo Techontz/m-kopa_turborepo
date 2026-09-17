@@ -28,6 +28,7 @@ return [
         'shares.manage' => 'Set up the share structure and initial allocation, cancel, adjust and reverse share transactions',
         'float.manage' => 'Transfer float between company, branches and accounts',
         'bank.manage' => 'Manage bank accounts and bank transfers',
+        'funds.transfer' => 'Send petty cash to a branch and send HQ reserve to the Investment RESERVE A/C',
         'expenses.request' => 'Request expenses',
         'expenses.approve_branch' => 'Approve small branch expenses',
         'expenses.approve_hq' => 'Approve large and HQ expenses',
@@ -87,9 +88,11 @@ return [
     | Permissions that are never implied: the Super Admin does not receive them automatically and no role holds them by
     | default. They are effective only when a company grants them explicitly (role permission or employee override).
     | Rule 6 (segregation of duties): the initiator of a financial transaction must not approve it unless the company
-    | explicitly allows self-approval.
+    | explicitly allows self-approval. `funds.transfer` is Finance's own leg of the HQ money chain (petty cash to a
+    | branch, HQ reserve to the Investment RESERVE A/C): the owners approve those requests, they never raise them, so
+    | the Super Admin does not hold it implicitly.
     */
-    'explicit_only' => ['approvals.self_approve'],
+    'explicit_only' => ['approvals.self_approve', 'funds.transfer'],
 
     /*
     | Company money: bank accounts and bank transfers belong to the company owners. These permissions are effective only
@@ -121,7 +124,7 @@ return [
             'reports.view', 'reports.financial', 'income.view', 'crm.use', 'messages.use', 'goals.manage', 'goals.view', 'audit.view', 'approvals.view',
         ]],
         'finance' => ['name' => 'Finance', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'float.manage', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
+            'dashboard.view', 'float.manage', 'funds.transfer', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
             'loans.view', 'loans.prepare_disbursement', 'loans.disburse', 'loans.reverse_repayment', 'loans.reverse_disbursement', 'loans.recover', 'payments.verify', 'payments.suspense',
             'accounting.view', 'accounting.reverse', 'accounting.close_period', 'salary_advance.manage', 'penalties.manage',
             'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view', 'approvals.view',
@@ -173,7 +176,7 @@ return [
             'items' => [
                 ['key' => 'apply', 'label' => 'APPLY LOAN', 'permissions' => ['loans.apply']],
                 ['key' => 'aprove', 'label' => 'APPROVE', 'permissions' => ['loans.approve_manager', 'loans.credit_review', 'customers.approve']],
-                ['key' => 'bank', 'label' => 'BANK', 'permissions' => ['bank.manage']],
+                ['key' => 'bank', 'label' => 'BANK', 'permissions' => ['bank.manage', 'funds.transfer']],
                 ['key' => 'bankpassword', 'label' => 'BANK PASSWORD', 'permissions' => ['visa.manage']],
                 ['key' => 'customer', 'label' => 'CUSTOMER', 'permissions' => ['customers.view', 'customers.manage']],
                 ['key' => 'debit', 'label' => 'DEBIT PENDING', 'permissions' => ['salary_advance.manage']],

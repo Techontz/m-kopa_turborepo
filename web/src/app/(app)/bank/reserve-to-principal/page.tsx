@@ -13,7 +13,6 @@ import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { api } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { useAction } from "@/lib/hooks";
 
@@ -23,29 +22,24 @@ interface TransferForm {
 
 interface TransferList {
   data: BankTransfer[];
-  hq_reserve_balance: number;
   investment_reserve_balance: number;
+  operation_principal_balance: number;
 }
 
 const EMPTY: TransferForm = { amount: "" };
-const DESCRIPTION = "HQ reserve → Investment RESERVE A/C";
+const DESCRIPTION = "Investment RESERVE A/C → OPERATION PRINCIPAL";
 
 /**
- * Bank → Send Reserve To Investment Reserve: Finance's leg of the reserve chain. All interest reserve belongs to HQ (each
- * branch RESERVE A/C is only a report of what the branch generated). Finance sends an amount of it to the Investment RESERVE
- * A/C shown on the Super Admin dashboard; it leaves the HQ reserve and is added to the Investment only when Super Admin,
- * Admin or a Shareholder (not the requester) approves. From there the owners send it on to the OPERATION PRINCIPAL
- * (/bank/reserve-to-principal) — reserve Finance has not sent yet can never be spent from that page.
+ * Bank → Send Reserve To Operation Principal, the second leg of the reserve chain and the owners' side of it. Finance sends HQ
+ * reserve to the Investment RESERVE A/C (/bank/reserve-to-investment); only what has arrived there can be sent on from the
+ * Investment to the OPERATION PRINCIPAL, so reserve Finance still holds at HQ can never be spent from here.
  */
-export default function ReserveToInvestmentPage() {
-  const { can } = useAuth();
-  // Finance sends; the owners only follow the Pending Approvals link here to decide, so they never see the form.
-  const maySend = can("funds.transfer");
+export default function ReserveToPrincipalPage() {
   const [filters, setFilters] = useState<Filters>({});
   const [modal, setModal] = useState<"filter" | "transfer" | null>(null);
   const [form, setForm] = useState<TransferForm>(EMPTY);
-  const { data, isLoading } = useQuery({ queryKey: ["bank/reserve-to-investment", filters], queryFn: () => api.get<TransferList>("bank/reserve-to-investment", { ...filters }) });
-  const create = useAction<TransferForm>("post", "bank/reserve-to-investment");
+  const { data, isLoading } = useQuery({ queryKey: ["bank/reserve-to-principal", filters], queryFn: () => api.get<TransferList>("bank/reserve-to-principal", { ...filters }) });
+  const create = useAction<TransferForm>("post", "bank/reserve-to-principal");
   const rows = data?.data;
 
   const open = () => {
@@ -56,18 +50,18 @@ export default function ReserveToInvestmentPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Bank", "Send Reserve To Investment Reserve"]} />
+      <PageHeader crumbs={["Bank", "Send Reserve To Operation Principal"]} />
       <Card
         title={
           <>
-            Reserve sent to Investment
-            <small className="ml-2">HQ reserve (all branches): <b>{money(data?.hq_reserve_balance)}</b></small>
+            Reserve sent to the Operation Principal
             <small className="ml-2">Investment RESERVE A/C: <b>{money(data?.investment_reserve_balance)}</b></small>
+            <small className="ml-2">OPERATION PRINCIPAL: <b>{money(data?.operation_principal_balance)}</b></small>
           </>
         }
         actions={
           <>
-            {maySend && <span className="mr-1"><HeaderButton icon="icon-pencil" title="Send reserve" onClick={open} /></span>}
+            <span className="mr-1"><HeaderButton icon="icon-pencil" title="Send reserve" onClick={open} /></span>
             <HeaderButton onClick={() => setModal("filter")} />
           </>
         }
@@ -78,8 +72,8 @@ export default function ReserveToInvestmentPage() {
           rowKey={(row) => row.id}
           columns={[
             { key: "sn", header: "S/no.", render: (_, index) => `${index + 1}.`, sortable: false },
-            { key: "from", header: "From Account", value: () => "HQ RESERVE", render: () => "HQ RESERVE" },
-            { key: "to", header: "To Account", value: () => "INVESTMENT RESERVE A/C", render: () => "INVESTMENT RESERVE A/C" },
+            { key: "from", header: "From Account", value: () => "INVESTMENT RESERVE A/C", render: () => "INVESTMENT RESERVE A/C" },
+            { key: "to", header: "To Account", value: () => "OPERATION PRINCIPAL", render: () => "OPERATION PRINCIPAL" },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "reference", header: "Reference", render: (row) => row.reference || "-" },
             { key: "journal_reference", header: "Journal Ref", render: (row) => row.journal_reference ?? "—" },
@@ -110,14 +104,14 @@ export default function ReserveToInvestmentPage() {
 
       <FilterModal open={modal === "filter"} onClose={() => setModal(null)} onApply={setFilters} />
 
-      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Send Reserve To Investment Reserve" submitLabel="Submit" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
+      <Modal open={modal === "transfer"} onClose={() => setModal(null)} title="Send Reserve To Operation Principal" submitLabel="Submit" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
         <div className="row clearfix">
           <Field label="Amount:" required className="col-lg-6" error={create.fieldError("amount")}>
             <input type="number" className="form-control" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
           </Field>
           <div className="col-12">
             <small className="text-muted">
-              HQ reserve available: {money(data?.hq_reserve_balance)}. Only Super Admin, Admin or a Shareholder can approve it (never the person who requested it). On approval the amount leaves the HQ reserve and is added to the Investment RESERVE A/C.
+              Investment RESERVE A/C available: {money(data?.investment_reserve_balance)} — only reserve Finance has already sent to the Investment can be moved on. Only Super Admin, Admin or a Shareholder can approve it (never the person who requested it). On approval the amount leaves the Investment RESERVE A/C and is added to the OPERATION PRINCIPAL.
             </small>
           </div>
         </div>

@@ -246,12 +246,15 @@ class PendingApprovals
         $links = [
             CompanyFunds::CASH_TO_BANK => '/bank/company-transfers',
             CompanyFunds::BANK_TO_CASH => '/bank/company-transfers',
-            CompanyFunds::BRANCH_TO_BANK => '/bank/transfers',
             CompanyFunds::RESERVE_TO_INVESTMENT => '/bank/reserve-to-investment',
+            CompanyFunds::RESERVE_TO_PRINCIPAL => '/bank/reserve-to-principal',
             CompanyFunds::PETTY_CASH_TO_BRANCH => '/bank/petty-cash',
         ];
 
+        // Only the live movement types: a type with no screen left (the retired branch → bank sweep) has no link to
+        // follow and can no longer be posted, so it must not be offered for approval.
         return BankTransfer::where('company_id', $this->viewer->company_id)
+            ->whereIn('type', array_keys($links))
             ->where('status', CompanyFunds::PENDING)
             ->when($this->branchIds !== null, fn (Builder $query) => $query->whereIn('branch_id', $this->branchIds))
             ->with(['branch', 'bankAccount', 'employee'])
@@ -265,9 +268,9 @@ class PendingApprovals
                 $row->employee?->full_name,
                 $row->created_at,
                 'pending',
-                $links[$row->type] ?? '/bank/transfers',
+                $links[$row->type],
                 $row->employee_id,
-                $row->type !== CompanyFunds::RESERVE_TO_INVESTMENT || CompanyFunds::canDecideReserve($this->viewer),
+                ! in_array($row->type, [CompanyFunds::RESERVE_TO_INVESTMENT, CompanyFunds::RESERVE_TO_PRINCIPAL], true) || CompanyFunds::canDecideReserve($this->viewer),
             ))->all();
     }
 

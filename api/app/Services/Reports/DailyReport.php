@@ -95,6 +95,8 @@ class DailyReport
             'EXPENSES' => (float) $notReversed($scoped(ExpenseRequest::query()))->where('status', 'accepted')
                 ->whereRaw('DATE(COALESCE(approved_at, request_date)) BETWEEN ? AND ?', [$from->toDateString(), $to->toDateString()])
                 ->whereDoesntHave('journalEntry.reversal')->sum('amount'),
+            // Historic only: the branch → bank sweep was retired (a branch holds no money of its own beyond petty
+            // cash), so this reports rows banked before that and is 0 from then on.
             'BANK' => (float) $notReversed($scoped(BankTransfer::query()))->where('type', 'branch_to_bank')->where('status', 'approved')->whereBetween('transfer_date', $range)->sum('amount'),
             'TRANSFER' => (float) $floats('from_branch_id')->sum('amount'),
         ];

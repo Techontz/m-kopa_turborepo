@@ -24,7 +24,7 @@ class BankTransferResource extends JsonResource
     public function toArray(Request $request): array
     {
         $viewer = $request->user() instanceof Employee ? $request->user() : null;
-        $canDecide = $this->type === CompanyFunds::RESERVE_TO_INVESTMENT
+        $canDecide = in_array($this->type, [CompanyFunds::RESERVE_TO_INVESTMENT, CompanyFunds::RESERVE_TO_PRINCIPAL], true)
             ? $viewer !== null && CompanyFunds::canDecideReserve($viewer)
             : Gate::allows('bank.manage');
 

@@ -257,8 +257,9 @@ class ShareholderPortalController extends ApiController
     }
 
     /**
-     * HQ reserve → Investment RESERVE A/C transfers of the shareholder's company (pending first), with the HQ reserve still
-     * to send and the Investment RESERVE A/C balance. Shareholders are one of the three approvers of these transfers.
+     * Both reserve legs of the shareholder's company (pending first): Finance's HQ reserve → Investment RESERVE A/C, and the
+     * owners' Investment RESERVE A/C → OPERATION PRINCIPAL. Shown with the HQ reserve still to send, the Investment RESERVE
+     * A/C balance and the OPERATION PRINCIPAL. Shareholders are one of the three approvers of both.
      */
     public function reserveTransfers(Ledger $ledger, CashAccounts $cash): JsonResponse
     {
@@ -266,7 +267,7 @@ class ShareholderPortalController extends ApiController
         $companyId = (int) $holder->company_id;
 
         $transfers = BankTransfer::where('company_id', $companyId)
-            ->where('type', CompanyFunds::RESERVE_TO_INVESTMENT)
+            ->whereIn('type', [CompanyFunds::RESERVE_TO_INVESTMENT, CompanyFunds::RESERVE_TO_PRINCIPAL])
             ->with(['employee', 'approver', 'rejectedBy', 'journalEntry', 'reversedBy', 'reversalJournalEntry'])
             ->orderByRaw('status = ? DESC', [CompanyFunds::PENDING])
             ->latest('id')
@@ -276,6 +277,7 @@ class ShareholderPortalController extends ApiController
             'data' => BankTransferResource::collection($transfers),
             'hq_reserve_balance' => $cash->hqReserve($companyId),
             'investment_reserve_balance' => $ledger->balance($companyId, Account::InvestmentReserve) + 0.0,
+            'operation_principal_balance' => $ledger->balance($companyId, Account::Principal) + 0.0,
         ]);
     }
 
@@ -300,7 +302,11 @@ class ShareholderPortalController extends ApiController
 
     private function ensureReserveTransfer(BankTransfer $bankTransfer, ShareHolder $holder): void
     {
-        abort_unless($bankTransfer->type === CompanyFunds::RESERVE_TO_INVESTMENT && (int) $bankTransfer->company_id === (int) $holder->company_id, 404);
+        abort_unless(
+            in_array($bankTransfer->type, [CompanyFunds::RESERVE_TO_INVESTMENT, CompanyFunds::RESERVE_TO_PRINCIPAL], true)
+                && (int) $bankTransfer->company_id === (int) $holder->company_id,
+            404,
+        );
     }
 
     /**

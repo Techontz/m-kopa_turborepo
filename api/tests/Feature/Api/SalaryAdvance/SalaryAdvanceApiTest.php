@@ -272,6 +272,22 @@ class SalaryAdvanceApiTest extends TestCase
         $this->postJson("/api/v1/salary-advance/advances/{$this->pendingAdvance()->id}/collect-fee")->assertForbidden();
     }
 
+    public function test_hq_finance_lists_categories_but_only_admins_manage_them(): void
+    {
+        $finance = Employee::factory()->create([
+            'company_id' => $this->admin->company_id,
+            'branch_id' => $this->admin->branch_id,
+            'role_id' => $this->admin->company->roles()->where('key', 'finance')->value('id'),
+        ]);
+        $this->assertTrue($finance->can('salary_advance.manage'));
+        $this->actingAs($finance);
+
+        $this->getJson('/api/v1/salary-advance/categories')->assertOk();
+        $this->postJson('/api/v1/salary-advance/categories', ['perferal_name' => 'NEW', 'interest_name' => 10, 'from_amount' => 1000, 'to_amount' => 5000, 'fee_charger' => 0])->assertForbidden();
+        $this->putJson("/api/v1/salary-advance/categories/{$this->category->id}", ['perferal_name' => 'X', 'interest_name' => 10, 'from_amount' => 1000, 'to_amount' => 5000, 'fee_charger' => 0])->assertForbidden();
+        $this->deleteJson("/api/v1/salary-advance/categories/{$this->category->id}")->assertForbidden();
+    }
+
     public function test_branch_scope_and_company_isolation(): void
     {
         $otherBranch = Branch::factory()->create(['company_id' => $this->admin->company_id]);

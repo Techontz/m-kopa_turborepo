@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 
-import { HeaderButton } from "@/components/finance-b/FilterModal";
 import type { SalaryAdvanceCategory } from "@/components/finance-b/types";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
@@ -67,7 +66,11 @@ export default function SalaryAdvanceCategoriesPage() {
     <>
       <PageHeader crumbs={["Salary Advance", "Salary advance Category"]} />
 
-      <Card title="Salary advance Category List" actions={<HeaderButton icon="icon-plus" onClick={() => setCreating(true)} />}>
+      <Card title="Salary advance Category List" actions={
+          <button type="button" className="btn btn-primary btn-sm d-inline-flex align-items-center" onClick={() => setCreating(true)}>
+            <i className="icon-plus mr-2" /> Add Category
+          </button>
+        }>
         <DataTable
           rows={categories}
           loading={isLoading}

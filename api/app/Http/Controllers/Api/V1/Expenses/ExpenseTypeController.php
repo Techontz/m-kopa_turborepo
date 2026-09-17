@@ -20,13 +20,14 @@ use Illuminate\Validation\Rule;
 class ExpenseTypeController extends ApiController
 {
     /**
-     * Permission keys that manage each register.
+     * Permission keys that manage each register. The HQ register is a company setting: only Super Admin and Admin
+     * (settings.manage) register HQ expense categories — HQ/Finance request against them but never add or change them.
      *
      * @var array<string, list<string>>
      */
     public const MANAGE_PERMISSIONS = [
         'branch' => ['expenses.request', 'settings.manage'],
-        'hq' => ['hq.manage'],
+        'hq' => ['settings.manage'],
         'bank' => ['bank.manage'],
     ];
 
@@ -37,7 +38,7 @@ class ExpenseTypeController extends ApiController
      */
     public const VIEW_PERMISSIONS = [
         'branch' => ['expenses.request', 'settings.manage', 'expenses.approve_branch', 'expenses.approve_hq'],
-        'hq' => ['hq.manage', 'expenses.approve_hq'],
+        'hq' => ['hq.manage', 'expenses.approve_hq', 'settings.manage'],
         'bank' => ['bank.manage'],
     ];
 

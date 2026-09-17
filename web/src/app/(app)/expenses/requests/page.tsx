@@ -47,12 +47,12 @@ export default function ExpenseRequestsPage() {
         <BranchExpensesTable rows={rows} loading={isLoading} />
       </Card>
 
-      <FilterModal open={filtering} onClose={() => setFiltering(false)} onApply={setFilters} withBranch withDates={false} />
+      <FilterModal open={filtering} onClose={() => setFiltering(false)} onApply={setFilters} withBranch branchesOnly withDates={false} />
 
       <Modal open={requesting} onClose={() => setRequesting(false)} title="Request Expenses" submitLabel="Request" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setRequesting(false) })}>
         <div className="row clearfix">
           <Field label="Select Branch:" className="col-lg-12" error={create.fieldError("blanch_id")}>
-            <SelectBox placeholder="Select Branch" optionsUrl="options/branches" value={form.blanch_id} onChange={(value) => setForm({ ...form, blanch_id: value ?? "" })} />
+            <SelectBox placeholder="Select Branch" optionsUrl="options/branches" query={{ branches_only: 1 }} value={form.blanch_id} onChange={(value) => setForm({ ...form, blanch_id: value ?? "" })} />
           </Field>
           <Field label="Select Expenses:" className="col-lg-6" error={create.fieldError("ex_id")}>
             <SelectBox placeholder="Select Expenses" optionsUrl="expenses/options/types" query={{ scope: "branch" }} value={form.ex_id} onChange={(value) => setForm({ ...form, ex_id: value ?? "" })} />

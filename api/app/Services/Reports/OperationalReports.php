@@ -3,11 +3,13 @@
 namespace App\Services\Reports;
 
 use App\Enums\LoanStatus;
+use App\Enums\PaymentStatus;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\Loan;
 use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
+use App\Models\Payment;
 use App\Models\WriteOff;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -346,21 +348,22 @@ class OperationalReports
     }
 
     /**
-     * Today Received: loan repayments in the range with their Principal / Interest split and reserve.
+     * Today Received: every loan payment in the range with its status.
+     *  - COMPLETED: posted repayments (the loan is reduced) with their Principal / Interest split and reserve;
+     *  - REVERSED: posted repayments later reversed — listed for history, never counted;
+     *  - PENDING VERIFICATION / BANKED — AWAITING FINANCE / PENDING APPROVAL: money received but not posted yet (teller receipts not
+     *    yet banked or verified, branch receipts waiting for Finance). Not split, and not in the received totals — `pending` totals them.
      *
      * @return array{rows: list<array<string, mixed>>, totals: array<string, float>}
      */
     public function received(ReportScope $scope): array
     {
-        $rows = $scope->between($scope->apply(LoanTransaction::query(), 'loan_transactions'), 'transaction_date')
+        $posted = $scope->between($scope->apply(LoanTransaction::query(), 'loan_transactions'), 'transaction_date')
             ->where('type', 'deposit')
-            ->whereNull('reversed_at')
             ->with(['customer:id,first_name,middle_name,last_name,phone', 'branch:id,name', 'loan:id,duration,total_payable', 'employee:id,first_name,middle_name,last_name'])
-            ->orderBy('transaction_date')
-            ->orderBy('id')
             ->get()
             ->map(fn (LoanTransaction $transaction): array => [
-                'id' => $transaction->id,
+                'id' => 'T'.$transaction->id,
                 'loan_id' => $transaction->loan_id,
                 'customer_id' => $transaction->customer_id,
                 'customer' => $transaction->customer?->full_name,
@@ -368,6 +371,7 @@ class OperationalReports
                 'phone' => $transaction->customer?->phone,
                 'duration' => $transaction->loan?->duration->label(),
                 'total_payable' => (float) $transaction->loan?->total_payable,
+                'method' => strtoupper((string) $transaction->method),
                 'amount' => (float) $transaction->amount,
                 'principal' => (float) $transaction->principal,
                 'penalty' => (float) $transaction->penalty,
@@ -375,9 +379,52 @@ class OperationalReports
                 'reserve' => (float) $transaction->reserve,
                 'employee' => $transaction->employee?->full_name,
                 'date' => $transaction->transaction_date->toDateString(),
+                'status' => $transaction->reversed_at === null ? 'completed' : 'reversed',
+                'status_label' => $transaction->reversed_at === null ? 'COMPLETED' : 'REVERSED',
+                'status_badge' => $transaction->reversed_at === null ? 'success' : 'danger',
             ]);
 
-        return ['rows' => $rows->values()->all(), 'totals' => $this->sums($rows, ['amount', 'principal', 'penalty', 'interest', 'reserve'])];
+        $awaiting = [PaymentStatus::PendingVerification, PaymentStatus::Deposited, PaymentStatus::PendingApproval];
+        $pending = $scope->between($scope->apply(Payment::query(), 'payments'), 'paid_on')
+            ->whereNotNull('loan_id')
+            ->whereIn('status', PaymentStatus::values(...$awaiting))
+            ->with(['customer:id,first_name,middle_name,last_name,phone', 'branch:id,name', 'loan:id,duration,total_payable', 'employee:id,first_name,middle_name,last_name'])
+            ->get()
+            ->map(fn (Payment $payment): array => [
+                'id' => 'P'.$payment->id,
+                'loan_id' => $payment->loan_id,
+                'customer_id' => $payment->customer_id,
+                'customer' => $payment->customer?->full_name,
+                'branch' => $payment->branch?->name,
+                'phone' => $payment->customer?->phone,
+                'duration' => $payment->loan?->duration->label(),
+                'total_payable' => (float) $payment->loan?->total_payable,
+                'method' => trim($payment->channel.($payment->provider ? ' · '.$payment->provider : '')),
+                'amount' => (float) $payment->amount,
+                'principal' => 0.0,
+                'penalty' => 0.0,
+                'interest' => 0.0,
+                'reserve' => 0.0,
+                'employee' => $payment->employee?->full_name,
+                'date' => $payment->paid_on?->toDateString(),
+                'status' => $payment->status->value,
+                'status_label' => match ($payment->status) {
+                    PaymentStatus::Deposited => 'BANKED — AWAITING FINANCE',
+                    PaymentStatus::PendingApproval => 'PENDING APPROVAL',
+                    default => 'PENDING VERIFICATION',
+                },
+                'status_badge' => 'warning',
+            ]);
+
+        $rows = $posted->concat($pending)->sortBy([['date', 'desc'], ['id', 'desc']])->values();
+        $completed = $rows->where('status', 'completed');
+
+        return [
+            'rows' => $rows->all(),
+            'totals' => $this->sums($completed, ['amount', 'principal', 'penalty', 'interest', 'reserve']) + [
+                'pending' => round((float) $rows->whereNotIn('status', ['completed', 'reversed'])->sum('amount'), 2),
+            ],
+        ];
     }
 
     /**

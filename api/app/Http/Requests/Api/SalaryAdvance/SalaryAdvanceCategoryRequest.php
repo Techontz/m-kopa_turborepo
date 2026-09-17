@@ -15,7 +15,7 @@ class SalaryAdvanceCategoryRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return (bool) $this->user()?->can('salary_advance.manage');
+        return (bool) $this->user()?->can('settings.manage');
     }
 
     /**

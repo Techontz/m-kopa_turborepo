@@ -12,11 +12,11 @@ import { useApi } from "@/lib/hooks";
 
 interface DashboardData {
   header_accounts: Record<string, number> | null;
-  cards: { account_balance: number; account_balance_title: string; account_balance_label: string; loan_withdrawal: number; receivable: number; default_loan: number };
+  cards: { account_balance: number; account_balance_title: string; account_balance_label: string; loan_withdrawal: number; loan_outstanding: number; default_loan: number };
   account_balances: Record<string, number> | null;
   account_balances_total: number | null;
   account_memos: Array<{ label: string; amount: number; tone: string }> | null;
-  branch_accounts: Array<Record<string, number | string>> | null;
+  branch_accounts: { month: string; rows: Array<Record<string, number | string>>; total: Record<string, number> } | null;
   operating_income: { total: number; sources: Array<{ key: string; label: string; amount: number }> } | null;
   today: Record<string, number | null>;
   customer_types: Array<{ label: string; route: string; all: number; active: number; pending: number; close: number; default: number; male: number; female: number }>;
@@ -32,13 +32,13 @@ const TILES: Array<[string, string, string]> = [
   ["/salary-advance/active", "debits.png", "Salary advance"],
   ["/reports/pending", "default.jpeg", "Loan Pending"],
   ["/reports/default", "rejected.png", "Default Loan"],
-  ["/loans/pending", "aplication.png", "Loan Request"],
-  ["/loans/disbursed", "aproveds.jpg", "Loan Approved"],
+  ["/loans/pending", "aplication.png", "Pending Approval"],
+  ["/loans/disbursed", "aproveds.jpg", "Active Loans"],
   ["/penalties", "penarty.png", "Penalty"],
-  ["/loans/rejected", "rejected.jpg", "Loan Rejected"],
+  ["/loans/rejected", "rejected.jpg", "Rejected Loans"],
   ["/expenses/requests", "aprove.png", "Approve"],
   ["/reports/cash", "transaction.png", "Cash Transaction"],
-  ["/loans/withdrawal", "withdrawal.png", "Loan Withdrawal"],
+  ["/loans/withdrawal", "withdrawal.png", "Disbursement"],
   ["/loan-fees/income", "fee.png", "Loan fee"],
   ["/reports/daily", "daily.png", "Daily Report"],
 ];
@@ -52,6 +52,9 @@ const TYPE_LINKS: Record<string, string> = {
 };
 
 /** Every role sees the same dashboard; the figures inside it are scoped to what the signed-in employee may see. */
+/** Branch List money columns, in display order. */
+const BRANCH_COLUMNS = ["petty_cash", "principal_repaid", "interest", "loan_fee", "penalty", "reserve", "cash_pending"];
+
 export default function DashboardPage() {
   const { data, isLoading } = useApi<DashboardData>("dashboard");
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -60,10 +63,13 @@ export default function DashboardPage() {
   if (isLoading || !data) {
     return <Loading />;
   }
+  const isHqFunds = data.cards.account_balance_title === "HQ Funds";
 
   const t = data.today;
-  /** Company money movements (capital, float, principal transfers, bank-paid expenses) are null for branch- and zone-scoped employees. */
-  const seesCompanyMoney = t.capital_received !== null;
+  /** Company money movements (float, principal transfers, bank-paid expenses) are null for branch- and zone-scoped employees. */
+  const seesCompanyMoney = t.float_to_hq !== null;
+  /** Capital received is shareholders' money: null for everyone but the owners (HQ and Finance never see it). */
+  const seesCapital = t.capital_received !== null;
 
   return (
     <>
@@ -96,13 +102,13 @@ export default function DashboardPage() {
           <div className="col-md-3">
             <div className="body dashboard-stat bg-warning text-light">
               <h4><i className="icon-wallet" /> {money(data.cards.loan_withdrawal)}</h4>
-              <span>Loan Withdrawal</span>
+              <span>Disbursed Today</span>
             </div>
           </div>
           <div className="col-md-3">
             <div className="body dashboard-stat bg-primary text-light">
-              <h4><i className="icon-wallet" /> {money(data.cards.receivable)}</h4>
-              <span>Expectation Receivable</span>
+              <h4><i className="icon-wallet" /> {money(data.cards.loan_outstanding)}</h4>
+              <span>Total Loan Outstanding</span>
             </div>
           </div>
           <div className="col-md-3">
@@ -164,7 +170,7 @@ export default function DashboardPage() {
               </tr>
               <tr>
                 <td>-</td>
-                <td>Agent <span className="badge badge-success">{money(t.agent_deposit)}</span></td>
+                <td>-</td>
                 <td>-</td>
                 <td>Salary advance income <span className="badge badge-success">{money(t.salary_advance_income)}</span></td>
                 <td>-</td>
@@ -190,22 +196,21 @@ export default function DashboardPage() {
               {seesCompanyMoney ? (
                 <>
                   <tr>
-                    <td>Capital received <span className="badge badge-info">{money(t.capital_received)}</span></td>
+                    {seesCapital && <td>Capital received <span className="badge badge-info">{money(t.capital_received)}</span></td>}
                     <td>Float to HQ <span className="badge badge-info">{money(t.float_to_hq)}</span></td>
                     <td>Other principal transfers out <span className="badge badge-info">{money(t.principal_transfers_out)}</span></td>
                     <td>Saving withdrawal <span className="badge badge-info">{money(t.saving_withdrawal)}</span></td>
                   </tr>
                   <tr>
-                    <td>Insurance collected (not in profit income) <span className="badge badge-info">{money(t.insurance_income)}</span></td>
                     <td>Reserve set aside from interest <span className="badge badge-info">{money(t.reserve_amount)}</span></td>
                     <td>Expenses paid from bank (included above) <span className="badge badge-info">{money(t.expenses_paid_from_bank)}</span></td>
                     <td>-</td>
+                    {seesCapital && <td>-</td>}
                   </tr>
                 </>
               ) : (
                 <tr>
                   <td>Saving withdrawal <span className="badge badge-info">{money(t.saving_withdrawal)}</span></td>
-                  <td>Insurance collected (not in profit income) <span className="badge badge-info">{money(t.insurance_income)}</span></td>
                   <td>Reserve set aside from interest <span className="badge badge-info">{money(t.reserve_amount)}</span></td>
                 </tr>
               )}
@@ -255,7 +260,7 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      <Modal open={accountsOpen} onClose={() => setAccountsOpen(false)} title={data.cards.account_balance_title === "HQ Funds" ? "HQ Account List" : "Company Account List"}>
+      <Modal open={accountsOpen} onClose={() => setAccountsOpen(false)} title={isHqFunds ? "HQ Account List" : "Company Account List"}>
         <div className="table-responsive">
           <table className="table table-bordered">
             <thead className="thead-info"><tr><th>A/c Name</th><th className="text-right">Amount</th></tr></thead>
@@ -264,6 +269,11 @@ export default function DashboardPage() {
                 <tr key={name}><td>{name}</td><td className="text-right">{money(amount)}</td></tr>
               ))}
               <tr><th>TOTAL:</th><th className="text-right">{money(data.account_balances_total)}</th></tr>
+              {isHqFunds && (
+                <tr>
+                  <td colSpan={2}><small className="text-muted">Unmatched is money received but not yet matched to a loan, and Savings belong to the customers who deposited them, so neither is HQ&apos;s. Profit and Dividends are shares of Operation Income. None of these four is added to the total.</small></td>
+                </tr>
+              )}
               {/* Memo lines, as on the live account modal: not part of the total — what the money owes or is still to collect. */}
               {(data.account_memos ?? []).map((memo) => (
                 <tr key={memo.label} className={`text-${memo.tone}`}>
@@ -276,22 +286,40 @@ export default function DashboardPage() {
         </div>
       </Modal>
 
-      <Modal open={branchesOpen} onClose={() => setBranchesOpen(false)} title="Branch List" size="xl">
+      <Modal open={branchesOpen} onClose={() => setBranchesOpen(false)} title={`Branch List — ${data.branch_accounts?.month ?? ""}`} size="xl">
         <div className="table-responsive">
           <table className="table table-bordered">
             <thead className="thead-info">
-              <tr><th>Branch Name</th><th>Petty cash</th><th>Interest A/c</th><th>Loan fee A/c</th><th>Penalty A/c</th><th>Reserve A/c</th><th>Agent</th><th>Insurance</th></tr>
+              <tr>
+                <th>Branch Name</th>
+                <th>Petty Cash<small className="d-block">available now</small></th>
+                <th>Principal Repaid</th>
+                <th>Interest</th>
+                <th>Loan fee</th>
+                <th>Penalty</th>
+                <th>Reserve</th>
+                <th>Cash Pending<small className="d-block">not yet verified</small></th>
+              </tr>
             </thead>
             <tbody>
-              {(data.branch_accounts ?? []).map((branch) => (
+              {(data.branch_accounts?.rows ?? []).map((branch) => (
                 <tr key={String(branch.name)}>
                   <td>{branch.name}</td>
-                  {["petty_cash", "interest", "loan_fee", "penalty", "reserve", "agent", "insurance"].map((key) => <td key={key}>{money(branch[key] as number)}</td>)}
+                  {BRANCH_COLUMNS.map((key) => <td key={key}>{money(branch[key] as number)}</td>)}
                 </tr>
               ))}
+              {data.branch_accounts && (
+                <tr>
+                  <th>TOTAL:</th>
+                  {BRANCH_COLUMNS.map((key) => <th key={key}>{money(data.branch_accounts?.total[key])}</th>)}
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
+        <small className="text-muted">
+          Every column covers {data.branch_accounts?.month} except Petty Cash, which is the balance each branch holds now — the only money a branch holds. Principal Repaid is already back in HQ&apos;s Operation Principal, and Interest (after the 20% reserve), Loan fee, Penalty and Reserve are what the branch collected for HQ. Cash Pending is teller cash collected this month that Finance has not yet verified as banked.
+        </small>
       </Modal>
     </>
   );

@@ -29,10 +29,24 @@ class FloatService
 
     public const REJECTED = 'rejected';
 
+    /** Staff roles that may request, approve or reject a float (user decision 2026-09-17); others with float.manage only view. */
+    public const TRANSFER_ROLES = ['super_admin', 'admin'];
+
+    public const TRANSFER_MESSAGE = 'Only Super Admin or Admin can transfer float.';
+
     public function __construct(
         private readonly Ledger $ledger,
         private readonly SegregationOfDuties $duties,
     ) {}
+
+    /**
+     * Whether the employee may request, approve or reject a float: a Super Admin or Admin staff login (never a shareholder
+     * portal account), on top of float.manage.
+     */
+    public static function canTransfer(Employee $employee): bool
+    {
+        return in_array($employee->role?->key, self::TRANSFER_ROLES, true) && ! $employee->isShareholderAccount();
+    }
 
     /**
      * Where a company → HQ float may be taken from: the COMPANY ACCOUNT, a company bank account or the Investment

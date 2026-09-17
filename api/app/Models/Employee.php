@@ -30,7 +30,6 @@ class Employee extends Authenticatable
         'aprove' => 'APPROVE',
         'bank' => 'BANK',
         'bank_password' => 'BANK PASSWORD',
-        'clientless' => 'CLIENTLESS',
         'customer' => 'CUSTOMER',
         'debit' => 'DEBT PENDING',
         'expenses' => 'EXPENSES',

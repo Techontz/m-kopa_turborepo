@@ -3,7 +3,6 @@
 namespace Database\Seeders;
 
 use App\Enums\Account;
-use App\Models\AgentTransaction;
 use App\Models\BankAccount;
 use App\Models\BankTransfer;
 use App\Models\Branch;
@@ -18,7 +17,6 @@ use App\Models\ExpenseType;
 use App\Models\FloatTransfer;
 use App\Models\Guarantor;
 use App\Models\LoanCategory;
-use App\Models\PaymentMode;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
 use App\Models\Saving;
@@ -195,20 +193,6 @@ class DemoDataSeeder extends Seeder
                 'approved_at' => $index < 2 ? null : $today->subDays(3),
             ]);
             $customer->update(['bank_account_name' => ['NMB', 'CRDB'][$index % 2], 'bank_password' => fake()->numerify('####')]);
-        }
-
-        $mode = PaymentMode::where('company_id', $company->id)->firstOrFail();
-        foreach ($branches->take(3) as $index => $branch) {
-            $transaction = AgentTransaction::create([
-                'company_id' => $company->id,
-                'branch_id' => $branch->id,
-                'payment_mode_id' => $mode->id,
-                'agent' => 'WAKALA '.($index + 1),
-                'amount' => 50000 * ($index + 1),
-                'transaction_date' => $today,
-                'transaction_time' => '10:30',
-            ]);
-            $ledger->transfer($company, ['account' => Account::Suspense, 'branch' => null], ['account' => Account::Agent, 'branch' => $branch], (float) $transaction->amount, 'AGENT', $transaction);
         }
 
         foreach (Customer::where('company_id', $company->id)->take(5)->get() as $index => $customer) {

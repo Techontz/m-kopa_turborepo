@@ -28,9 +28,9 @@ export default function LoanPendingPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Loan", "Loan Pending"]} />
+      <PageHeader crumbs={["Loan", "Pending Approval"]} />
       <Card
-        title={special ? "Special Loan Pending List" : "Loan Pending List"}
+        title={special ? "Special Loans Pending Approval" : "Loans Pending Approval"}
         actions={
           <button type="button" className="btn btn-info" onClick={() => setSpecial(!special)}>
             {special ? "Loan Pending" : <>Special Loan <span className="badge badge-danger">{data?.special_count ?? 0}</span></>} <i className="icon-arrow-right" />

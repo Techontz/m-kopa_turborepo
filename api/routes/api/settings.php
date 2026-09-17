@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\Settings\CompanySettingController;
 use App\Http\Controllers\Api\V1\Settings\FormulaController;
 use App\Http\Controllers\Api\V1\Settings\LoanCategoryController;
 use App\Http\Controllers\Api\V1\Settings\LoanFeeController;
+use App\Http\Controllers\Api\V1\Settings\PaymentProviderController;
 use App\Http\Controllers\Api\V1\Settings\RoleController;
 use App\Http\Controllers\Api\V1\Settings\SettingsOptionController;
 use App\Http\Controllers\Api\V1\Settings\ZoneController;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('settings')->name('settings.')->group(function (): void {
     Route::apiResource('branches', BranchController::class);
     Route::apiResource('zones', ZoneController::class);
+    Route::get('payment-providers/options', [PaymentProviderController::class, 'options'])->name('payment-providers.options');
+    Route::apiResource('payment-providers', PaymentProviderController::class)->except('show');
 
     Route::controller(FormulaController::class)->group(function (): void {
         Route::get('formulas', 'index')->name('formulas.index');

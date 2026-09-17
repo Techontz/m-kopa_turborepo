@@ -13,7 +13,7 @@ import { useAuth } from "@/lib/auth";
 import { money, percent } from "@/lib/format";
 import { useAction, useApi } from "@/lib/hooks";
 
-/** Loan → Loan Disbursed (live disburse_loan): running loans with agreement upload, repayment schedule and agreement. */
+/** Loan → Active Loans (live disburse_loan "Loan Disbursed"): running loans with agreement upload, repayment schedule and agreement. */
 export default function LoanDisbursedPage() {
   const { can } = useAuth();
   const { data, isLoading } = useApi<Loan[]>("loans", { stage: "disbursed" });
@@ -28,8 +28,8 @@ export default function LoanDisbursedPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Loan", "Loan Disbursed"]} />
-      <Card title="Loan Disbursed List">
+      <PageHeader crumbs={["Loan", "Active Loans"]} />
+      <Card title="Active Loans">
         <DataTable
           rows={data}
           loading={isLoading}
@@ -48,7 +48,7 @@ export default function LoanDisbursedPage() {
             { key: "customer_name", header: "Customer Name" },
             { key: "branch", header: "Branch Name" },
             { key: "loan_number", header: "Loan Ac", render: (row) => <Link href={`/loans/${row.id}`}>{row.loan_number}</Link> },
-            { key: "amount_approved", header: "Loan Disbursed", render: (row) => money(row.amount_approved) },
+            { key: "amount_approved", header: "Amount Disbursed", render: (row) => money(row.amount_approved) },
             { key: "interest_rate", header: "Loan Interest", render: (row) => percent(row.interest_rate) },
             { key: "total_payable", header: "Principal + Interest", render: (row) => money(row.total_payable) },
             { key: "duration_label", header: "Restoration Type" },

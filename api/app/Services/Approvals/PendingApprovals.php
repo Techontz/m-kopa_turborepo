@@ -230,7 +230,7 @@ class PendingApprovals
                 'pending',
                 $links[$row->type] ?? '/capital/floats',
                 $row->requested_by,
-                true,
+                FloatService::canTransfer($this->viewer),
             ))->all();
     }
 
@@ -247,7 +247,6 @@ class PendingApprovals
             CompanyFunds::CASH_TO_BANK => '/bank/company-transfers',
             CompanyFunds::BANK_TO_CASH => '/bank/company-transfers',
             CompanyFunds::BRANCH_TO_BANK => '/bank/transfers',
-            CompanyFunds::BANK_TO_HQ => '/bank/to-hq',
             CompanyFunds::RESERVE_TO_INVESTMENT => '/bank/reserve-to-investment',
             CompanyFunds::PETTY_CASH_TO_BRANCH => '/bank/petty-cash',
         ];
@@ -576,6 +575,7 @@ class PendingApprovals
                 $this->canAny($row->status === PayrollRun::STATUS_DRAFT ? 'payroll.approve' : 'payroll.pay'),
             ))->all();
     }
+
     /**
      * Staff allowances HR created and Finance has not approved yet. As on the module page: HR or Finance see them, Finance
      * (`payroll.pay`) approves, and neither the HR creator nor the receiving employee may approve (payroll policy).
@@ -641,7 +641,6 @@ class PendingApprovals
                 $permitted,
             ), $this->duties->flags([$row->created_by, $row->employee_id], $this->viewer, true, $permitted, workflow: ApprovalPolicy::PAYROLL)))->all();
     }
-
 
     /**
      * @return list<array<string, mixed>>|null

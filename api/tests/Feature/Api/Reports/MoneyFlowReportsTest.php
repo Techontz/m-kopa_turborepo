@@ -15,6 +15,7 @@ use App\Models\ExpenseType;
 use App\Models\Group;
 use App\Models\JournalEntry;
 use App\Models\Loan;
+use App\Models\LoanTransaction;
 use App\Models\Penalty;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
@@ -25,6 +26,7 @@ use App\Services\DashboardStatistics;
 use App\Services\ExpenseApproval;
 use App\Services\Ledger;
 use App\Services\LoanService;
+use App\Services\PaymentService;
 use App\Services\PeriodClose;
 use App\Services\Reports\Financial\CashAccounts;
 use Carbon\CarbonImmutable;
@@ -234,17 +236,16 @@ class MoneyFlowReportsTest extends TestCase
         $data = $this->actingAs($finance)->getJson('/api/v1/dashboard')->assertOk()->json('data');
 
         $this->assertSame('HQ Funds', $data['cards']['account_balance_title']);
+        $this->assertNull($data['today']['capital_received'], 'capital received is the owners\' money, never shown to HQ or Finance');
+        $this->assertNotNull($data['today']['float_to_hq']);
         $this->assertEquals(2000000 + 150000 + 50000, $data['cards']['account_balance'], 'the float received plus the interest HQ holds');
         $this->assertSame(
-            ['PRINCIPAL A/C', 'INTEREST A/C', 'LOAN FEE A/C', 'PENALTY A/C', 'RESERVE A/C', 'INSURANCE A/C', 'AGENT A/C',
-                'TELLER CASH A/C', 'PETTY CASH A/C (branches)', 'DISBURSEMENT A/C'],
+            ['OPERATION PRINCIPAL', 'OPERATION INCOME', 'FUND', 'RESERVE', 'UNMATCHED', 'SAVINGS', 'PROFIT', 'DIVIDENDS'],
             array_keys($data['account_balances']),
-            'every account HQ can spend, the empty ones included, each kind of money exactly once',
+            'exactly the HQ accounts, the empty ones included',
         );
-        $this->assertEquals(0, $data['account_balances']['LOAN FEE A/C']);
-        $this->assertEquals(150000 + 50000, $data['account_balances']['INTEREST A/C'], 'the branch pool and the HQ account are one row, never two');
-        $this->assertArrayNotHasKey('SAVING A/C (held for customers)', $data['account_balances'], 'savings are held for customers, not HQ funds — a memo line, not a row');
-        $this->assertSame(['Saving Deposit', 'Salary advance Remain', 'Saving Remain'], array_column($data['account_memos'], 'label'));
+        $this->assertEquals(150000 + 50000, $data['account_balances']['OPERATION INCOME'], 'the branch pool and the HQ account are one row, never two');
+        $this->assertNull($data['account_memos'], 'the memo lines belong to the owners\' Company Account List only');
         $this->assertEquals($data['cards']['account_balance'], $data['account_balances_total']);
         $this->assertArrayNotHasKey('Company A/C', $data['account_balances']);
         $this->assertArrayNotHasKey('Assets', $data['account_balances']);
@@ -255,6 +256,65 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertEquals(150000 + 50000, $data['operating_income']['total']);
         $this->assertSame(['interest', 'loan_fee', 'penalty'], array_column($data['operating_income']['sources'], 'key'));
         $this->assertEquals($data['operating_income']['total'], array_sum(array_column($data['operating_income']['sources'], 'amount')));
+    }
+
+    public function test_unmatched_savings_profit_and_dividends_are_listed_but_never_added_to_the_hq_funds_total(): void
+    {
+        $companyId = $this->admin->company_id;
+        $ledger = app(Ledger::class);
+        $ledger->openingBalance($companyId, Account::Principal, 1000000, 'FLOAT TO HQ');
+        $ledger->openingBalance($companyId, Account::StaffFundCash, 200000, 'STAFF FUND');
+        $ledger->openingBalance($companyId, Account::HqSaving, 25000, 'CUSTOMER SAVINGS', branch: $this->admin->branch_id);
+        app(PaymentService::class)->recordUnmatched($companyId, ['amount' => 40000, 'channel' => 'BANK', 'provider' => 'CRDB Bank', 'paid_on' => today()->toDateString()], $this->admin);
+        // A closed month: 300,000 of income now belongs to profit, 90,000 of which was declared as dividends — the cash
+        // itself is still in the interest pool.
+        $ledger->transfer($companyId, ['account' => Account::RetainedProfit], ['account' => Account::Interest, 'branch' => $this->admin->branch_id], 300000, 'CLOSED MONTH');
+        $ledger->transfer($companyId, ['account' => Account::DividendPayable], ['account' => Account::RetainedProfit], 90000, 'DIVIDEND DECLARED');
+
+        $data = $this->actingAs($this->employeeWithRole('finance'))->getJson('/api/v1/dashboard')->assertOk()->json('data');
+
+        $this->assertEquals(1000000, $data['account_balances']['OPERATION PRINCIPAL']);
+        $this->assertEquals(300000, $data['account_balances']['OPERATION INCOME']);
+        $this->assertEquals(200000, $data['account_balances']['FUND']);
+        $this->assertEquals(210000, $data['account_balances']['PROFIT']);
+        $this->assertEquals(90000, $data['account_balances']['DIVIDENDS']);
+        $this->assertArrayNotHasKey('AGENT A/C', $data['account_balances']);
+        $this->assertEquals(40000, $data['account_balances']['UNMATCHED'], 'the unallocated money of Payments → Suspense Account');
+        $this->assertEquals(25000, $data['account_balances']['SAVINGS'], 'customer savings held');
+        $this->assertEquals(1500000, $data['account_balances_total'], 'principal + income + fund; unmatched, savings, profit and dividends are listed, never added');
+        $this->assertEquals(1500000, $data['cards']['account_balance']);
+    }
+
+    public function test_branch_list_is_monthly_except_the_petty_cash_balance(): void
+    {
+        $companyId = $this->admin->company_id;
+        $branchId = $this->admin->branch_id;
+        $ledger = app(Ledger::class);
+        $headOffice = Branch::factory()->create(['company_id' => $companyId, 'is_head_office' => true]);
+        $ledger->openingBalance($companyId, Account::PettyCash, 50000, branch: $branchId);
+        $ledger->transfer($companyId, ['account' => Account::PettyCash, 'branch' => $branchId], ['account' => Account::OperatingExpense, 'branch' => $branchId], 12000, 'WATER BILL');
+
+        $customer = Customer::factory()->create(['company_id' => $companyId, 'branch_id' => $branchId]);
+        $deposit = fn (float $principal, string $date, bool $reversed = false): LoanTransaction => LoanTransaction::create([
+            'company_id' => $companyId, 'branch_id' => $branchId, 'customer_id' => $customer->id, 'type' => 'deposit', 'description' => 'REPAYMENT',
+            'amount' => $principal, 'principal' => $principal, 'transaction_date' => $date, 'reversed_at' => $reversed ? now() : null,
+        ]);
+        $deposit(10000, today()->toDateString());
+        $deposit(4000, today()->startOfMonth()->toDateString());
+        $deposit(9000, today()->toDateString(), reversed: true);
+        $deposit(80000, today()->subMonthNoOverflow()->endOfMonth()->toDateString());
+
+        $list = $this->getJson('/api/v1/dashboard')->assertOk()->json('data.branch_accounts');
+
+        $this->assertSame(today()->format('F Y'), $list['month']);
+        $this->assertNotContains($headOffice->name, array_column($list['rows'], 'name'), 'Head Office is not a branch');
+        $row = collect($list['rows'])->firstWhere('name', $this->admin->branch->name);
+        $this->assertSame(['name', 'petty_cash', 'principal_repaid', 'interest', 'loan_fee', 'penalty', 'reserve', 'cash_pending'], array_keys($row), 'no agent or insurance columns');
+        $this->assertEquals(38000, $row['petty_cash'], 'the petty cash balance available now');
+        $this->assertEquals(14000, $row['principal_repaid'], 'this month only, reversed repayments excluded');
+        $this->assertEquals(0, $row['interest'], 'monthly collections, not balances');
+        $this->assertEquals(0, $row['cash_pending']);
+        $this->assertEquals(14000, $list['total']['principal_repaid']);
     }
 
     public function test_branch_scoped_dashboard_cards_cover_the_employee_branch_only(): void
@@ -406,6 +466,7 @@ class MoneyFlowReportsTest extends TestCase
         $summary = $this->getJson('/api/v1/reports/portfolio')->assertOk()->json('data.summary');
         $this->assertEquals(100000, $summary['outstanding_principal']);
         $this->assertEquals(130000, $summary['outstanding_total']);
+        $this->assertEquals($summary['outstanding_total'], $this->getJson('/api/v1/dashboard')->json('data.cards.loan_outstanding'), 'the dashboard Total Loan Outstanding card is the Loan Portfolio figure (written-off loans excluded)');
         $this->assertSame(1, $summary['written_off_count']);
         $this->assertEquals(80000, $summary['written_off_principal']);
         $this->assertEquals(110000, $summary['written_off_outstanding']);
@@ -431,6 +492,18 @@ class MoneyFlowReportsTest extends TestCase
         $this->assertEquals(110000, $collection['remain']);
         $received = $this->getJson('/api/v1/reports/received?from='.today()->subDays(3)->toDateString().'&to='.today()->toDateString())->assertOk()->json('data.totals');
         $this->assertEquals(20000, $received['amount']);
+
+        // Every payment carries a status: the reversed one is listed but not counted, money still pending is totalled apart.
+        app(PaymentService::class)->recordCash($loan->fresh(), 5000, 'CASH', $this->admin);
+        $report = $this->getJson('/api/v1/reports/received?from='.today()->subDays(3)->toDateString().'&to='.today()->toDateString())->assertOk()->json('data');
+        $this->assertEqualsCanonicalizing(['completed', 'reversed', 'pending_verification'], array_values(array_unique(array_column($report['rows'], 'status'))));
+        $this->assertEquals([20000, 5000], [$report['totals']['amount'], $report['totals']['pending']]);
+
+        // A chosen branch shows its whole history, not only today.
+        $today = collect($this->getJson('/api/v1/reports/received')->json('data.rows'));
+        $this->assertCount(1, $today, 'today only by default: just the cash received today');
+        $this->assertSame('pending_verification', $today->first()['status']);
+        $this->assertCount(2, collect($this->getJson('/api/v1/reports/received?branch_id='.$this->admin->branch_id)->json('data.rows'))->whereIn('status', ['completed', 'reversed']));
         $branchwise = collect($this->getJson('/api/v1/reports/branchwise')->assertOk()->json('data.rows'))->firstWhere('branch_id', $this->admin->branch_id);
         $this->assertEquals(20000, $branchwise['received']);
     }

@@ -318,7 +318,7 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
             { key: "loan_number", header: "Loan Ac", render: (row) => <Link href={`/loans/${row.id}`} onClick={() => setAllLoans(false)}>{row.loan_number}</Link> },
             { key: "category", header: "Loan Product" },
             { key: "interest_rate", header: "Loan Interest", render: (row) => percent(row.interest_rate) },
-            { key: "amount_approved", header: "Loan Withdrawal", render: (row) => money(row.withdrawn_at ? row.amount_approved : 0) },
+            { key: "amount_approved", header: "Amount Disbursed", render: (row) => money(row.withdrawn_at ? row.amount_approved : 0) },
             { key: "total_payable", header: "Principal + interest", render: (row) => money(row.withdrawn_at ? row.total_payable : 0) },
             { key: "duration_label", header: "Duration Type" },
             { key: "sessions", header: "Number of Repayment" },

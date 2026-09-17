@@ -7,7 +7,6 @@ use App\Models\BankTransfer;
 use App\Models\Branch;
 use App\Models\Employee;
 use App\Models\ShareHolder;
-use App\Services\CompanyFunds;
 use App\Services\Ledger;
 use App\Services\Shareholders\ShareholderAccounts;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -95,8 +94,8 @@ class ReserveToInvestmentApiTest extends TestCase
 
         $finance = $this->secondApprover($this->admin, 'finance');
         $this->actAs($finance);
-        $this->getJson('/api/v1/bank/reserve-to-investment')->assertOk()->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.can_reject', false);
-        $this->postJson("/api/v1/bank/transfers/{$first}/approve")->assertForbidden()->assertJsonPath('message', CompanyFunds::RESERVE_APPROVER_MESSAGE);
+        $this->getJson('/api/v1/bank/reserve-to-investment')->assertForbidden();
+        $this->postJson("/api/v1/bank/transfers/{$first}/approve")->assertForbidden();
         $this->postJson("/api/v1/bank/transfers/{$first}/reject", ['reason' => 'Not now'])->assertForbidden();
         $this->assertSame(0.0, $this->ledger->balance($companyId, Account::InvestmentReserve));
 

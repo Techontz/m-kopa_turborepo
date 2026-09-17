@@ -61,6 +61,7 @@ export default function CashVerificationPage() {
             { key: "customer", header: "Customer Name" },
             { key: "branch", header: "Branch Name" },
             { key: "employee", header: "Teller" },
+            { key: "channel", header: "Method", render: (row) => (row.provider ? `${row.channel} · ${row.provider}` : row.channel) },
             { key: "amount", header: "Amount", render: (row) => money(row.amount) },
             { key: "slip_number", header: "Deposit Slip" },
             { key: "paid_on", header: "Date" },

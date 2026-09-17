@@ -145,6 +145,31 @@ class FloatApiTest extends TestCase
     }
 
     /**
+     * Only Super Admin and Admin request, approve or reject floats; Finance (which holds float.manage) only views them.
+     */
+    public function test_only_super_admin_and_admin_can_transfer_float(): void
+    {
+        $superAdmin = $this->signInAdmin();
+        $this->ledger()->openingBalance($superAdmin->company_id, Account::Company, 100000, 'CAPITAL');
+        $roles = $superAdmin->company->roles()->pluck('id', 'key');
+        $admin = Employee::factory()->create(['company_id' => $superAdmin->company_id, 'branch_id' => $superAdmin->branch_id, 'role_id' => $roles['admin']]);
+        $finance = Employee::factory()->create(['company_id' => $superAdmin->company_id, 'branch_id' => $superAdmin->branch_id, 'role_id' => $roles['finance']]);
+
+        $this->actingAs($finance)->getJson('/api/v1/capital/floats')->assertOk()->assertJsonPath('can_transfer', false);
+        $this->actingAs($finance)->postJson('/api/v1/capital/floats', ['amount' => 1000, 'from_account' => Account::Company->value])
+            ->assertForbidden()->assertJsonPath('message', 'Only Super Admin or Admin can transfer float.');
+
+        $id = $this->actingAs($admin)->postJson('/api/v1/capital/floats', ['amount' => 1000, 'from_account' => Account::Company->value])->assertCreated()->json('data.id');
+        $this->actingAs($finance)->getJson('/api/v1/capital/floats')->assertOk()->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.can_reject', false);
+        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
+        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/reject", ['reason' => 'Not needed'])->assertForbidden();
+
+        $this->actingAs($superAdmin)->getJson('/api/v1/capital/floats')->assertOk()->assertJsonPath('can_transfer', true);
+        $this->actingAs($superAdmin)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
+        $this->assertSame(1000.0, $this->ledger()->balance($superAdmin->company_id, Account::Principal));
+    }
+
+    /**
      * A pending branch → branch float row. The flow is gone (branches hold no lending money), but the historic rows are
      * still listed, approved, rejected and reversed, so they are created straight on the model.
      */

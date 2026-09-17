@@ -15,7 +15,10 @@ class OptionController extends ApiController
 {
     public function branchOptions(Request $request): JsonResponse
     {
-        $branches = $this->visibleBranches()->map(fn ($branch): array => ['value' => (string) $branch->id, 'label' => $branch->name]);
+        // branches_only: real branches, without Head Office (HQ is not a branch — e.g. branch expenses, petty cash).
+        $branches = $this->visibleBranches()
+            ->when($request->boolean('branches_only'), fn ($branches) => $branches->reject(fn ($branch): bool => (bool) $branch->is_head_office))
+            ->map(fn ($branch): array => ['value' => (string) $branch->id, 'label' => $branch->name]);
 
         if ($request->boolean('with_all')) {
             $branches->push(['value' => 'all', 'label' => 'ALL']);

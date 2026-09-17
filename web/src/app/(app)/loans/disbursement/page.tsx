@@ -37,8 +37,8 @@ async function askText(title: string, placeholder: string): Promise<string | nul
 }
 
 /**
- * Finance disbursement desk (Documents: FINANCE PREPARATION → VODACOM DISBURSEMENT → CALLBACK → retry max 3 → ESCALATED).
- * Finance edits nothing on the loan: prepare the batch choosing the disbursement source (branch cash or a company bank
+ * Loan → Ready to Pay Out: Finance disbursement desk (Documents: FINANCE PREPARATION → VODACOM DISBURSEMENT → CALLBACK → retry max 3 → ESCALATED).
+ * Finance edits nothing on the loan: prepare the batch choosing the disbursement source (HQ Principal A/C or a company bank
  * account), Disburse (then complete in the Vodacom portal), Retry, or decide on escalations.
  */
 export default function DisbursementPage() {
@@ -96,8 +96,8 @@ export default function DisbursementPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Loan", "Disbursement"]} />
-      <Card title="Loan Disbursement">
+      <PageHeader crumbs={["Loan", "Ready to Pay Out"]} />
+      <Card title="Approved Loans Ready to Pay Out">
         <ul className="nav nav-tabs mb-3">
           {TABS.map((item) => (
             <li className="nav-item" key={item.status}>

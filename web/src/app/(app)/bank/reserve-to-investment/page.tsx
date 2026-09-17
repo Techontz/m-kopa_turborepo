@@ -18,7 +18,6 @@ import { useAction } from "@/lib/hooks";
 
 interface TransferForm {
   amount: string;
-  reference: string;
 }
 
 interface TransferList {
@@ -27,7 +26,7 @@ interface TransferList {
   investment_reserve_balance: number;
 }
 
-const EMPTY: TransferForm = { amount: "", reference: "" };
+const EMPTY: TransferForm = { amount: "" };
 const DESCRIPTION = "HQ reserve → Investment RESERVE A/C";
 
 /**
@@ -109,9 +108,6 @@ export default function ReserveToInvestmentPage() {
         <div className="row clearfix">
           <Field label="Amount:" required className="col-lg-6" error={create.fieldError("amount")}>
             <input type="number" className="form-control" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
-          </Field>
-          <Field label="Reference:" className="col-lg-6" error={create.fieldError("reference")}>
-            <input className="form-control" placeholder="Reference" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} maxLength={100} />
           </Field>
           <div className="col-12">
             <small className="text-muted">

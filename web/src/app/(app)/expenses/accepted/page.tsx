@@ -20,7 +20,7 @@ export default function AcceptedExpensesPage() {
       <Card title="Accepted Expenses List" actions={<HeaderButton onClick={() => setFiltering(true)} />}>
         <BranchExpensesTable rows={rows} loading={isLoading} />
       </Card>
-      <FilterModal open={filtering} onClose={() => setFiltering(false)} onApply={setFilters} withBranch />
+      <FilterModal open={filtering} onClose={() => setFiltering(false)} onApply={setFilters} withBranch branchesOnly />
     </>
   );
 }

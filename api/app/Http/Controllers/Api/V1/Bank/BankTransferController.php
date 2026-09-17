@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1\Bank;
 
 use App\Enums\Account;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Http\Requests\Api\Bank\BankToHqRequest;
 use App\Http\Requests\Api\Bank\BranchToBankRequest;
 use App\Http\Requests\Api\Bank\CompanyFundTransferRequest;
 use App\Http\Resources\Api\V1\Bank\BankTransferResource;
@@ -27,8 +26,6 @@ use Illuminate\Validation\Rule;
 class BankTransferController extends ApiController
 {
     public const BRANCH_TO_BANK = 'branch_to_bank';
-
-    public const BANK_TO_HQ = 'bank_to_hq';
 
     public function __construct(private readonly Ledger $ledger) {}
 
@@ -67,7 +64,7 @@ class BankTransferController extends ApiController
     }
 
     /**
-     * Approve a pending bank movement of any type (branch → bank, bank → branch, bank → HQ, company cash ↔ bank) and post
+     * Approve a pending bank movement of any type (branch → bank, company cash ↔ bank, reserve → investment, petty cash) and post
      * it ({@see CompanyFunds::approve()}). The initiator cannot approve their own transfer (rule 6).
      */
     public function approve(BankTransfer $bankTransfer, CompanyFunds $funds): JsonResponse
@@ -108,34 +105,6 @@ class BankTransferController extends ApiController
         return $this->message('Transaction Deleted successfully');
     }
 
-    public function toHqIndex(Request $request): JsonResponse
-    {
-        $this->authorizeAny('bank.manage');
-
-        return $this->collection($this->applyFilters($this->transfers(self::BANK_TO_HQ), $request->merge(['branch_id' => null]), 'transfer_date'));
-    }
-
-    /**
-     * Request bank → HQ SALARY ADVANCE or DISBURSEMENT ACCOUNT (pending). On approval the bank account is credited
-     * amount + charge and the HQ account debited the amount.
-     */
-    public function toHqStore(BankToHqRequest $request, CompanyFunds $funds): JsonResponse
-    {
-        $this->authorizeAny('bank.manage');
-
-        $transfer = $funds->requestFromBank(
-            $this->currentEmployee()->company_id,
-            self::BANK_TO_HQ,
-            $request->integer('from_acc'),
-            $request->float('amount'),
-            $request->float('charger_fee'),
-            $this->currentEmployee(),
-            hqAccount: $request->string('to_acc')->toString() === 'salary' ? Account::HqSalaryAdvance : Account::HqDisbursement,
-        );
-
-        return $this->message('Transaction Requested successfully — awaiting approval by another authorised user', 201, ['data' => new BankTransferResource($transfer->load(['bankAccount', 'employee']))]);
-    }
-
     /**
      * HQ reserve → Investment RESERVE A/C transfers, with the HQ reserve still to send and the Investment RESERVE A/C balance.
      */
@@ -156,9 +125,9 @@ class BankTransferController extends ApiController
     public function reserveToInvestmentStore(Request $request, CompanyFunds $funds): JsonResponse
     {
         $this->authorizeAny('bank.manage');
-        $validated = $request->validate(['amount' => ['required', 'numeric', 'min:1'], 'reference' => ['nullable', 'string', 'max:100']]);
+        $validated = $request->validate(['amount' => ['required', 'numeric', 'min:1']]);
 
-        $transfer = $funds->requestReserveToInvestment($this->currentEmployee()->company_id, (float) $validated['amount'], $this->currentEmployee(), $validated['reference'] ?? null);
+        $transfer = $funds->requestReserveToInvestment($this->currentEmployee()->company_id, (float) $validated['amount'], $this->currentEmployee());
 
         return $this->message('Transaction Requested successfully — awaiting approval by another authorised user', 201, ['data' => new BankTransferResource($transfer->load(['employee']))]);
     }
@@ -175,7 +144,8 @@ class BankTransferController extends ApiController
             $this->applyFilters($this->transfers(CompanyFunds::PETTY_CASH_TO_BRANCH), $request, 'transfer_date'),
             [
                 'hq_interest_balance' => $cash->hqInterest($companyId),
-                'branches' => $this->visibleBranches()->map(fn ($branch): array => [
+                // HQ is not a branch — it is the sender of petty cash, never a recipient.
+                'branches' => $this->visibleBranches()->reject(fn ($branch): bool => (bool) $branch->is_head_office)->map(fn ($branch): array => [
                     'id' => (int) $branch->id,
                     'name' => $branch->name,
                     'petty_cash' => $this->ledger->balance($companyId, Account::PettyCash, $branch->id) + 0.0,
@@ -191,12 +161,11 @@ class BankTransferController extends ApiController
     {
         $this->authorizeAny('bank.manage');
         $validated = $request->validate([
-            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where('company_id', $this->currentEmployee()->company_id)],
+            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where('company_id', $this->currentEmployee()->company_id)->where('is_head_office', false)],
             'amount' => ['required', 'numeric', 'min:1'],
-            'reference' => ['nullable', 'string', 'max:100'],
-        ]);
+        ], ['branch_id.exists' => 'Petty cash can only be sent to a branch, not Head Office.']);
 
-        $transfer = $funds->requestPettyCash($this->currentEmployee()->company_id, (int) $validated['branch_id'], (float) $validated['amount'], $this->currentEmployee(), $validated['reference'] ?? null);
+        $transfer = $funds->requestPettyCash($this->currentEmployee()->company_id, (int) $validated['branch_id'], (float) $validated['amount'], $this->currentEmployee());
 
         return $this->message('Petty cash Requested successfully — awaiting approval by another authorised user', 201, ['data' => new BankTransferResource($transfer->load(['branch', 'employee']))]);
     }
@@ -281,7 +250,7 @@ class BankTransferController extends ApiController
     {
         $query = BankTransfer::query()->where('type', $type)->with(['branch', 'bankAccount', 'employee', 'approver', 'rejectedBy', 'journalEntry', 'reversedBy', 'reversalJournalEntry'])->latest('id');
 
-        return in_array($type, [self::BANK_TO_HQ, CompanyFunds::RESERVE_TO_INVESTMENT], true)
+        return $type === CompanyFunds::RESERVE_TO_INVESTMENT
             ? $query->where('company_id', $this->currentEmployee()->company_id)
             : $this->scoped($query);
     }

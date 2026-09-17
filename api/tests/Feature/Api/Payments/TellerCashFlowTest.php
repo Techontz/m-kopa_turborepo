@@ -8,8 +8,10 @@ use App\Models\AuditLog;
 use App\Models\BankAccount;
 use App\Models\Branch;
 use App\Models\Payment;
+use App\Models\PaymentProvider;
 use App\Models\SmsLog;
 use App\Models\TellerDeposit;
+use App\Services\PaymentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -118,8 +120,8 @@ class TellerCashFlowTest extends TestCase
 
         $this->actingAs($finance)->getJson('/api/v1/payments/reconciliation')->assertOk()->assertJsonPath('data.0.expected_amount', 105000);
         $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/verify", ['statement_amount' => 105000, 'statement_reference' => 'NMB-779'])
-            ->assertOk()->assertJsonPath('message', 'Deposit verified successfully');
-        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/confirm")->assertOk()->assertJsonPath('message', 'Payment confirmed successfully');
+            ->assertOk()->assertJsonPath('message', 'Deposit verified and posted: the loans are reduced and the money is in the bank');
+        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/confirm")->assertUnprocessable();
 
         $transaction = $loan->transactions()->where('type', 'deposit')->sole();
         $this->assertEquals(100000, $transaction->principal);
@@ -135,6 +137,92 @@ class TellerCashFlowTest extends TestCase
         $this->assertSame(5000.0, $this->balance($admin, Account::PenaltyIncome, $admin->branch_id));
         $this->assertTrue(SmsLog::where('customer_id', $loan->customer_id)->where('message', 'like', '%yamethibitishwa%')->exists());
         $this->assertTrue(AuditLog::where('action', 'TellerDeposit.updated')->exists());
+    }
+
+    public function test_the_teller_edits_a_mismatched_slip_and_finance_verifies_it_again(): void
+    {
+        $admin = $this->signInAdmin();
+        $loan = $this->activeLoan($admin);
+        $teller = $this->employeeWithRole($admin, 'teller');
+        $otherTeller = $this->employeeWithRole($admin, 'teller');
+        $finance = $this->employeeWithRole($admin, 'finance');
+        $nmb = BankAccount::create(['company_id' => $admin->company_id, 'name' => 'NMB']);
+        $crdb = BankAccount::create(['company_id' => $admin->company_id, 'name' => 'CRDB']);
+        $url = "/api/v1/teller/customers/{$loan->customer_id}/deposit";
+        $first = $this->actingAs($teller)->postJson($url, ['depost' => 1000, 'p_method' => 'CASH'])->assertCreated()->json('data.id');
+        $second = $this->actingAs($teller)->postJson($url, ['depost' => 1000, 'p_method' => 'CASH'])->assertCreated()->json('data.id');
+
+        $slip = ['bank_account_id' => $crdb->id, 'slip_number' => 'S-2000', 'amount' => 2000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$first, $second]];
+        $this->actingAs($teller)->postJson('/api/v1/teller/bank-deposits', $slip)->assertCreated();
+        $deposit = TellerDeposit::sole();
+
+        $this->actingAs($teller)->putJson("/api/v1/teller/bank-deposits/{$deposit->id}", $slip)->assertUnprocessable()->assertJsonValidationErrors('slip_number');
+
+        // The bank shows only 1,000: MISMATCH, nothing posted.
+        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/verify", ['statement_amount' => 1000, 'statement_reference' => 'ST-1'])->assertOk()->assertJsonPath('mismatch', true);
+        $this->actingAs($teller)->getJson('/api/v1/teller/bank-deposits')->assertOk()->assertJsonPath('data.0.can_edit', true)->assertJsonPath('data.0.difference', -1000);
+        $this->actingAs($otherTeller)->putJson("/api/v1/teller/bank-deposits/{$deposit->id}", $slip)->assertForbidden();
+
+        // Only one receipt was really banked, on NMB: the other goes back to be banked later.
+        $fixed = ['bank_account_id' => $nmb->id, 'slip_number' => 'S-1000', 'amount' => 1000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$first]];
+        $this->actingAs($teller)->putJson("/api/v1/teller/bank-deposits/{$deposit->id}", $fixed)->assertOk()->assertJsonPath('data.status', TellerDeposit::STATUS_PENDING);
+        $deposit->refresh();
+        $this->assertSame(['S-1000', $nmb->id, null, null], [$deposit->slip_number, (int) $deposit->bank_account_id, $deposit->statement_amount, $deposit->verified_by]);
+        $this->assertSame([PaymentStatus::Deposited, PaymentStatus::PendingVerification], [Payment::find($first)->status, Payment::find($second)->status]);
+        $this->assertNull(Payment::find($second)->teller_deposit_id);
+
+        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/verify", ['statement_amount' => 1000, 'statement_reference' => 'ST-2'])->assertOk();
+        $this->assertSame(TellerDeposit::STATUS_CONFIRMED, $deposit->fresh()->status);
+        $this->assertSame(1, $loan->transactions()->where('type', 'deposit')->count());
+    }
+
+    public function test_bank_and_mno_teller_payments_follow_the_cash_process(): void
+    {
+        $admin = $this->signInAdmin();
+        $loan = $this->activeLoan($admin);
+        $teller = $this->employeeWithRole($admin, 'teller');
+        $finance = $this->employeeWithRole($admin, 'finance');
+        $bank = BankAccount::create(['company_id' => $admin->company_id, 'name' => 'NMB']);
+        PaymentProvider::create(['company_id' => $admin->company_id, 'channel' => 'MNO', 'name' => 'M-Pesa']);
+        $url = "/api/v1/teller/customers/{$loan->customer_id}/deposit";
+
+        $this->actingAs($teller)->postJson($url, ['depost' => 20000, 'p_method' => 'MNO'])->assertUnprocessable()->assertJsonValidationErrors('provider');
+        $this->actingAs($teller)->postJson($url, ['depost' => 20000, 'p_method' => 'BANK', 'provider' => 'M-Pesa'])->assertUnprocessable()->assertJsonValidationErrors('provider');
+        $this->actingAs($teller)->postJson($url, ['depost' => 20000, 'p_method' => 'MNO', 'provider' => 'M-Pesa'])->assertCreated()
+            ->assertJsonPath('data.status', PaymentStatus::PendingVerification->value)->assertJsonPath('data.provider', 'M-Pesa');
+        $payment = Payment::sole();
+        $this->assertSame(0, $loan->transactions()->where('type', 'deposit')->count(), 'nothing reduces the loan before Finance verifies the slip');
+        $this->actingAs($finance)->getJson('/api/v1/payments/branch-receipts?status=all')->assertOk()->assertJsonCount(0, 'data');
+
+        $this->actingAs($teller)->postJson('/api/v1/teller/bank-deposits', [
+            'bank_account_id' => $bank->id, 'slip_number' => 'SLIP-MNO', 'amount' => 20000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$payment->id],
+        ])->assertCreated();
+        $deposit = TellerDeposit::sole();
+        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/verify", ['statement_amount' => 20000, 'statement_reference' => 'NMB-MNO'])->assertOk();
+
+        $this->assertSame(PaymentStatus::Confirmed, $payment->fresh()->status);
+        $this->assertSame(1, $loan->transactions()->where('type', 'deposit')->count(), 'the loan is reduced once the slip is verified');
+    }
+
+    public function test_a_deposit_left_verified_by_the_old_two_step_flow_is_still_posted_by_confirm(): void
+    {
+        $admin = $this->signInAdmin();
+        $loan = $this->activeLoan($admin);
+        $teller = $this->employeeWithRole($admin, 'teller');
+        $finance = $this->employeeWithRole($admin, 'finance');
+        $bank = BankAccount::create(['company_id' => $admin->company_id, 'name' => 'NMB']);
+
+        $this->actingAs($teller)->postJson("/api/v1/teller/customers/{$loan->customer_id}/deposit", ['depost' => 50000, 'p_method' => 'CASH'])->assertCreated();
+        $this->actingAs($teller)->postJson('/api/v1/teller/bank-deposits', [
+            'bank_account_id' => $bank->id, 'slip_number' => 'SLIP-OLD', 'amount' => 50000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [Payment::sole()->id],
+        ])->assertCreated();
+        $deposit = TellerDeposit::sole();
+        app(PaymentService::class)->verifyDeposit($deposit, 50000, 'NMB-OLD', $finance);
+        $this->assertSame(TellerDeposit::STATUS_VERIFIED, $deposit->fresh()->status);
+
+        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/confirm")->assertOk();
+        $this->assertSame(PaymentStatus::Confirmed, Payment::sole()->fresh()->status);
+        $this->assertSame(1, $loan->transactions()->where('type', 'deposit')->count(), 'the loan is reduced');
     }
 
     public function test_finance_rejects_pending_cash_with_ledger_reversal(): void

@@ -16,6 +16,8 @@ export interface Payment {
   receipt_number: string | null;
   source: "teller" | "webhook" | "manual";
   channel: string;
+  /** Bank or network name (Master Data) for Finance-entered payments; null on older and webhook payments. */
+  provider?: string | null;
   reference: string | null;
   transaction_id: string | null;
   phone: string | null;
@@ -67,6 +69,8 @@ export interface TellerDeposit {
   confirmed_at: string | null;
   rejection_reason: string | null;
   payments: Payment[];
+  /** The signed-in teller submitted this slip and Finance marked it MISMATCH. */
+  can_edit?: boolean;
 }
 
 export const DEPOSIT_BADGE: Record<TellerDeposit["status"], BadgeTone> = {

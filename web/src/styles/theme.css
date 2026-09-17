@@ -177,7 +177,8 @@ textarea.form-control { height: auto; }
 .btn-success { background-color: var(--mf-btn-success); border-color: var(--mf-btn-success-border); }
 .btn-warning { background-color: var(--mf-btn-warning); border-color: var(--mf-btn-warning-border); color: var(--mf-on-accent); }
 .btn-sm { padding: 4px 8px; }
-.btn-icon { width: 30px; height: 30px; padding: 0; line-height: 28px; text-align: center; }
+.btn-icon { width: 30px; height: 30px; padding: 0; line-height: 28px; text-align: center; display: inline-flex; align-items: center; justify-content: center; }
+.btn-icon i { margin: 0; line-height: 1; }
 
 .badge { font-weight: 400; padding: 4px 8px; text-transform: uppercase; line-height: 12px; border: 1px solid; margin: 0 5px; border-radius: 4px; background: transparent; }
 .badge-default { border-color: var(--mf-neutral); color: var(--mf-neutral); }

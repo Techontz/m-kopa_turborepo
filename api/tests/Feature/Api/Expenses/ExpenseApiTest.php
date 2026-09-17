@@ -179,6 +179,33 @@ class ExpenseApiTest extends TestCase
         $this->postJson('/api/v1/expenses/types', ['scope' => 'hq', 'exp_desc' => 'x'])->assertForbidden();
     }
 
+    public function test_hq_finance_uses_hq_expense_categories_but_only_admins_register_them(): void
+    {
+        $type = $this->type('hq', 'KODI');
+        $finance = $this->employeeWithRole('finance');
+        $this->assertTrue($finance->can('hq.manage'));
+        $this->actingAs($finance);
+
+        $this->getJson('/api/v1/expenses/options/types?scope=hq')->assertOk()->assertJsonPath('data.0.label', 'KODI');
+        $this->postJson('/api/v1/expenses/types', ['scope' => 'hq', 'exp_desc' => 'MAFUTA'])->assertForbidden();
+        $this->putJson("/api/v1/expenses/types/{$type->id}", ['exp_desc' => 'KODI MPYA'])->assertForbidden();
+        $this->deleteJson("/api/v1/expenses/types/{$type->id}")->assertForbidden();
+    }
+
+    public function test_head_office_is_not_a_branch_for_branch_expenses(): void
+    {
+        $hq = Branch::factory()->create(['company_id' => $this->admin->company_id, 'is_head_office' => true]);
+        $type = $this->type('branch', 'MAJI');
+
+        $options = collect($this->getJson('/api/v1/options/branches?branches_only=1&with_all=1')->assertOk()->json('data'))->pluck('value');
+        $this->assertNotContains((string) $hq->id, $options);
+        $this->assertContains((string) $this->admin->branch_id, $options);
+        $this->assertContains((string) $hq->id, collect($this->getJson('/api/v1/options/branches')->json('data'))->pluck('value'), 'other lists still show Head Office');
+
+        $this->postJson('/api/v1/expenses/requests', ['scope' => 'branch', 'blanch_id' => $hq->id, 'ex_id' => $type->id, 'req_amount' => 1000, 'req_description' => 'maji'])
+            ->assertUnprocessable()->assertJsonValidationErrors('blanch_id');
+    }
+
     public function test_branch_scope_isolation_and_rejection(): void
     {
         $otherBranch = Branch::factory()->create(['company_id' => $this->admin->company_id]);

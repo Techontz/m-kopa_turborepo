@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import type { SalaryPayment } from "@/components/hrm/types";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
@@ -24,17 +25,21 @@ function Line({ label, value, bold }: { label: string; value: number; bold?: boo
 
 export default function PayslipPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const { data: slip } = useApi<Payslip>(`hrm/salary-payments/${id}`);
+  /** Staff open their own payslip from My Portal (the API allows the owner without payroll permissions). */
+  const own = slip !== undefined && slip.employee_id === user?.id;
+  const back = own ? "/my/salary" : "/hrm/salary-sheet";
 
   return (
     <>
-      <PageHeader crumbs={["HRM", "Salary Sheet", "Payslip"]} />
+      <PageHeader crumbs={own ? ["My Portal", "Salary & Payslips", "Payslip"] : ["HRM", "Salary Sheet", "Payslip"]} />
       <Card
         title="Staff Payslip"
         actions={
           <>
             <button type="button" className="btn btn-sm btn-info mr-1" onClick={() => window.print()}><i className="icon-printer" /> Print</button>
-            <Link href="/hrm/salary-sheet" className="btn btn-sm btn-primary"><i className="icon-arrow-left" /></Link>
+            <Link href={back} className="btn btn-sm btn-primary"><i className="icon-arrow-left" /></Link>
           </>
         }
       >

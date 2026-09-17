@@ -19,7 +19,7 @@ const EMPTY_COLLATERAL = { colateral_name: "", colateral_type: "", colateral_loc
 /** Guarantors List + Collateral List (live loan_sponser / view_Dataloan), editable while the application is pending. */
 export function LoanSecurities({ detail, editable }: { detail: LoanDetail; editable: boolean }) {
   const loanId = detail.loan.id;
-  const [guarantorOpen, setGuarantorOpen] = useState(false);
+  const [guarantorMode, setGuarantorMode] = useState<"import" | "add" | null>(null);
   const [guarantor, setGuarantor] = useState(EMPTY_GUARANTOR);
   const [existing, setExisting] = useState("");
   const [collateral, setCollateral] = useState(EMPTY_COLLATERAL);
@@ -34,7 +34,12 @@ export function LoanSecurities({ detail, editable }: { detail: LoanDetail; edita
 
   return (
     <>
-      <Card title="Guarantors List" actions={editable && <button type="button" className="btn btn-sm btn-primary" onClick={() => setGuarantorOpen(true)}><i className="icon-plus" /> Add Guarantor</button>}>
+      <Card title="Guarantors List" actions={editable && (
+        <>
+          <button type="button" className="btn btn-sm btn-info mr-1" onClick={() => setGuarantorMode("import")}><i className="icon-cloud-download" /> Import Guarantor</button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => setGuarantorMode("add")}><i className="icon-plus" /> Add Guarantor</button>
+        </>
+      )}>
         <DataTable
           rows={detail.guarantors}
           searchable={false}
@@ -114,24 +119,28 @@ export function LoanSecurities({ detail, editable }: { detail: LoanDetail; edita
       </Card>
 
       <Modal
-        open={guarantorOpen}
-        onClose={() => setGuarantorOpen(false)}
-        title="Add Guarantor"
+        open={guarantorMode !== null}
+        onClose={() => setGuarantorMode(null)}
+        title={guarantorMode === "import" ? "Import Guarantor" : "Add Guarantor"}
         size="lg"
-        submitLabel="Save"
+        submitLabel={guarantorMode === "import" ? (detail.available_guarantors.length > 0 ? "Import" : undefined) : "Save"}
         submitting={addGuarantor.isPending}
         onSubmit={() => {
-          const body = existing ? { guarantor_id: existing } : Object.fromEntries(Object.entries(guarantor).filter(([, value]) => value !== ""));
-          addGuarantor.mutate(body, { onSuccess: () => { setGuarantorOpen(false); setGuarantor(EMPTY_GUARANTOR); setExisting(""); } });
+          const body = guarantorMode === "import" ? { guarantor_id: existing } : Object.fromEntries(Object.entries(guarantor).filter(([, value]) => value !== ""));
+          addGuarantor.mutate(body, { onSuccess: () => { setGuarantorMode(null); setGuarantor(EMPTY_GUARANTOR); setExisting(""); } });
         }}
       >
         <div className="row">
-          {detail.available_guarantors.length > 0 && (
-            <Field label="Existing guarantor of the customer:" className="col-md-12" error={addGuarantor.fieldError("guarantor_id")}>
-              <SelectBox placeholder="Select guarantor or register new below" options={detail.available_guarantors} value={existing} isClearable onChange={(value) => setExisting(value ?? "")} />
-            </Field>
+          {guarantorMode === "import" && (
+            detail.available_guarantors.length > 0 ? (
+              <Field label="Guarantor of the customer (profile or previous loans):" required className="col-md-12" error={addGuarantor.fieldError("guarantor_id")}>
+                <SelectBox placeholder="Select guarantor" options={detail.available_guarantors} value={existing} isClearable onChange={(value) => setExisting(value ?? "")} />
+              </Field>
+            ) : (
+              <p className="col-md-12 mb-0">This customer has no saved guarantors to import. Use <b>Add Guarantor</b> to register a new one.</p>
+            )
           )}
-          {!existing && (
+          {guarantorMode === "add" && (
             <>
               <Field label="First name:" required className="col-md-4" error={addGuarantor.fieldError("first_name")}><input className="form-control" value={guarantor.first_name} onChange={(e) => set("first_name", e.target.value)} /></Field>
               <Field label="Middle name:" className="col-md-4" error={addGuarantor.fieldError("middle_name")}><input className="form-control" value={guarantor.middle_name} onChange={(e) => set("middle_name", e.target.value)} /></Field>

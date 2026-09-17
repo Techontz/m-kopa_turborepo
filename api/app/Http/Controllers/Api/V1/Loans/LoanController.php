@@ -26,6 +26,7 @@ use App\Services\LoanCalculator;
 use App\Services\LoanRecoveryService;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
+use App\Services\ReversalRequests;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -142,10 +143,17 @@ class LoanController extends LoanApiController
                 'relationship' => $guarantor->relationship,
                 'address' => collect([$guarantor->region?->name, $guarantor->district, $guarantor->ward, $guarantor->street])->filter()->implode(','),
             ])->values(),
-            'available_guarantors' => $customer->guarantors()->whereNull('loan_id')->get()->map(fn ($guarantor): array => [
-                'value' => (string) $guarantor->id,
-                'label' => trim("{$guarantor->first_name} {$guarantor->last_name}")." / {$guarantor->phone}",
-            ])->values(),
+            // Every guarantor the customer has registered (profile or earlier loans), one per phone, minus those already on this loan.
+            'available_guarantors' => $customer->guarantors()
+                ->where(fn ($query) => $query->whereNull('loan_id')->orWhere('loan_id', '!=', $loan->id))
+                ->whereNotIn('phone', $loan->guarantors->pluck('phone'))
+                ->orderByDesc('id')
+                ->get()
+                ->unique('phone')
+                ->map(fn ($guarantor): array => [
+                    'value' => (string) $guarantor->id,
+                    'label' => trim("{$guarantor->first_name} {$guarantor->last_name}")." / {$guarantor->phone}",
+                ])->values(),
             'collaterals' => $loan->collaterals->map(fn ($collateral): array => [
                 'id' => $collateral->id,
                 'name' => $collateral->name,
@@ -190,10 +198,12 @@ class LoanController extends LoanApiController
                     'reversal_reference' => $transaction->reversalJournalEntry?->reference,
                     'can_reverse' => $transaction->type === 'deposit' && $blocker === null,
                     'reverse_blocked_reason' => $transaction->type === 'deposit' ? $blocker : null,
+                    'reversal_request' => $transaction->type === 'deposit' ? $this->pendingReversal($transaction, $viewer) : null,
                 ];
             })->values(),
             'can_reverse_disbursement' => ($disbursementBlocker = in_array($loan->status, LoanStatus::disbursed(), true) ? $this->loans->disbursementReverseBlockedReason($loan, $viewer) : 'The loan has not been disbursed.') === null,
             'reverse_disbursement_blocked_reason' => $disbursementBlocker,
+            'disbursement_reversal_request' => $this->pendingReversal($loan, $viewer),
             'write_off' => $loan->writeOff ? [
                 'amount' => (float) $loan->writeOff->amount,
                 'principal_amount' => $loan->writeOff->principal_amount !== null ? (float) $loan->writeOff->principal_amount : null,
@@ -288,6 +298,19 @@ class LoanController extends LoanApiController
             'rejection_reason' => $request->rejection_reason,
             ...app(SegregationOfDuties::class)->flags($request->requested_by, $viewer, $pending, $viewer->can('loans.write_off'), workflow: ApprovalPolicy::WRITE_OFFS),
         ];
+    }
+
+    /**
+     * The pending reversal request of a repayment or of the loan's disbursement, with the viewer's approval flags.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function pendingReversal(LoanTransaction|Loan $subject, Employee $viewer): ?array
+    {
+        $requests = app(ReversalRequests::class);
+        $pending = $requests->pendingFor($subject);
+
+        return $pending === null ? null : $requests->present($pending, $viewer, $viewer->can('reversals.approve'));
     }
 
     /**

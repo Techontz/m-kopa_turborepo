@@ -83,7 +83,7 @@ class DailyReport
             'SAVING DEPOSIT' => (float) $notReversed($scoped(Saving::query()))->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
             'DEBT PENDING' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn (Builder $query) => $notReversed($scoped($query)))->whereBetween('paid_on', $range)->sum('amount'),
             'LOAN FEE' => $this->movement($companyId, $branchIds, Account::LoanFee, $from, $to),
-            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)
+            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->standing()
                 ->where(fn (Builder $query) => $query->whereNull('loan_transaction_id')->orWhereIn('loan_transaction_id', LoanTransaction::query()->select('id')->whereNull('reversed_at')))
                 ->sum('amount'),
         ];

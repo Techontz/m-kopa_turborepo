@@ -30,6 +30,7 @@ export const menu: MenuTab[] = [
     items: [
       { label: "Dashboard", icon: "icon-home", href: "/dashboard", permission: "dashboard.view" },
       { label: "Pending Approvals", icon: "icon-check", href: "/approvals", permission: "approvals.view" },
+      { label: "Reversal Requests", icon: "icon-action-undo", href: "/reversals", permission: ["reversals.approve", "loans.reverse_repayment", "loans.reverse_disbursement", "penalties.reverse_payment"] },
       {
         label: "Settings",
         icon: "icon-settings",

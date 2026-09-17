@@ -41,10 +41,12 @@ class LoanDisbursementReversalTest extends TestCase
         $this->actingAs($approver = $this->secondApprover($admin));
         $this->getJson("/api/v1/loans/{$loan->id}")->assertOk()->assertJsonPath('data.can_reverse_disbursement', true);
 
-        $this->postJson("/api/v1/loans/{$loan->id}/reverse-disbursement", ['reason' => 'DEVFLOW customer returned the cash'])
+        $requested = $this->postJson("/api/v1/loans/{$loan->id}/reverse-disbursement", ['reason' => 'DEVFLOW customer returned the cash']);
+        $this->assertSame(LoanStatus::Active, $loan->fresh()->status, 'a request posts nothing');
+        $this->approveReversal($requested)
             ->assertOk()
             ->assertJsonPath('message', 'Loan disbursement reversed successfully; the loan is cancelled.')
-            ->assertJsonPath('data.status', 'cancelled');
+            ->assertJsonPath('data.status', 'approved');
 
         $this->assertSame($before, $this->balances($admin));
         $loan->refresh();
@@ -69,7 +71,7 @@ class LoanDisbursementReversalTest extends TestCase
         $loan = $this->disbursedLoan($admin, ['account' => Account::Bank, 'bank' => $bank->id]);
         $this->assertSame(205000.0, $this->balance($admin, Account::Bank, bankAccountId: $bank->id));
 
-        $this->actingAs($this->secondApprover($admin))->postJson("/api/v1/loans/{$loan->id}/reverse-disbursement", ['reason' => 'Sent to wrong number'])->assertOk();
+        $this->approveReversal($this->actingAs($this->secondApprover($admin))->postJson("/api/v1/loans/{$loan->id}/reverse-disbursement", ['reason' => 'Sent to wrong number']))->assertOk();
 
         $this->assertSame(300000.0, $this->balance($admin, Account::Bank, bankAccountId: $bank->id));
         $this->assertSame(0.0, $this->balance($admin, Account::FeeIncome, $admin->branch_id));
@@ -86,8 +88,8 @@ class LoanDisbursementReversalTest extends TestCase
         $repaid = $this->disbursedLoan($admin);
         $deposit = app(LoanService::class)->deposit($repaid, 10000, CarbonImmutable::today(), 'CASH', $admin);
         $reverse($repaid)->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'The loan has repayments; reverse them first (newest first).']);
-        $this->actingAs($approver)->postJson("/api/v1/loans/{$repaid->id}/transactions/{$deposit->id}/reverse", ['reason' => 'Undo'])->assertOk();
-        $reverse($repaid)->assertOk();
+        $this->approveReversal($this->actingAs($approver)->postJson("/api/v1/loans/{$repaid->id}/transactions/{$deposit->id}/reverse", ['reason' => 'Undo']))->assertOk();
+        $this->approveReversal($reverse($repaid))->assertOk();
 
         $penalised = $this->disbursedLoan($admin);
         Penalty::create(['company_id' => $admin->company_id, 'branch_id' => $admin->branch_id, 'customer_id' => $penalised->customer_id, 'loan_id' => $penalised->id, 'amount' => 1000, 'penalty_date' => today()]);
@@ -124,7 +126,7 @@ class LoanDisbursementReversalTest extends TestCase
         $other = $this->signInAdmin();
         $this->actingAs($other)->postJson($url, ['reason' => 'Undo'])->assertNotFound();
 
-        $this->actingAs($this->employeeWithRole($admin, 'admin'))->postJson($url, ['reason' => 'Undo'])->assertOk();
+        $this->approveReversal($this->actingAs($this->employeeWithRole($admin, 'admin'))->postJson($url, ['reason' => 'Undo']), $this->employeeWithRole($admin, 'finance'))->assertOk();
     }
 
     /**

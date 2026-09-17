@@ -18,6 +18,7 @@ use App\Services\LoanService;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\UsesSecondApprover;
 use Tests\Feature\Api\Loans\BuildsServiceLoans;
@@ -88,10 +89,11 @@ class ReversalSegregationTest extends TestCase
         $this->getJson($scenario['detail'])->assertOk()
             ->assertJsonPath($scenario['can'], true)
             ->assertJsonPath($scenario['reason'], null);
-        $this->postJson($scenario['url'], ['reason' => 'DEVFLOW mistake'])->assertOk();
+        $checker = $kind === 'recovery' ? $approver : $this->secondApprover($this->admin);
+        $this->reverse($kind, $scenario, $checker)->assertOk();
 
         $this->assertTrue($scenario['reversed']());
-        $this->assertSame($approver->id, JournalEntry::where('reversal_of_id', $scenario['entry_id'])->sole()->employee_id);
+        $this->assertSame($checker->id, JournalEntry::where('reversal_of_id', $scenario['entry_id'])->sole()->employee_id);
     }
 
     #[DataProvider('reversals')]
@@ -103,7 +105,7 @@ class ReversalSegregationTest extends TestCase
         $this->getJson($scenario['detail'])->assertOk()
             ->assertJsonPath($scenario['can'], true)
             ->assertJsonPath($scenario['reason'], null);
-        $this->postJson($scenario['url'], ['reason' => 'DEVFLOW mistake'])->assertOk();
+        $this->reverse($kind, $scenario)->assertOk();
 
         $this->assertTrue($scenario['reversed']());
     }
@@ -125,11 +127,24 @@ class ReversalSegregationTest extends TestCase
     {
         $scenario = $this->scenario('repayment');
         $this->postJson($scenario['url'], ['reason' => 'DEVFLOW mistake'])->assertForbidden();
-        $this->actingAs($this->secondApprover($this->admin))->postJson($scenario['url'], ['reason' => 'DEVFLOW mistake'])->assertOk();
+        $this->actingAs($this->secondApprover($this->admin));
+        $this->reverse('repayment', $scenario)->assertOk();
 
         $this->actingAs($this->admin)->getJson($scenario['detail'])->assertOk()
             ->assertJsonPath($scenario['can'], false)
             ->assertJsonPath($scenario['reason'], 'This repayment has already been reversed.');
+    }
+
+    /**
+     * POST the reverse endpoint; repayment and disbursement reversals only raise a request, approved here by another user.
+     *
+     * @param  array{url: string}  $scenario
+     */
+    private function reverse(string $kind, array $scenario, ?Employee $checker = null): TestResponse
+    {
+        $response = $this->postJson($scenario['url'], ['reason' => 'DEVFLOW mistake']);
+
+        return $kind === 'recovery' ? $response : $this->approveReversal($response, $checker);
     }
 
     /**

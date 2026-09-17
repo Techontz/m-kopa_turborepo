@@ -16,7 +16,10 @@ interface ReversalModalProps {
   onSubmit: (reason: string) => void;
 }
 
-/** Reason (3–255 characters) and confirmation for a money reversal; the server re-checks every dependency. */
+/**
+ * Reason (3–255 characters) for a money reversal REQUEST (maker/checker): nothing is posted until another Finance user, an
+ * Admin or the Super Admin approves it under Reversal Requests; the server re-checks every dependency then.
+ */
 export function ReversalModal({ open, title, summary, submitting, error, onClose, onSubmit }: ReversalModalProps) {
   const [reason, setReason] = useState("");
   const close = () => {
@@ -25,8 +28,12 @@ export function ReversalModal({ open, title, summary, submitting, error, onClose
   };
 
   return (
-    <Modal open={open} onClose={close} title={title} submitLabel="Reverse" submitting={submitting} onSubmit={() => onSubmit(reason.trim())}>
+    <Modal open={open} onClose={close} title={title} submitLabel="Submit for Approval" submitting={submitting} onSubmit={() => onSubmit(reason.trim())}>
       <div className="alert alert-warning">{summary}</div>
+      <p className="small text-muted">
+        This only raises a reversal request. Nothing is posted until another Finance user, an Admin or the Super Admin approves it under
+        Reversal Requests.
+      </p>
       <Field label="Reason:" required className="col-12 px-0" error={error}>
         <textarea className="form-control" rows={3} minLength={3} maxLength={255} value={reason} onChange={(event) => setReason(event.target.value)} required />
       </Field>

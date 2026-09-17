@@ -17,6 +17,7 @@ use App\Models\Loan;
 use App\Models\NegligenceDeduction;
 use App\Models\Payment;
 use App\Models\PayrollRun;
+use App\Models\ReversalRequest;
 use App\Models\SalaryAdvance;
 use App\Models\ShareIssuanceRequest;
 use App\Models\StaffAllowance;
@@ -34,6 +35,7 @@ use App\Services\Hrm\StaffCredit;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
 use App\Services\PaymentService;
+use App\Services\ReversalRequests;
 use App\Services\Shares\ShareIssuance;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -74,6 +76,7 @@ class PendingApprovals
         ApprovalPolicy::DIVIDEND_DECLARATIONS => 'Dividend Declarations',
         ApprovalPolicy::LOAN_APPROVALS => 'Loan Approvals',
         ApprovalPolicy::WRITE_OFFS => 'Loan Write-offs',
+        ApprovalPolicy::REVERSAL_REQUESTS => 'Reversals',
         ApprovalPolicy::SALARY_ADVANCES => 'Salary Advances',
         ApprovalPolicy::STAFF_CREDIT => 'Staff Loans & Salary Advances',
         ApprovalPolicy::PAYROLL => 'Payroll',
@@ -151,6 +154,7 @@ class PendingApprovals
             ApprovalPolicy::DIVIDEND_DECLARATIONS => fn (): ?array => $this->dividendDeclarations(),
             ApprovalPolicy::LOAN_APPROVALS => fn (): ?array => $this->loanApprovals(),
             ApprovalPolicy::WRITE_OFFS => fn (): ?array => $this->writeOffs(),
+            ApprovalPolicy::REVERSAL_REQUESTS => fn (): ?array => $this->reversalRequests(),
             ApprovalPolicy::SALARY_ADVANCES => fn (): ?array => $this->salaryAdvances(),
             ApprovalPolicy::STAFF_CREDIT => fn (): ?array => $this->staffCredit(),
             ApprovalPolicy::PAYROLL => fn (): ?array => $this->payroll(),
@@ -483,6 +487,38 @@ class PendingApprovals
                 "/loans/{$row->loan_id}",
                 $row->requested_by,
                 true,
+            ))->values()->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>|null
+     */
+    private function reversalRequests(): ?array
+    {
+        if (! $this->canAny('reversals.approve', 'loans.reverse_repayment', 'loans.reverse_disbursement', 'penalties.reverse_payment')) {
+            return null;
+        }
+
+        $requests = app(ReversalRequests::class);
+
+        return ReversalRequest::query()
+            ->where('company_id', $this->viewer->company_id)
+            ->where('status', ReversalRequest::PENDING)
+            ->when($this->branchIds !== null, fn (Builder $query) => $query->where(fn (Builder $inner) => $inner->whereIn('branch_id', $this->branchIds)->orWhereNull('branch_id')))
+            ->with(['subject', 'loan.customer', 'branch', 'requester'])
+            ->get()
+            ->map(fn (ReversalRequest $row): array => $this->row(
+                ApprovalPolicy::REVERSAL_REQUESTS,
+                $row->id,
+                'REVERSAL — '.$requests->describe($row).($row->loan?->customer ? ' '.$row->loan->customer->full_name : ''),
+                $row->branch?->name,
+                (float) $row->amount,
+                $row->requester?->full_name,
+                $row->created_at,
+                'pending',
+                '/reversals',
+                $row->requested_by,
+                $this->canAny('reversals.approve'),
             ))->values()->all();
     }
 

@@ -47,6 +47,8 @@ class ApprovalPolicy extends Model
 
     public const REVERSALS = 'accounting.reversal';
 
+    public const REVERSAL_REQUESTS = 'reversals.request';
+
     /**
      * Workflow key => label shown in Settings → Approval Policy.
      *
@@ -69,6 +71,7 @@ class ApprovalPolicy extends Model
         self::TELLER_DEPOSITS => 'Teller cash and bank deposit verification / confirmation',
         self::BRANCH_RECEIPTS => 'Branch non-cash receipts (mobile money / bank)',
         self::REVERSALS => 'Reversals (the poster reversing their own transaction)',
+        self::REVERSAL_REQUESTS => 'Reversal requests (loan repayment, loan disbursement, penalty payment)',
     ];
 
     protected $guarded = ['id'];

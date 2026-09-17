@@ -324,6 +324,22 @@ class LoanLifecycleApiTest extends TestCase
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
      */
+    public function test_guarantor_of_an_earlier_loan_is_imported_as_a_copy(): void
+    {
+        $earlier = Loan::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'customer_id' => $this->customer->id, 'loan_category_id' => $this->category->id, 'status' => LoanStatus::Closed]);
+        $previous = $this->customer->guarantors()->create(['first_name' => 'Asha', 'last_name' => 'Juma', 'phone' => '255700111222', 'relationship' => 'Sister', 'loan_id' => $earlier->id]);
+        $loan = $this->applyLoan();
+
+        $this->getJson(route('api.v1.loans.show', $loan))->assertOk()->assertJsonPath('data.available_guarantors.0.value', (string) $previous->id);
+
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['guarantor_id' => $previous->id])->assertOk();
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['guarantor_id' => $previous->id])->assertUnprocessable()->assertJsonValidationErrors('guarantor_id');
+
+        $this->assertSame($earlier->id, $previous->fresh()->loan_id, 'the earlier loan keeps its guarantor');
+        $this->assertSame('255700111222', $loan->guarantors()->sole()->phone);
+        $this->getJson(route('api.v1.loans.show', $loan))->assertOk()->assertJsonCount(0, 'data.available_guarantors');
+    }
+
     private function form(array $overrides = []): array
     {
         return $overrides + [

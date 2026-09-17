@@ -13,6 +13,7 @@ import { useAction } from "@/lib/hooks";
 
 import { DisbursementSourceFields } from "./DisbursementSourceFields";
 import { ReversalModal } from "./ReversalModal";
+import { approvePath, pendingNote, rejectPath } from "./reversalRequest";
 import { EMPTY_SOURCE, sourcePayload, type SourceChoice } from "./disbursementSource";
 import { formatFreezeUntil } from "./freeze";
 import type { LoanDetail } from "./types";
@@ -186,7 +187,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
           )}
           {detail.write_off_request?.status === "rejected" && <div><small className="text-muted">Last write-off request rejected by {detail.write_off_request.rejected_by ?? "—"}: {detail.write_off_request.rejection_reason}</small></div>}
           {can("loans.reverse_disbursement") && loan.status !== "default" && (
-            <span className="d-inline-block" title={detail.can_reverse_disbursement ? "Reverse this loan's disbursement" : detail.reverse_disbursement_blocked_reason ?? ""}>
+            <span className="d-inline-block" title={detail.can_reverse_disbursement ? "Request the reversal of this loan's disbursement" : detail.reverse_disbursement_blocked_reason ?? ""}>
               <button
                 type="button"
                 className="btn btn-outline-danger"
@@ -198,7 +199,20 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
               </button>
             </span>
           )}
-          {can("loans.reverse_disbursement") && loan.status !== "default" && !detail.can_reverse_disbursement && detail.reverse_disbursement_blocked_reason && (
+          {detail.disbursement_reversal_request && (
+            <div className="alert alert-warning mt-2 mb-2">
+              {pendingNote(detail.disbursement_reversal_request)}
+              <div className="mt-1">
+                <ApprovalActions
+                  row={detail.disbursement_reversal_request}
+                  approvePath={approvePath(detail.disbursement_reversal_request)}
+                  rejectPath={rejectPath(detail.disbursement_reversal_request)}
+                  description={`reversal of the disbursement of loan ${loan.loan_number}`}
+                />
+              </div>
+            </div>
+          )}
+          {can("loans.reverse_disbursement") && loan.status !== "default" && !detail.can_reverse_disbursement && detail.reverse_disbursement_blocked_reason && !detail.disbursement_reversal_request && (
             <div><small className="text-muted">Disbursement reversal not available: {detail.reverse_disbursement_blocked_reason}</small></div>
           )}
         </>
@@ -224,14 +238,14 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
       )}
       <ReversalModal
         open={reversing}
-        title="Reverse disbursement"
+        title="Request disbursement reversal"
         submitting={reverseDisbursement.isPending}
         error={reverseDisbursement.fieldError("reason")}
         onClose={() => { reverseDisbursement.setErrors({}); setReversing(false); }}
         onSubmit={(reason) => reverseDisbursement.mutate({ reason }, { onSuccess: () => setReversing(false) })}
         summary={(
           <>
-            Reverse the disbursement of <b>TZS {money(loan.amount_approved)}</b>{loan.fee_deduct ? <> (deducted fee <b>TZS {money(loan.loan_fee)}</b> reversed out of FEE INCOME)</> : null}.
+            On approval, reverse the disbursement of <b>TZS {money(loan.amount_approved)}</b>{loan.fee_deduct ? <> (deducted fee <b>TZS {money(loan.loan_fee)}</b> reversed out of FEE INCOME)</> : null}.
             The principal returns to <b>{loan.latest_disbursement?.source_label ?? "the source account"}</b>, LOAN RECEIVABLE is cleared and the loan becomes <b>CANCELLED</b>.
           </>
         )}

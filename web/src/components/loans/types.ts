@@ -2,6 +2,7 @@ import type { CreditAssessment } from "@/components/credit/types";
 import type { BadgeTone } from "@/components/ui/Badge";
 
 import type { CustomerFreeze, FreezeState } from "./freeze";
+import type { ReversalRequestRow } from "./reversalRequest";
 import type { ComponentsStatus, LoanFeeMemo, LoanRecoveryRow, RecoveryPosition } from "./recovery";
 
 /** A write-off request (rule 6 maker/checker): pending until another user with loans.write_off approves or rejects it. */
@@ -177,6 +178,8 @@ export interface LoanDetail {
   transactions: LoanTransactionRow[];
   can_reverse_disbursement: boolean;
   reverse_disbursement_blocked_reason: string | null;
+  /** Pending maker/checker reversal request of the disbursement, if any. */
+  disbursement_reversal_request: ReversalRequestRow | null;
   write_off: {
     amount: number;
     principal_amount: number | null;
@@ -249,6 +252,8 @@ export interface LoanTransactionRow {
   reversal_reference: string | null;
   can_reverse: boolean;
   reverse_blocked_reason: string | null;
+  /** Pending maker/checker reversal request of this repayment, if any. */
+  reversal_request: ReversalRequestRow | null;
 }
 
 export interface JournalEntrySummary {

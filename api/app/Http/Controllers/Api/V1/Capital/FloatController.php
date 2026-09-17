@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\Gate;
  *
  * Rule 6: every float is requested as PENDING and posted when a different authorised user approves it
  * (POST {floatTransfer}/approve); pending floats can be rejected (POST {floatTransfer}/reject). Lists carry
- * can_approve / approve_blocked_reason for the signed-in user; totals count posted (approved) floats only.
+ * can_approve / approve_blocked_reason for the signed-in user; only Super Admin and Admin request, approve or reject floats; totals count posted (approved) floats only.
  */
 class FloatController extends ApiController
 {
@@ -45,6 +45,7 @@ class FloatController extends ApiController
         $transfers = $this->transfers($request, ['company_to_hq', 'company_to_branch'])->get();
 
         return $this->list($transfers, [
+            'can_transfer' => FloatService::canTransfer($this->currentEmployee()),
             'company_balance' => app(Ledger::class)->balance($this->currentEmployee()->company_id, Account::Company) + 0.0,
             'sources' => $this->floatSources(),
         ]);
@@ -57,6 +58,7 @@ class FloatController extends ApiController
     public function storeCompany(CompanyFloatRequest $request): JsonResponse
     {
         $this->authorizeAny('float.manage');
+        $this->authorizeTransfer();
 
         $transfer = $this->floats->requestCompanyToHq(
             $this->currentEmployee()->company_id,
@@ -96,6 +98,7 @@ class FloatController extends ApiController
     public function approve(FloatTransfer $floatTransfer): JsonResponse
     {
         $this->authorizeAny('float.manage');
+        $this->authorizeTransfer();
         $this->assertFloatVisible($floatTransfer);
 
         $this->floats->approve($floatTransfer, $this->currentEmployee());
@@ -109,6 +112,7 @@ class FloatController extends ApiController
     public function reject(Request $request, FloatTransfer $floatTransfer): JsonResponse
     {
         $this->authorizeAny('float.manage');
+        $this->authorizeTransfer();
         $this->assertFloatVisible($floatTransfer);
         $validated = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']]);
 
@@ -172,6 +176,12 @@ class FloatController extends ApiController
             ->orderBy('id');
     }
 
+    /** Only Super Admin and Admin move float: request, approve and reject. */
+    private function authorizeTransfer(): void
+    {
+        abort_unless(FloatService::canTransfer($this->currentEmployee()), 403, FloatService::TRANSFER_MESSAGE);
+    }
+
     private function assertFloatVisible(FloatTransfer $floatTransfer): void
     {
         abort_unless((int) $floatTransfer->company_id === (int) $this->currentEmployee()->company_id, 404);
@@ -205,7 +215,7 @@ class FloatController extends ApiController
         $duties = app(SegregationOfDuties::class);
         $viewer = $this->currentEmployee();
         $permitted = Gate::allows('float.manage') && Gate::allows('accounting.reverse');
-        $mayApprove = Gate::allows('float.manage');
+        $mayApprove = Gate::allows('float.manage') && FloatService::canTransfer($viewer);
         $reversed = $transfers->where('status', TransferReversal::STATUS_REVERSED);
         $posted = $transfers->where('status', FloatService::APPROVED);
         $pending = $transfers->where('status', FloatService::PENDING);

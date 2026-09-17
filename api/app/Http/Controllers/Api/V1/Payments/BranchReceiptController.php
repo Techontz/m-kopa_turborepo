@@ -39,6 +39,7 @@ class BranchReceiptController extends ApiController
         $query = $this->scoped(Payment::query())
             ->where('source', Payment::SOURCE_TELLER)
             ->where('channel', '!=', 'CASH')
+            ->whereNotIn('status', [PaymentStatus::PendingVerification->value, PaymentStatus::Deposited->value])
             ->when($status !== 'all', fn ($query) => $query->where('status', $status))
             ->when(! $canApprove && app(AccessControl::class)->branchIds($viewer) !== null, fn ($query) => $query->where('employee_id', $viewer->id))
             ->with(['customer', 'branch', 'employee', 'loan', 'verifier', 'bankAccount'])

@@ -105,30 +105,16 @@ class BankApiTest extends TestCase
         $this->assertModelMissing($transfer);
     }
 
-    /**
-     * A bank account funds HQ accounts only — nothing funds a branch, which holds no lending money.
-     */
-    public function test_bank_to_hq_moves_money_with_charges(): void
+    public function test_a_bank_never_funds_a_branch_or_the_removed_hq_salary_advance_and_disbursement_accounts(): void
     {
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
-        $this->ledger->openingBalance($this->admin->company_id, Account::Bank, 100000, bankAccount: $bank);
 
         $this->postJson('/api/v1/bank/to-branch', ['from_account' => $bank->id, 'to_blanch' => $this->admin->branch_id, 'amount' => 50000, 'charger_fee' => 1000])->assertNotFound();
-
-        $toHq = $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 40000, 'to_acc' => 'salary', 'charger_fee' => 500])->assertCreated()->assertJsonPath('data.status', 'pending')->json('data.id');
-        $this->assertSame(100000.0, $bank->balance(), 'a pending transfer moves nothing');
-        $this->approveAsSecondUser($this->admin, "/api/v1/bank/transfers/{$toHq}/approve");
-        $this->assertSame(59500.0, $bank->balance());
-        $this->assertSame(40000.0, $this->ledger->balance($this->admin->company_id, Account::HqSalaryAdvance));
-        $this->assertSame(500.0, $this->ledger->balance($this->admin->company_id, Account::BankCharges, allBranches: true));
-        $this->getJson('/api/v1/bank/to-hq')->assertOk()->assertJsonPath('data.0.hq_account_label', 'SALARY ADVANCE ACCOUNT')->assertJsonPath('total_charge', 500);
-
-        $tooMuch = $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 60000, 'to_acc' => 'disbursement', 'charger_fee' => 0])->assertCreated()->json('data.id');
-        $this->asApprover($this->admin, fn () => $this->postJson("/api/v1/bank/transfers/{$tooMuch}/approve")->assertUnprocessable()->assertJsonValidationErrors('amount'));
-        $this->assertSame(59500.0, $bank->balance());
+        $this->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 40000, 'to_acc' => 'salary', 'charger_fee' => 500])->assertNotFound();
+        $this->getJson('/api/v1/bank/to-hq')->assertNotFound();
     }
 
-    public function test_branch_scope_is_enforced_for_client_supplied_branch(): void
+    public function test_a_branch_role_never_reaches_bank_money_even_when_granted_bank_manage(): void
     {
         $otherBranch = Branch::factory()->create(['company_id' => $this->admin->company_id]);
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
@@ -139,12 +125,7 @@ class BankApiTest extends TestCase
         $this->postJson('/api/v1/bank/transfers', [
             'from_blanch_id' => $otherBranch->id, 'ac_type' => Account::Interest->value, 'amount' => 100, 'to_account_id' => $bank->id,
         ])->assertForbidden();
-
-        BankTransfer::create([
-            'company_id' => $this->admin->company_id, 'type' => 'branch_to_bank', 'branch_id' => $otherBranch->id,
-            'branch_account' => Account::Interest->value, 'bank_account_id' => $bank->id, 'amount' => 5000, 'status' => 'pending', 'transfer_date' => today(),
-        ]);
-        $this->getJson('/api/v1/bank/transfers')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/bank/transfers')->assertForbidden();
     }
 
     public function test_payroll_list_and_detail(): void

@@ -27,7 +27,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Throwable;
 
 /**
@@ -124,16 +126,17 @@ class PaymentService
     }
 
     /**
-     * Teller receives cash from a customer (POST /payments/cash). Held as PENDING_VERIFICATION.
+     * Teller receives a customer payment (POST /payments/cash) — CASH, or BANK / MNO with its bank or network (provider). Every method
+     * follows the cash process: held as PENDING_VERIFICATION, banked on a deposit slip, posted when Finance verifies the slip.
      * The loan row is locked and the available balance (outstanding − branch money already pending) re-checked inside the
      * transaction, so concurrent receipts cannot exceed the balance. Cash for a written-off loan is accepted up to the
      * unrecovered write-off and becomes a recovery only when Finance confirms the deposit.
      */
-    public function recordCash(Loan $loan, float $amount, string $method, Employee $teller, ?CarbonImmutable $date = null): Payment
+    public function recordCash(Loan $loan, float $amount, string $method, Employee $teller, ?CarbonImmutable $date = null, ?string $provider = null): Payment
     {
         $date ??= CarbonImmutable::today();
 
-        return DB::transaction(function () use ($loan, $amount, $method, $teller, $date): Payment {
+        return DB::transaction(function () use ($loan, $amount, $method, $teller, $date, $provider): Payment {
             $loan = Loan::whereKey($loan->id)->lockForUpdate()->with('customer')->firstOrFail();
 
             $available = $this->availableForReceipt($loan);
@@ -149,6 +152,7 @@ class PaymentService
                 'employee_id' => $teller->id,
                 'source' => Payment::SOURCE_TELLER,
                 'channel' => strtoupper($method),
+                'provider' => (string) ($provider ?? ''),
                 'reference' => $loan->reference_number ?? $loan->loan_number,
                 'phone' => $loan->customer->phone,
                 'amount' => $amount,
@@ -211,6 +215,64 @@ class PaymentService
             }
 
             return $deposit;
+        });
+    }
+
+    /**
+     * The teller corrects a slip Finance found MISMATCHED against the bank statement: bank, slip number, date and which receipts it
+     * covers. Only the teller who submitted the slip may do this, and only while it is MISMATCH. Receipts taken off the slip go back
+     * to PENDING_VERIFICATION (still to bank); the slip returns to PENDING with the old statement check cleared, so Finance verifies
+     * it again. Nothing is posted — a slip posts only when Finance verifies it.
+     *
+     * @param  array{bank_account_id: int, slip_number: string, amount: float, deposit_date: string}  $data
+     * @param  list<int>  $paymentIds
+     */
+    public function updateBankDeposit(Employee $teller, TellerDeposit $deposit, array $data, array $paymentIds): TellerDeposit
+    {
+        return DB::transaction(function () use ($teller, $deposit, $data, $paymentIds): TellerDeposit {
+            $locked = TellerDeposit::whereKey($deposit->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== TellerDeposit::STATUS_MISMATCH) {
+                throw ValidationException::withMessages(['slip_number' => 'Only a slip Finance marked as MISMATCH can be edited.']);
+            }
+            if ((int) $locked->employee_id !== (int) $teller->id) {
+                throw new AccessDeniedHttpException('Only the teller who submitted this slip can edit it.');
+            }
+
+            $payments = Payment::whereKey($paymentIds)
+                ->where('company_id', $locked->company_id)
+                ->where('branch_id', $locked->branch_id)
+                ->where('source', Payment::SOURCE_TELLER)
+                ->where(fn ($query) => $query->where('teller_deposit_id', $locked->id)->orWhere('status', PaymentStatus::PendingVerification->value))
+                ->lockForUpdate()
+                ->get();
+            if ($payments->count() !== count(array_unique($paymentIds))) {
+                throw ValidationException::withMessages(['payment_ids' => 'Some receipts are not on this slip or not pending verification in this branch.']);
+            }
+
+            $expected = round((float) $payments->sum('amount'), 2);
+            if (abs(round((float) $data['amount'], 2) - $expected) > 0.005) {
+                throw ValidationException::withMessages(['amount' => 'The slip amount must equal the selected receipts (TZS '.number_format($expected, 2).').']);
+            }
+
+            Payment::where('teller_deposit_id', $locked->id)->whereNotIn('id', $payments->modelKeys())
+                ->update(['teller_deposit_id' => null, 'bank_account_id' => null, 'status' => PaymentStatus::PendingVerification->value]);
+
+            $locked->update([
+                'bank_account_id' => $data['bank_account_id'],
+                'slip_number' => $data['slip_number'],
+                'amount' => $expected,
+                'deposit_date' => $data['deposit_date'],
+                'status' => TellerDeposit::STATUS_PENDING,
+                'statement_amount' => null,
+                'statement_reference' => null,
+                'verified_by' => null,
+                'verified_at' => null,
+            ]);
+            foreach ($payments as $payment) {
+                $payment->update(['teller_deposit_id' => $locked->id, 'bank_account_id' => $locked->bank_account_id, 'status' => PaymentStatus::Deposited]);
+            }
+
+            return $locked;
         });
     }
 
@@ -392,7 +454,7 @@ class PaymentService
     /**
      * Finance records an unmatched payment found on a bank/mobile statement (POST /payments/unmatched).
      *
-     * @param  array{amount: float, channel: string, reference?: string|null, transaction_id?: string|null, phone?: string|null, paid_on: string, branch_id?: int|null, note?: string|null}  $data
+     * @param  array{amount: float, channel: string, provider?: string|null, reference?: string|null, transaction_id?: string|null, phone?: string|null, paid_on: string, branch_id?: int|null, note?: string|null}  $data
      */
     public function recordUnmatched(Company|int $company, array $data, Employee $finance): Payment
     {
@@ -404,8 +466,9 @@ class PaymentService
                 'employee_id' => $finance->id,
                 'source' => Payment::SOURCE_MANUAL,
                 'channel' => strtoupper($data['channel']),
-                'reference' => $data['reference'] ?? null,
-                'transaction_id' => $data['transaction_id'] ?? null,
+                'provider' => (string) ($data['provider'] ?? ''),
+                'reference' => $data['reference'] ?? self::newReference(),
+                'transaction_id' => $data['transaction_id'] ?? self::newTransactionId(),
                 'phone' => $data['phone'] ?? null,
                 'amount' => $data['amount'],
                 'status' => PaymentStatus::Unallocated,
@@ -474,13 +537,13 @@ class PaymentService
 
     /**
      * Finance-entered payment, single step (C6: ENTER → CONFIRMED → ALLOCATED → POSTED), in one transaction with the loan row
-     * locked: the payment is recorded CONFIRMED, the money received (Dr BANK — the chosen bank A/C or the bank clearing account /
+     * locked: the payment is recorded CONFIRMED, the money received (Dr BANK — the bank clearing account; the channel's provider is only a bank or network name /
      * Cr SUSPENSE), then allocated (Dr SUSPENSE / Cr BANK and the repayment journal of {@see LoanService::deposit()}, or the
      * recovery journal for a written-off loan) and the payment becomes ALLOCATED. More than the loan's outstanding balance (or the
      * unrecovered write-off) is rejected; a fully recovered or ambiguous write-off takes no entry. transaction_id is unique per
      * channel (a concurrent duplicate is rejected by the database key).
      *
-     * @param  array{amount: float|int|string, channel: string, bank_account_id?: int|null, reference?: string|null, transaction_id?: string|null, paid_on?: string|null, note?: string|null}  $data
+     * @param  array{amount: float|int|string, channel: string, provider?: string|null, reference?: string|null, transaction_id?: string|null, paid_on?: string|null, note?: string|null}  $data
      *
      * @throws ValidationException
      */
@@ -518,11 +581,13 @@ class PaymentService
                     'customer_id' => $loan->customer_id,
                     'loan_id' => $loan->id,
                     'employee_id' => $finance->id,
-                    'bank_account_id' => $data['bank_account_id'] ?? null,
+                    // Received into the bank clearing account: the provider is a bank or network name, not a company bank account.
+                    'bank_account_id' => null,
                     'source' => Payment::SOURCE_MANUAL,
                     'channel' => strtoupper($data['channel']),
-                    'reference' => $data['reference'] ?? ($loan->reference_number ?? $loan->loan_number),
-                    'transaction_id' => $data['transaction_id'] ?? null,
+                    'provider' => (string) ($data['provider'] ?? ''),
+                    'reference' => $data['reference'] ?? self::newReference(),
+                    'transaction_id' => $data['transaction_id'] ?? self::newTransactionId(),
                     'phone' => $loan->customer?->phone,
                     'amount' => $amount,
                     'status' => PaymentStatus::Confirmed,
@@ -560,7 +625,7 @@ class PaymentService
      * Finance approves it ({@see approveBranchReceipt()}). The loan row is locked and the amount checked against the outstanding
      * balance (or unrecovered write-off) less branch money already awaiting Finance.
      *
-     * @param  array{amount: float|int|string, channel: string, transaction_id: string, reference?: string|null, bank_account_id?: int|null, paid_on?: string|null, note?: string|null}  $data
+     * @param  array{amount: float|int|string, channel: string, provider?: string|null, transaction_id?: string|null, reference?: string|null, bank_account_id?: int|null, paid_on?: string|null, note?: string|null}  $data
      *
      * @throws ValidationException
      */
@@ -585,8 +650,9 @@ class PaymentService
                     'bank_account_id' => $data['bank_account_id'] ?? null,
                     'source' => Payment::SOURCE_TELLER,
                     'channel' => strtoupper($data['channel']),
-                    'reference' => $data['reference'] ?? ($loan->reference_number ?? $loan->loan_number),
-                    'transaction_id' => $data['transaction_id'],
+                    'provider' => (string) ($data['provider'] ?? ''),
+                    'reference' => $data['reference'] ?? self::newReference(),
+                    'transaction_id' => $data['transaction_id'] ?? self::newTransactionId(),
                     'phone' => $loan->customer?->phone,
                     'amount' => $amount,
                     'status' => PaymentStatus::PendingApproval,
@@ -598,7 +664,7 @@ class PaymentService
                 return $payment;
             });
         } catch (QueryException $exception) {
-            if (Payment::where('channel', strtoupper($data['channel']))->where('transaction_id', $data['transaction_id'])->exists()) {
+            if (! empty($data['transaction_id']) && Payment::where('channel', strtoupper($data['channel']))->where('transaction_id', $data['transaction_id'])->exists()) {
                 throw ValidationException::withMessages(['transaction_id' => 'This transaction ID has already been recorded for this channel.']);
             }
             throw $exception;
@@ -1114,5 +1180,21 @@ class PaymentService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    /**
+     * System transaction ID for a Finance-entered payment (e.g. TX260917K3F9QD7A2B): never typed, unique per channel and provider.
+     */
+    public static function newTransactionId(): string
+    {
+        return 'TX'.now()->format('ymd').strtoupper(Str::random(10));
+    }
+
+    /**
+     * System reference for a Finance-entered payment (e.g. PAY260917X7K2QD).
+     */
+    public static function newReference(): string
+    {
+        return 'PAY'.now()->format('ymd').strtoupper(Str::random(6));
     }
 }

@@ -123,7 +123,7 @@ export default function CustomerDevelopmentShowPage() {
             { key: "loan_number", header: "Loan Ac" },
             { key: "product", header: "Loan Product" },
             { key: "interest_rate", header: "Loan Interest", render: (row) => `${row.interest_rate}%` },
-            { key: "amount", header: "Loan Withdrawal", render: (row) => money(row.amount) },
+            { key: "amount", header: "Amount Disbursed", render: (row) => money(row.amount) },
             { key: "total_payable", header: "Principal + interest", render: (row) => money(row.total_payable) },
             { key: "duration", header: "Duration Type" },
             { key: "sessions", header: "Number of Repayment" },

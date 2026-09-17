@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { FilterModal, HeaderButton, sum, type Filters } from "@/components/finance/FilterModal";
 import { ApprovalActions, ApprovalStatus, isPending } from "@/components/finance/Approval";
@@ -19,7 +19,6 @@ import { useAction } from "@/lib/hooks";
 interface PettyCashForm {
   branch_id: string;
   amount: string;
-  reference: string;
 }
 
 interface BranchPettyCash {
@@ -34,8 +33,11 @@ interface PettyCashList {
   branches: BranchPettyCash[];
 }
 
-const EMPTY: PettyCashForm = { branch_id: "", amount: "", reference: "" };
+const EMPTY: PettyCashForm = { branch_id: "", amount: "" };
 const DESCRIPTION = "petty cash to the branch";
+
+type Tab = "transfers" | "balances";
+const TABS: Array<[Tab, string]> = [["transfers", "Transfers"], ["balances", "Branch Balances"]];
 
 /**
  * Bank → Send Petty Cash To Branch. Petty cash is the only money a branch holds: HQ sends it out of interest income, and the
@@ -49,68 +51,122 @@ export default function BranchPettyCashPage() {
   const create = useAction<PettyCashForm>("post", "bank/petty-cash");
   const rows = data?.data;
   const branches = data?.branches ?? [];
+  const [tab, setTab] = useState<Tab>("transfers");
 
-  const open = () => {
-    setForm(EMPTY);
+  const open = (branchId = "") => {
+    setForm({ ...EMPTY, branch_id: branchId });
     create.setErrors({});
     setModal("transfer");
   };
 
+  const totalHeld = sum(branches, (branch) => branch.petty_cash);
+  const pending = (rows ?? []).filter(isPending);
+  const funded = branches.filter((branch) => branch.petty_cash > 0).length;
+  const lastSent = (branchId: number) =>
+    (rows ?? []).filter((row) => row.branch_id === branchId && row.status === "approved").map((row) => row.transfer_date).sort().at(-1);
+
+  const tiles: Array<[string, string, ReactNode, string?]> = [
+    ["bg-success", "HQ Interest Available", money(data?.hq_interest_balance)],
+    ["bg-info", "Petty Cash Held By Branches", money(totalHeld)],
+    ["bg-warning", "Awaiting Approval", money(sum(pending, (row) => row.amount)), `${pending.length} request${pending.length === 1 ? "" : "s"}`],
+    ["bg-primary", "Branches Holding Petty Cash", `${funded} / ${branches.length}`],
+  ];
+
   return (
     <>
       <PageHeader crumbs={["Bank", "Send Petty Cash To Branch"]} />
-      <Card
-        title={<>Petty cash sent to branches <small className="ml-2">HQ interest income available: <b>{money(data?.hq_interest_balance)}</b></small></>}
-        actions={
-          <>
-            <span className="mr-1"><HeaderButton icon="icon-pencil" title="Send petty cash" onClick={open} /></span>
-            <HeaderButton onClick={() => setModal("filter")} />
-          </>
-        }
-      >
-        <div className="row clearfix mb-3">
-          {branches.map((branch) => (
-            <div className="col-md-3" key={branch.id}>
-              <div className="body dashboard-stat bg-info text-light">
-                <h6 className="mb-0"><i className="icon-wallet" /> {money(branch.petty_cash)}</h6>
-                <small className="d-block">{branch.name}</small>
+      <Card>
+        <div className="row clearfix">
+          {tiles.map(([color, label, value, note]) => (
+            <div className="col-lg-3 col-md-6" key={label}>
+              <div className={`body dashboard-stat ${color} text-light`}>
+                <h5 className="mb-0"><i className="icon-wallet" /> {value}</h5>
+                <span>{label}</span>
+                {note && <small className="d-block">{note}</small>}
               </div>
             </div>
           ))}
         </div>
-        <DataTable
-          rows={rows}
-          loading={isLoading}
-          rowKey={(row) => row.id}
-          columns={[
-            { key: "sn", header: "S/no.", render: (_, index) => `${index + 1}.`, sortable: false },
-            { key: "branch", header: "Branch" },
-            { key: "amount", header: "Amount", render: (row) => money(row.amount) },
-            { key: "reference", header: "Reference", render: (row) => row.reference || "-" },
-            { key: "journal_reference", header: "Journal Ref", render: (row) => row.journal_reference ?? "—" },
-            { key: "employee", header: "Requested By", render: (row) => row.employee ?? "—" },
-            { key: "transfer_date", header: "Date" },
-            { key: "status", header: "Status", render: (row) => <ApprovalStatus row={row} /> },
-            {
-              key: "action",
-              header: "Action",
-              sortable: false,
-              render: (row) =>
-                isPending(row) ? (
-                  <ApprovalActions row={row} approvePath={`bank/transfers/${row.id}/approve`} rejectPath={`bank/transfers/${row.id}/reject`} description={`${DESCRIPTION} ${row.branch ?? ""}`} />
-                ) : (
-                  row.status === "approved" && <ReverseButton row={row} path={`bank/transfers/${row.id}/reverse`} description={`${DESCRIPTION} ${row.branch ?? ""}`} />
+      </Card>
+
+      <Card
+        title="Branch petty cash"
+        actions={
+          <>
+            <span className="mr-1"><HeaderButton icon="icon-pencil" title="Send petty cash" onClick={() => open()} /></span>
+            {tab === "transfers" && <HeaderButton onClick={() => setModal("filter")} />}
+          </>
+        }
+      >
+        <ul className="nav nav-tabs-new mb-3">
+          {TABS.map(([key, label]) => (
+            <li className="nav-item" key={key}>
+              <button type="button" className={`nav-link ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+            </li>
+          ))}
+        </ul>
+        {tab === "transfers" ? (
+          <DataTable
+            rows={rows}
+            loading={isLoading}
+            rowKey={(row) => row.id}
+            columns={[
+              { key: "sn", header: "S/no.", render: (_, index) => `${index + 1}.`, sortable: false },
+              { key: "branch", header: "Branch" },
+              { key: "amount", header: "Amount", render: (row) => money(row.amount) },
+              { key: "reference", header: "Reference", render: (row) => row.reference || "-" },
+              { key: "journal_reference", header: "Journal Ref", render: (row) => row.journal_reference ?? "—" },
+              { key: "employee", header: "Requested By", render: (row) => row.employee ?? "—" },
+              { key: "transfer_date", header: "Date" },
+              { key: "status", header: "Status", render: (row) => <ApprovalStatus row={row} /> },
+              {
+                key: "action",
+                header: "Action",
+                sortable: false,
+                render: (row) =>
+                  isPending(row) ? (
+                    <ApprovalActions row={row} approvePath={`bank/transfers/${row.id}/approve`} rejectPath={`bank/transfers/${row.id}/reject`} description={`${DESCRIPTION} ${row.branch ?? ""}`} />
+                  ) : (
+                    row.status === "approved" && <ReverseButton row={row} path={`bank/transfers/${row.id}/reverse`} description={`${DESCRIPTION} ${row.branch ?? ""}`} />
+                  ),
+              },
+            ]}
+            footer={
+              <tr>
+                <td colSpan={2}>TOTAL <small className="text-muted">(posted only)</small>:</td>
+                <td><b>{money(sum(rows, (row) => (row.status === "approved" ? row.amount : 0)))}</b></td>
+                <td colSpan={6} />
+              </tr>
+            }
+          />
+        ) : (
+          <DataTable
+            rows={branches}
+            loading={isLoading}
+            rowKey={(branch) => branch.id}
+            columns={[
+              { key: "sn", header: "S/no.", render: (_, index) => `${index + 1}.`, sortable: false },
+              { key: "name", header: "Branch" },
+              { key: "petty_cash", header: "Petty Cash Held", render: (branch) => <b>{money(branch.petty_cash)}</b> },
+              { key: "last_sent", header: "Last Sent", value: (branch) => lastSent(branch.id) ?? "", render: (branch) => lastSent(branch.id) ?? "—" },
+              {
+                key: "action",
+                header: "Action",
+                sortable: false,
+                render: (branch) => (
+                  <button type="button" className="btn btn-sm btn-info" onClick={() => open(String(branch.id))}><i className="icon-paper-plane" /> Send</button>
                 ),
-            },
-          ]}
-          footer={
-            <tr>
-              <td colSpan={2}>TOTAL <small className="text-muted">(posted only)</small>:</td>
-              <td><b>{money(sum(rows, (row) => (row.status === "approved" ? row.amount : 0)))}</b></td>
-              <td colSpan={6} />
-            </tr>
-          }
-        />
+              },
+            ]}
+            footer={
+              <tr>
+                <td colSpan={2}>TOTAL:</td>
+                <td><b>{money(totalHeld)}</b></td>
+                <td colSpan={2} />
+              </tr>
+            }
+          />
+        )}
       </Card>
 
       <FilterModal open={modal === "filter"} onClose={() => setModal(null)} onApply={setFilters} />
@@ -127,9 +183,6 @@ export default function BranchPettyCashPage() {
           </Field>
           <Field label="Amount:" required className="col-lg-6" error={create.fieldError("amount")}>
             <input type="number" className="form-control" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />
-          </Field>
-          <Field label="Reference:" className="col-lg-6" error={create.fieldError("reference")}>
-            <input className="form-control" placeholder="Reference" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} maxLength={100} />
           </Field>
           <div className="col-12">
             <small className="text-muted">

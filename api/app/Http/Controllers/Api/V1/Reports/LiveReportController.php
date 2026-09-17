@@ -176,10 +176,13 @@ class LiveReportController extends ReportApiController
         return $this->report($this->reports->receivable($scope, in_array($status, ['paid', 'not paid'], true) ? $status : null) + ['filter' => $this->filterEcho($request, $scope)]);
     }
 
+    /**
+     * Today by default; a chosen branch shows its whole history (unless dates are given too).
+     */
     public function received(Request $request): JsonResponse
     {
         $this->authorizeAny('reports.view');
-        $scope = $this->reportScope($request, defaultToToday: true);
+        $scope = $this->reportScope($request, defaultToToday: ! is_numeric($request->input('branch_id')));
 
         return $this->report($this->reports->received($scope) + ['filter' => $this->filterEcho($request, $scope)]);
     }

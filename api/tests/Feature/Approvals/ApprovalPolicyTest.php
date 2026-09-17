@@ -38,53 +38,53 @@ class ApprovalPolicyTest extends TestCase
 
     public function test_default_policy_denies_self_approval_even_with_the_explicit_permission(): void
     {
-        $finance = $this->secondApprover($this->admin, 'finance');
-        $this->grantSelfApproval($finance, withCompanyPolicy: false);
-        $id = $this->float($finance);
+        $requester = $this->secondApprover($this->admin, 'admin');
+        $this->grantSelfApproval($requester, withCompanyPolicy: false);
+        $id = $this->float($requester);
 
-        $this->assertTrue(app(AccessControl::class)->explicitlyGranted($finance, SegregationOfDuties::PERMISSION));
-        $this->assertFalse(app(SegregationOfDuties::class)->canSelfApprove($finance, ApprovalPolicy::FLOATS));
-        $this->actingAs($finance)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.approve_blocked_reason', SegregationOfDuties::INITIATOR_MESSAGE);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
+        $this->assertTrue(app(AccessControl::class)->explicitlyGranted($requester, SegregationOfDuties::PERMISSION));
+        $this->assertFalse(app(SegregationOfDuties::class)->canSelfApprove($requester, ApprovalPolicy::FLOATS));
+        $this->actingAs($requester)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_approve', false)->assertJsonPath('data.0.approve_blocked_reason', SegregationOfDuties::INITIATOR_MESSAGE);
+        $this->actingAs($requester)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
         $this->assertSame(0, JournalEntry::where('description', 'like', '%FLOAT%')->count());
         $this->assertSame('pending', FloatTransfer::findOrFail($id)->status);
     }
 
     public function test_permission_plus_policy_allows_and_the_policy_is_per_workflow(): void
     {
-        $finance = $this->secondApprover($this->admin, 'finance');
-        $this->grantSelfApproval($finance, withCompanyPolicy: false);
-        $id = $this->float($finance);
+        $requester = $this->secondApprover($this->admin, 'admin');
+        $this->grantSelfApproval($requester, withCompanyPolicy: false);
+        $id = $this->float($requester);
 
         $this->allowSelfApprovalPolicy($this->admin->company_id, [ApprovalPolicy::BANK_TRANSFERS]);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
+        $this->actingAs($requester)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
 
         $this->allowSelfApprovalPolicy($this->admin->company_id, [ApprovalPolicy::FLOATS]);
-        $this->actingAs($finance)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_approve', true);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
+        $this->actingAs($requester)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_approve', true);
+        $this->actingAs($requester)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
         $this->assertSame('approved', FloatTransfer::findOrFail($id)->status);
     }
 
     public function test_policy_without_the_permission_denies(): void
     {
-        $finance = $this->secondApprover($this->admin, 'finance');
+        $requester = $this->secondApprover($this->admin, 'admin');
         $this->allowSelfApprovalPolicy($this->admin->company_id);
-        $id = $this->float($finance);
+        $id = $this->float($requester);
 
-        $this->assertFalse(app(SegregationOfDuties::class)->canSelfApprove($finance, ApprovalPolicy::FLOATS));
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
+        $this->assertFalse(app(SegregationOfDuties::class)->canSelfApprove($requester, ApprovalPolicy::FLOATS));
+        $this->actingAs($requester)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
     }
 
     public function test_policy_of_another_company_does_not_apply(): void
     {
-        $finance = $this->secondApprover($this->admin, 'finance');
-        $this->grantSelfApproval($finance, withCompanyPolicy: false);
-        $id = $this->float($finance);
+        $requester = $this->secondApprover($this->admin, 'admin');
+        $this->grantSelfApproval($requester, withCompanyPolicy: false);
+        $id = $this->float($requester);
 
         $other = $this->signInAdmin();
         $this->allowSelfApprovalPolicy($other->company_id);
 
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
+        $this->actingAs($requester)->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden();
     }
 
     public function test_super_admin_is_exempt_and_approves_their_own_item_without_the_permission_or_the_policy(): void
@@ -130,15 +130,17 @@ class ApprovalPolicyTest extends TestCase
 
     public function test_reversal_by_the_poster_follows_the_reversal_policy(): void
     {
-        $finance = $this->secondApprover($this->admin, 'finance');
+        // Only Super Admin and Admin approve floats; this Admin also holds accounting.reverse so the reversal policy is what blocks.
+        $poster = $this->secondApprover($this->admin, 'admin');
+        $poster->permissionOverrides()->create(['permission' => 'accounting.reverse', 'granted' => true]);
         $id = $this->float($this->admin);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
+        $this->actingAs($poster)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
 
-        $this->grantSelfApproval($finance, withCompanyPolicy: false);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertForbidden()->assertJsonPath('message', SegregationOfDuties::REVERSER_MESSAGE);
+        $this->grantSelfApproval($poster, withCompanyPolicy: false);
+        $this->actingAs($poster)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertForbidden()->assertJsonPath('message', SegregationOfDuties::REVERSER_MESSAGE);
 
         $this->allowSelfApprovalPolicy($this->admin->company_id, [ApprovalPolicy::REVERSALS]);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertOk();
+        $this->actingAs($poster)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertOk();
     }
 
     public function test_settings_api_lists_defaults_updates_self_approval_and_audits_every_change(): void

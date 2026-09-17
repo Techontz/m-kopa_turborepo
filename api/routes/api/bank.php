@@ -17,8 +17,6 @@ Route::prefix('bank')->name('bank.')->group(function (): void {
         Route::post('transfers/{bankTransfer}/approve', 'approve')->name('transfers.approve');
         Route::post('transfers/{bankTransfer}/reject', 'reject')->name('transfers.reject');
         Route::delete('transfers/{bankTransfer}', 'destroy')->name('transfers.destroy');
-        Route::get('to-hq', 'toHqIndex')->name('to-hq.index');
-        Route::post('to-hq', 'toHqStore')->name('to-hq.store');
         Route::get('petty-cash', 'pettyCashIndex')->name('petty-cash.index');
         Route::post('petty-cash', 'pettyCashStore')->name('petty-cash.store');
         Route::get('reserve-to-investment', 'reserveToInvestmentIndex')->name('reserve-to-investment.index');

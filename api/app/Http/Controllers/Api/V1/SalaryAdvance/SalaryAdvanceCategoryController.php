@@ -10,13 +10,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
- * Salary Advance → Salary advance Category (live admin/perifelar_setting).
+ * Salary Advance → Salary advance Category (live admin/perifelar_setting). Categories are company settings: only Super Admin and
+ * Admin (settings.manage) register, edit or delete them — HQ/Finance never. Staff who handle salary advances may still list them
+ * to pick one on a request.
  */
 class SalaryAdvanceCategoryController extends ApiController
 {
     public function index(): AnonymousResourceCollection
     {
-        $this->authorizeAny('salary_advance.manage');
+        $this->authorizeAny('salary_advance.manage', 'settings.manage');
 
         return SalaryAdvanceCategoryResource::collection(
             SalaryAdvanceCategory::where('company_id', $this->currentEmployee()->company_id)->orderBy('id')->get()
@@ -25,7 +27,7 @@ class SalaryAdvanceCategoryController extends ApiController
 
     public function store(SalaryAdvanceCategoryRequest $request): JsonResponse
     {
-        $this->authorizeAny('salary_advance.manage');
+        $this->authorizeAny('settings.manage');
 
         $category = SalaryAdvanceCategory::create($request->categoryData() + ['company_id' => $this->currentEmployee()->company_id]);
 
@@ -34,7 +36,7 @@ class SalaryAdvanceCategoryController extends ApiController
 
     public function update(SalaryAdvanceCategoryRequest $request, SalaryAdvanceCategory $salaryAdvanceCategory): JsonResponse
     {
-        $this->authorizeAny('salary_advance.manage');
+        $this->authorizeAny('settings.manage');
 
         $salaryAdvanceCategory->update($request->categoryData());
 
@@ -43,7 +45,7 @@ class SalaryAdvanceCategoryController extends ApiController
 
     public function destroy(SalaryAdvanceCategory $salaryAdvanceCategory): JsonResponse
     {
-        $this->authorizeAny('salary_advance.manage');
+        $this->authorizeAny('settings.manage');
 
         if ($salaryAdvanceCategory->salaryAdvances()->exists()) {
             return $this->message('Category has salary advance loans and cannot be deleted', 422);

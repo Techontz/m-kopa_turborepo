@@ -8,6 +8,7 @@ use App\Enums\PaymentStatus;
 use App\Integrations\Payments\TestPaymentWebhookConnector;
 use App\Models\AuditLog;
 use App\Models\Payment;
+use App\Models\PaymentProvider;
 use App\Models\SmsLog;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -119,11 +120,11 @@ class PaymentWebhookTest extends TestCase
     {
         $admin = $this->signInAdmin();
 
-        $this->postJson('/api/v1/payments/unmatched', ['amount' => 5000])->assertUnprocessable()->assertJsonValidationErrors(['channel', 'paid_on']);
-        $this->postJson('/api/v1/payments/unmatched', ['amount' => 5000, 'channel' => 'BANK', 'paid_on' => today()->toDateString(), 'transaction_id' => 'BK-1'])
+        PaymentProvider::create(['company_id' => $admin->company_id, 'channel' => 'BANK', 'name' => 'CRDB Bank']);
+        $this->postJson('/api/v1/payments/unmatched', ['amount' => 5000])->assertUnprocessable()->assertJsonValidationErrors(['channel', 'provider', 'paid_on']);
+        $this->postJson('/api/v1/payments/unmatched', ['amount' => 5000, 'channel' => 'BANK', 'provider' => 'CRDB Bank', 'paid_on' => today()->toDateString(), 'transaction_id' => 'BK-1'])
             ->assertCreated()->assertJsonPath('data.status', 'unallocated');
-        $this->postJson('/api/v1/payments/unmatched', ['amount' => 5000, 'channel' => 'BANK', 'paid_on' => today()->toDateString(), 'transaction_id' => 'BK-1'])
-            ->assertUnprocessable()->assertJsonValidationErrors('transaction_id');
+        $this->assertMatchesRegularExpression('/^TX\d{6}[A-Z0-9]{10}$/', Payment::sole()->transaction_id, 'a typed transaction ID is ignored: the system generates it');
 
         $this->assertSame(5000.0, $this->balance($admin, Account::Suspense));
     }

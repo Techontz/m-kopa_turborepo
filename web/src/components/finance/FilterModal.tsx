@@ -20,10 +20,12 @@ interface FilterModalProps {
   withBranch?: boolean;
   withDates?: boolean;
   branchPlaceholder?: string;
+  /** Leave Head Office out of the branch dropdown (it is not a branch). */
+  branchesOnly?: boolean;
 }
 
 /** Live "Filter" modal: branch (incl. ALL) + From / To dates, Filter + CLOSE buttons. */
-export function FilterModal({ open, onClose, onApply, withBranch = false, withDates = true, branchPlaceholder = "Select Branch" }: FilterModalProps) {
+export function FilterModal({ open, onClose, onApply, withBranch = false, withDates = true, branchPlaceholder = "Select Branch", branchesOnly = false }: FilterModalProps) {
   const [form, setForm] = useState<Filters>({ branch_id: "", from: "", to: "" });
 
   return (
@@ -39,7 +41,7 @@ export function FilterModal({ open, onClose, onApply, withBranch = false, withDa
       <div className="row">
         {withBranch && (
           <Field label="" className="col-md-12">
-            <SelectBox placeholder={branchPlaceholder} optionsUrl="options/branches" query={{ with_all: 1 }} value={form.branch_id} onChange={(value) => setForm({ ...form, branch_id: value ?? "" })} />
+            <SelectBox placeholder={branchPlaceholder} optionsUrl="options/branches" query={branchesOnly ? { with_all: 1, branches_only: 1 } : { with_all: 1 }} value={form.branch_id} onChange={(value) => setForm({ ...form, branch_id: value ?? "" })} />
           </Field>
         )}
         {withDates && (

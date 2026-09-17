@@ -58,7 +58,6 @@ return [
         'salary_advance.manage' => 'Manage customer salary advances',
         'penalties.manage' => 'Manage penalties',
         'income.view' => 'View deducted loan fee income',
-        'agent.manage' => 'Manage agent (clientless) transactions',
         'savings.manage' => 'Manage insurance savings',
         'visa.manage' => 'Manage customer bank card details',
         'reports.view' => 'View operational reports',
@@ -93,6 +92,16 @@ return [
     'explicit_only' => ['approvals.self_approve'],
 
     /*
+    | Company money: bank accounts and bank transfers belong to the company owners. These permissions are effective only
+    | for a Super Admin / Admin staff login or a login linked to a shareholder of the company — never for any other role,
+    | whatever its role permissions or per-employee overrides say.
+    */
+    'company_money' => [
+        'permissions' => ['bank.manage'],
+        'roles' => ['super_admin', 'admin'],
+    ],
+
+    /*
     | Shareholder Portal permissions. They are effective ONLY for an employee account linked to a shareholder record
     | (share_holders.employee_id): never implied by the Super Admin role, never granted by a staff role or an employee
     | override. A pure shareholder account (employees.account_type = shareholder) holds nothing else (AccessControl).
@@ -108,14 +117,14 @@ return [
             'dashboard.view', 'settings.manage', 'users.manage', 'hrm.staff_privileges', 'hrm.staff_reset_password', 'float.manage', 'bank.manage', 'expenses.request',
             'expenses.approve_hq', 'hq.manage', 'customers.view', 'customers.manage', 'customers.approve',
             'customers.assign_officer', 'groups.view', 'groups.manage', 'branches.view_all', 'loans.view', 'loans.write_off', 'loans.reverse_repayment', 'loans.reverse_disbursement',
-            'loans.recover', 'accounting.view', 'salary_advance.manage', 'penalties.manage', 'agent.manage', 'savings.manage', 'visa.manage',
+            'loans.recover', 'accounting.view', 'salary_advance.manage', 'penalties.manage', 'savings.manage', 'visa.manage',
             'reports.view', 'reports.financial', 'income.view', 'crm.use', 'messages.use', 'goals.manage', 'goals.view', 'audit.view', 'approvals.view',
         ]],
         'finance' => ['name' => 'Finance', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'float.manage', 'bank.manage', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
+            'dashboard.view', 'float.manage', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
             'loans.view', 'loans.prepare_disbursement', 'loans.disburse', 'loans.reverse_repayment', 'loans.reverse_disbursement', 'loans.recover', 'payments.verify', 'payments.suspense',
             'accounting.view', 'accounting.reverse', 'accounting.close_period', 'salary_advance.manage', 'penalties.manage',
-            'agent.manage', 'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view', 'approvals.view',
+            'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view', 'approvals.view',
         ]],
         'hr' => ['name' => 'HR', 'scope' => 'company', 'permissions' => [
             'dashboard.view', 'users.manage', 'hrm.manage', 'hrm.staff_privileges', 'payroll.approve', 'branches.view_all', 'reports.view', 'messages.use', 'goals.view',
@@ -150,7 +159,7 @@ return [
     | Staff privilege page (HRM → All Active Staff → Privilege)
     |--------------------------------------------------------------------------
     |
-    | Live admin/privillage/{id} lists 16 module privileges (displayed alphabetically) that are added to / removed from
+    | Live admin/privillage/{id} lists 16 module privileges (15 here: CLIENTLESS went with the Agent module, removed 2026-09-17) (displayed alphabetically) that are added to / removed from
     | one user. Each item here maps to the real permission keys it controls: adding an item grants every key, removing
     | it revokes every key (stored as per-employee overrides, see AccessControl). The first group is the live list in the
     | live display order with the live item keys; the following groups hold this app's additional permissions that
@@ -166,7 +175,6 @@ return [
                 ['key' => 'aprove', 'label' => 'APPROVE', 'permissions' => ['loans.approve_manager', 'loans.credit_review', 'customers.approve']],
                 ['key' => 'bank', 'label' => 'BANK', 'permissions' => ['bank.manage']],
                 ['key' => 'bankpassword', 'label' => 'BANK PASSWORD', 'permissions' => ['visa.manage']],
-                ['key' => 'clientless', 'label' => 'CLIENTLESS', 'permissions' => ['agent.manage']],
                 ['key' => 'customer', 'label' => 'CUSTOMER', 'permissions' => ['customers.view', 'customers.manage']],
                 ['key' => 'debit', 'label' => 'DEBIT PENDING', 'permissions' => ['salary_advance.manage']],
                 ['key' => 'expenses', 'label' => 'EXPENSES', 'permissions' => ['expenses.request', 'expenses.approve_branch']],

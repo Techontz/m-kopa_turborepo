@@ -371,7 +371,6 @@ class LoanRecoveryTest extends TestCase
         $this->actingAs($teller)->postJson('/api/v1/teller/bank-deposits', ['bank_account_id' => $bank->id, 'slip_number' => 'SLIP-REC', 'amount' => 30000, 'deposit_date' => today()->toDateString(), 'payment_ids' => [$cash->id]])->assertCreated();
         $deposit = TellerDeposit::sole();
         $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/verify", ['statement_amount' => 30000, 'statement_reference' => 'NMB-1'])->assertOk();
-        $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/confirm")->assertOk();
         $this->actingAs($finance)->postJson("/api/v1/payments/reconciliation/{$deposit->id}/confirm")->assertUnprocessable();
 
         $this->assertSame(2, LoanRecovery::count());

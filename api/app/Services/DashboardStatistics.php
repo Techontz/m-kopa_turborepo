@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Enums\Account;
 use App\Enums\Duration;
 use App\Enums\LoanStatus;
-use App\Models\AgentTransaction;
+use App\Enums\PaymentStatus;
 use App\Models\Branch;
 use App\Models\Capital;
 use App\Models\Company;
@@ -14,14 +14,16 @@ use App\Models\Employee;
 use App\Models\ExpenseRequest;
 use App\Models\FloatTransfer;
 use App\Models\Loan;
-use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
+use App\Models\Payment;
 use App\Models\Penalty;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvancePayment;
 use App\Models\Saving;
 use App\Services\Reports\Financial\CashAccounts;
 use App\Services\Reports\Financial\ProfitLossReport;
+use App\Services\Reports\PortfolioReports;
+use App\Services\Reports\ReportScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -38,6 +40,7 @@ class DashboardStatistics
         private readonly ProfitLossReport $profitLoss,
         private readonly CashAccounts $cash,
         private readonly AccessControl $access,
+        private readonly PortfolioReports $portfolio,
     ) {}
 
     /**
@@ -60,10 +63,10 @@ class DashboardStatistics
      *  - HQ funds ({@see hqFunds()}: the PRINCIPAL A/C the company floated to HQ plus the HQ income pools) for every other
      *    company-wide employee (HQ, Finance);
      *  - the PETTY CASH A/C of their branches ({@see pettyCash()}) for branch- and zone-scoped employees — the only money a
-     *    branch holds. Their loan withdrawal, receivable and default loan cover those branches only.
+     *    branch holds. Their disbursed today, total loan outstanding and default loan cover those branches only.
      *
      * @param  list<int>|null  $branchIds
-     * @return array{account_balance: float, account_balance_title: string, account_balance_label: string, loan_withdrawal: float, receivable: float, default_loan: float}
+     * @return array{account_balance: float, account_balance_title: string, account_balance_label: string, loan_withdrawal: float, loan_outstanding: float, default_loan: float}
      */
     public function cards(Company $company, CarbonImmutable $today, ?array $branchIds = null, bool $investment = true): array
     {
@@ -72,7 +75,7 @@ class DashboardStatistics
         $green = match (true) {
             $branchIds !== null => ['Petty Cash', 'Sent by HQ — spent only with HQ approval', $this->pettyCash($company, $branchIds)],
             $investment => ['Account Balance', 'Company A/C + banks + reserve + assets', round(array_sum($this->accountBalances($company)), 2)],
-            default => ['HQ Funds', 'Received from the company + HQ income', round(array_sum($this->hqFunds($company)), 2)],
+            default => ['HQ Funds', 'Operation principal + income + fund + reserve', $this->hqFundsTotal($company)],
         };
 
         return [
@@ -80,8 +83,9 @@ class DashboardStatistics
             'account_balance_title' => $green[0],
             'account_balance_label' => $green[1],
             'loan_withdrawal' => (float) $inBranches(LoanTransaction::where('company_id', $company->id))->where('type', 'withdrawal')->whereNull('reversed_at')->whereDate('transaction_date', $today)->sum('amount'),
-            'receivable' => (float) LoanSchedule::whereHas('loan', fn ($query) => $inBranches($query->where('company_id', $company->id))->status(...LoanStatus::repayable()))
-                ->whereDate('due_date', $today)->sum('amount'),
+            // Total Loan Outstanding: exactly the Loan Portfolio report's figure (principal + interest + penalty still owed on
+            // active, overdue and default loans; written-off loans excluded), for the employee's branches.
+            'loan_outstanding' => (float) $this->portfolio->portfolio(new ReportScope((int) $company->id, $branchIds))['summary']['outstanding_total'],
             'default_loan' => $inBranches(Loan::where('company_id', $company->id))->status(LoanStatus::Default)->get()->sum(fn (Loan $loan): float => $loan->remaining_amount),
         ];
     }
@@ -98,18 +102,26 @@ class DashboardStatistics
     }
 
     /**
-     * HQ funds — what HQ and Finance see instead of the owners' Investment: the lending money the company floated to HQ and
-     * the income HQ holds. Every branch-tagged fund account is included, because a branch holds no money of its own: the
-     * branch figure is only a report of what that branch generated.
+     * HQ Account List rows listed but never added to the total: UNMATCHED is money received that is not HQ's until it is matched
+     * to a loan (it may still be refunded); SAVINGS is held for the customers who deposited it; PROFIT and DIVIDENDS are shares of OPERATION INCOME, not separate money.
+     */
+    public const HQ_CLAIM_ROWS = ['UNMATCHED', 'SAVINGS', 'PROFIT', 'DIVIDENDS'];
+
+    /**
+     * HQ funds — what HQ and Finance see instead of the owners' Investment: exactly six accounts (user ruling 2026-09-17),
+     * plus UNMATCHED (user request 2026-09-17), every one listed even when empty.
+     *  - OPERATION PRINCIPAL: the lending money (PRINCIPAL A/C) the company floated to HQ;
+     *  - OPERATION INCOME: interest (after the 20% reserve), loan fee and penalty — branch pools plus HQ's own accounts,
+     *    one figure (spec §5, presentation only);
+     *  - FUND: the single STAFF FUND A/C (spec §25);
+     *  - RESERVE: the branch reserve pools plus the HQ reserve;
+     *  - UNMATCHED: money received but not yet matched to a loan — the unallocated amount in Payments → Suspense Account;
+     *  - SAVINGS: customer savings the company holds (SAVING A/C), what Savings → Savings Balance shows;
+     *  - PROFIT: profit closed from past months and not yet distributed (RETAINED PROFIT);
+     *  - DIVIDENDS: dividends declared and not yet paid (DIVIDEND PAYABLE).
      *
-     * Every account is listed, empty ones included, so the modal reads as the full account list rather than as whichever
-     * accounts happen to hold money today. Each kind of money appears on exactly ONE row: where HQ has its own account
-     * beside a branch pool (interest, reserve, loan fee, penalty), the two are added together instead of being listed
-     * twice, so the rows still add up to the HQ Funds card.
-     *
-     * Two money accounts are deliberately NOT here, because they are not HQ's to spend: the SAVING A/C is held for the
-     * customers who deposited it and the SALARY ADVANCE A/C is money staff owe back. Both are printed under the total as
-     * memo lines instead ({@see accountMemos()}).
+     * UNMATCHED, SAVINGS, PROFIT and DIVIDENDS are not in the total ({@see HQ_CLAIM_ROWS}): unmatched money is not HQ's until it is
+     * allocated, savings belong to the customers, and profit and dividends still sit in OPERATION INCOME until they are reinvested or paid.
      *
      * @return array<string, float>
      */
@@ -120,19 +132,27 @@ class DashboardStatistics
         )), 2) + 0.0;
 
         return [
-            'PRINCIPAL A/C' => $pool(Account::Principal),
-            // One row per kind of money: the interest and reserve HQ holds are the branch pools plus HQ's own account,
-            // exactly as {@see CashAccounts::hqInterest()} and {@see CashAccounts::hqReserve()} count them.
-            'INTEREST A/C' => $pool(Account::Interest, Account::HqInterest),
-            'LOAN FEE A/C' => $pool(Account::LoanFee, Account::HqLoanFee),
-            'PENALTY A/C' => $pool(Account::Penalty, Account::HqPenalty),
-            'RESERVE A/C' => $pool(Account::Reserve, Account::HqReserve),
-            'INSURANCE A/C' => $pool(Account::Insurance),
-            'AGENT A/C' => $pool(Account::Agent),
-            'TELLER CASH A/C' => $pool(Account::TellerCash),
-            'PETTY CASH A/C (branches)' => $pool(Account::PettyCash),
-            'DISBURSEMENT A/C' => $pool(Account::HqDisbursement),
+            'OPERATION PRINCIPAL' => $pool(Account::Principal),
+            'OPERATION INCOME' => $pool(Account::Interest, Account::HqInterest, Account::LoanFee, Account::HqLoanFee, Account::Penalty, Account::HqPenalty),
+            'FUND' => $pool(Account::StaffFundCash),
+            'RESERVE' => $pool(Account::Reserve, Account::HqReserve),
+            'UNMATCHED' => round((float) Payment::where('company_id', $company->id)->whereIn('status', PaymentStatus::values(...PaymentStatus::suspense()))->get()->sum('unallocated_amount'), 2) + 0.0,
+            'SAVINGS' => $pool(Account::HqSaving),
+            'PROFIT' => $pool(Account::RetainedProfit),
+            'DIVIDENDS' => $pool(Account::DividendPayable),
         ];
+    }
+
+    /**
+     * The HQ Funds card: the money rows of {@see hqFunds()} — PROFIT and DIVIDENDS are already inside OPERATION INCOME.
+     *
+     * @param  array<string, float>|null  $rows
+     */
+    public function hqFundsTotal(Company $company, ?array $rows = null): float
+    {
+        $rows ??= $this->hqFunds($company);
+
+        return round(array_sum(array_diff_key($rows, array_flip(self::HQ_CLAIM_ROWS))), 2) + 0.0;
     }
 
     /**
@@ -208,23 +228,51 @@ class DashboardStatistics
     }
 
     /**
-     * "Branch List" modal. A branch holds no lending money — HQ funds every loan — so the first column is the PETTY CASH
-     * A/C HQ sent it; the rest report the income the branch generated, which belongs to HQ.
+     * "Branch List" modal: one row per real branch (Head Office is not a branch). Every column covers ONE month except PETTY CASH,
+     * which is the balance the branch holds now — the only money a branch holds (user ruling 2026-09-17). The monthly columns
+     * report what the branch generated for HQ:
+     *  - principal_repaid: principal its customers paid back (reversed repayments excluded). Already back in HQ's OPERATION
+     *    PRINCIPAL, so a report figure, never extra money;
+     *  - interest (after the 20% reserve), loan_fee, penalty and reserve: collected in the month, exactly as the Profit & Loss
+     *    report counts them ({@see ProfitLossReport::row()}: reversals net out, month-end closing entries excluded);
+     *  - cash_pending: money the teller collected at the branch in the month (cash, bank or mobile money) that Finance has not yet
+     *    verified as banked.
      *
-     * @return Collection<int, array<string, mixed>>
+     * @return array{month: string, rows: list<array<string, float|string>>, total: array<string, float>}
      */
-    public function branchAccounts(Company $company): Collection
+    public function branchAccounts(Company $company, ?CarbonImmutable $month = null): array
     {
-        return $company->branches()->get()->map(fn (Branch $branch): array => [
-            'name' => $branch->name,
-            'petty_cash' => $this->ledger->balance($company, Account::PettyCash, $branch),
-            'interest' => $this->ledger->balance($company, Account::Interest, $branch),
-            'loan_fee' => $this->ledger->balance($company, Account::LoanFee, $branch),
-            'penalty' => $this->ledger->balance($company, Account::Penalty, $branch),
-            'reserve' => $this->ledger->balance($company, Account::Reserve, $branch),
-            'agent' => $this->ledger->balance($company, Account::Agent, $branch),
-            'insurance' => $this->ledger->balance($company, Account::Insurance, $branch),
-        ]);
+        $month ??= CarbonImmutable::today();
+        $from = $month->startOfMonth();
+        $to = $month->endOfMonth();
+        $inMonth = [$from->toDateString(), $to->toDateString()];
+        $principalRepaid = LoanTransaction::where('company_id', $company->id)->where('type', 'deposit')->whereNull('reversed_at')
+            ->whereBetween('transaction_date', $inMonth)->groupBy('branch_id')->selectRaw('branch_id, SUM(principal) as total')->pluck('total', 'branch_id');
+        $cashPending = Payment::where('company_id', $company->id)->where('source', Payment::SOURCE_TELLER)
+            ->whereIn('status', [PaymentStatus::PendingVerification->value, PaymentStatus::Deposited->value])
+            ->whereBetween('paid_on', $inMonth)->groupBy('branch_id')->selectRaw('branch_id, SUM(amount) as total')->pluck('total', 'branch_id');
+
+        $rows = $company->branches()->where('is_head_office', false)->orderBy('id')->get()->map(function (Branch $branch) use ($company, $from, $to, $principalRepaid, $cashPending): array {
+            $pnl = $this->profitLoss->row($this->profitLoss->companyFigures((int) $company->id, $from, $to, [$branch->id]));
+
+            return [
+                'name' => $branch->name,
+                'petty_cash' => round($this->ledger->balance($company, Account::PettyCash, $branch), 2) + 0.0,
+                'principal_repaid' => round((float) ($principalRepaid[$branch->id] ?? 0), 2),
+                'interest' => $pnl['interest_income'],
+                'loan_fee' => $pnl['fee_income'],
+                'penalty' => $pnl['penalty_income'],
+                'reserve' => $pnl['reserve_amount'],
+                'cash_pending' => round((float) ($cashPending[$branch->id] ?? 0), 2),
+            ];
+        })->values();
+
+        $total = [];
+        foreach (['petty_cash', 'principal_repaid', 'interest', 'loan_fee', 'penalty', 'reserve', 'cash_pending'] as $key) {
+            $total[$key] = round((float) $rows->sum($key), 2);
+        }
+
+        return ['month' => $from->format('F Y'), 'rows' => $rows->all(), 'total' => $total];
     }
 
     /**
@@ -233,7 +281,7 @@ class DashboardStatistics
      * Deposits / withdrawals are cash-book movements (reversed records excluded). Income and expenses come from the ledger
      * (entries dated today, month-end closing entries excluded) with the components of the branch Profit & Loss
      * ({@see ProfitLossReport::row()}): interest net of reserve + loan fees + penalties + recoveries = total income;
-     * insurance is shown but, as in the branch P&L, not part of total income. Capital received, float sent to HQ and
+     * insurance is no longer used and not shown. Capital received, float sent to HQ and
      * other principal transfers are money movements — never income or expenses (spec Rule 1, §12, §19).
      * $branchIds null = whole company. With branch ids (branch- and zone-scoped employees) every figure covers those branches
      * only and the company money movements (capital, float, principal transfers, expenses paid from the company bank) are null.
@@ -262,7 +310,6 @@ class DashboardStatistics
             'weekly_deposit' => $loanTransactions('deposit', Duration::Weekly),
             'daily_deposit' => $loanTransactions('deposit', Duration::Daily),
             'salary_advance_deposit' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn ($query) => $inBranches($query->where('company_id', $company->id)->whereNull('reversed_at')))->whereDate('paid_on', $today)->sum('amount'),
-            'agent_deposit' => (float) $inBranches(AgentTransaction::where('company_id', $company->id))->whereNull('reversed_at')->whereDate('transaction_date', $today)->sum('amount'),
             'monthly_withdrawal' => $withdrawals(Duration::Monthly),
             'weekly_withdrawal' => $withdrawals(Duration::Weekly),
             'daily_withdrawal' => $withdrawals(Duration::Daily),
@@ -274,7 +321,6 @@ class DashboardStatistics
             'loan_fee_income' => $pnl['fee_income'],
             'recovery_income' => $pnl['recovery_income'],
             'salary_advance_income' => $pnl['salary_advance_income'],
-            'insurance_income' => round((float) ($raw[Account::InsuranceIncome->value] ?? 0) + (float) ($raw[ProfitLossReport::INSURANCE_RESERVE_COLLECTED] ?? 0), 2),
             'total_income' => $pnl['total_income'],
 
             'expenses' => round($operatingExpenses, 2),
@@ -296,7 +342,7 @@ class DashboardStatistics
         if ($branchIds !== null) {
             $figures = array_merge($figures, array_fill_keys(self::COMPANY_MONEY_MOVEMENTS, null));
         }
-        $figures['total_deposit'] = round($figures['monthly_deposit'] + $figures['weekly_deposit'] + $figures['daily_deposit'] + $figures['salary_advance_deposit'] + $figures['agent_deposit'], 2);
+        $figures['total_deposit'] = round($figures['monthly_deposit'] + $figures['weekly_deposit'] + $figures['daily_deposit'] + $figures['salary_advance_deposit'], 2);
         $figures['total_withdrawal'] = round($figures['monthly_withdrawal'] + $figures['weekly_withdrawal'] + $figures['daily_withdrawal'] + $figures['salary_advance_withdrawal'], 2);
 
         return $figures;

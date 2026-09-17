@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { LoanRecoveryCard } from "@/components/loans/LoanRecoveryCard";
 import type { RecoveryPosition } from "@/components/loans/recovery";
+import { ProviderSelect } from "@/components/payments/ChannelProviderFields";
 import { ReceiptModal } from "@/components/payments/ReceiptModal";
 import type { Payment } from "@/components/payments/types";
 import { Badge } from "@/components/ui/Badge";
@@ -60,18 +61,13 @@ interface TellerData {
 
 interface DepositBody {
   depost: string;
-  p_method: string;
+  /** CASH goes to teller cash (banked later on a deposit slip); BANK and MNO are sent to Finance for approval. */
+  p_method: "CASH" | "BANK" | "MNO";
+  provider: string;
   recept: boolean;
 }
 
-const EMPTY_RECEIPT = { amount: "", channel: "VODACOM", transaction_id: "", reference: "" };
-const NON_CASH_CHANNELS = [
-  { value: "VODACOM", label: "VODACOM M-PESA" },
-  { value: "TIGO", label: "YAS (TIGO PESA)" },
-  { value: "AIRTEL", label: "AIRTEL MONEY" },
-  { value: "HALOPESA", label: "HALOPESA" },
-  { value: "BANK", label: "BANK" },
-];
+const EMPTY_FORM: DepositBody = { depost: "", p_method: "CASH", provider: "", recept: true };
 
 /** Teller → Customer Loan Information (live admin/data_with_depost/{customer}). */
 export default function TellerCustomerPage() {
@@ -80,12 +76,20 @@ export default function TellerCustomerPage() {
   const { can } = useAuth();
   const { data, isLoading } = useApi<TellerData>(`teller/customers/${id}`);
   const [depositing, setDepositing] = useState(false);
-  const [form, setForm] = useState<DepositBody>({ depost: "", p_method: "CASH", recept: true });
+  const [form, setForm] = useState<DepositBody>(EMPTY_FORM);
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const deposit = useAction<DepositBody, { data: Payment; receipt: boolean }>("post", `teller/customers/${id}/deposit`);
-  const [receiving, setReceiving] = useState(false);
-  const [receipt, setReceipt] = useState(EMPTY_RECEIPT);
-  const branchReceipt = useAction<typeof EMPTY_RECEIPT & { loan_id: number }>("post", "payments/branch-receipts");
+  const nonCash = form.p_method !== "CASH";
+  const done = (paymentId: number) => {
+    setDepositing(false);
+    if (form.recept && paymentId) {
+      setReceiptId(paymentId);
+    }
+    setForm(EMPTY_FORM);
+  };
+  const submitDeposit = () => {
+    deposit.mutate({ ...form, depost: form.depost.replace(/[^\d]/g, "") }, { onSuccess: (result) => done(result.data.id) });
+  };
 
   const loan = data?.loan;
   const statement = data?.statement ?? [];
@@ -105,8 +109,7 @@ export default function TellerCustomerPage() {
               <div className="m-t-10">
                 {(loan?.is_repayable || data.accepts_recovery) && can("payments.cash") && (
                   <>
-                    <button type="button" className="btn btn-sm btn-primary mr-1" onClick={() => setDepositing(true)}>Deposit</button>
-                    <button type="button" className="btn btn-sm btn-info mr-1" onClick={() => { setReceipt(EMPTY_RECEIPT); branchReceipt.setErrors({}); setReceiving(true); }}>Mobile / Bank Receipt</button>
+                    <button type="button" className="btn btn-sm btn-primary mr-1" onClick={() => { setForm(EMPTY_FORM); deposit.setErrors({}); setDepositing(true); }}>Deposit</button>
                   </>
                 )}
                 {data.awaiting_cash_out && (
@@ -248,17 +251,7 @@ export default function TellerCustomerPage() {
         )}
         submitLabel="Deposit"
         submitting={deposit.isPending}
-        onSubmit={() =>
-          deposit.mutate(form, {
-            onSuccess: (result) => {
-              setDepositing(false);
-              setForm({ depost: "", p_method: "CASH", recept: true });
-              if (result.receipt) {
-                setReceiptId(result.data.id);
-              }
-            },
-          })
-        }
+        onSubmit={submitDeposit}
       >
         {data && (
           <div className="row clearfix">
@@ -286,11 +279,17 @@ export default function TellerCustomerPage() {
               {deposit.fieldError("depost") && <div className="field-error">{deposit.fieldError("depost")}</div>}
             </div>
             <div className="col-md-6 col-6">
-              <span>Select Account:</span>
-              <select className="form-control" value={form.p_method} onChange={(e) => setForm({ ...form, p_method: e.target.value })} required>
+              <span>Payment Method:</span>
+              <select className="form-control" value={form.p_method} onChange={(e) => setForm({ ...form, p_method: e.target.value as DepositBody["p_method"], provider: "" })} required>
                 <option value="CASH">CASH</option>
+                <option value="BANK">BANK</option>
+                <option value="MNO">MNO</option>
               </select>
+              {deposit.fieldError("p_method") && <div className="field-error">{deposit.fieldError("p_method")}</div>}
             </div>
+            {nonCash && (
+              <ProviderSelect channel={form.p_method === "MNO" ? "MNO" : "BANK"} value={form.provider} onChange={(provider) => setForm({ ...form, provider })} error={deposit.fieldError("provider")} className="col-md-6 col-12 m-t-10" />
+            )}
             <div className="col-md-4 col-12">
               <br />
               <div className="d-flex align-items-center">
@@ -298,44 +297,11 @@ export default function TellerCustomerPage() {
               </div>
             </div>
             <div className="col-md-12 m-t-10">
-              <small className="text-muted">{data.accepts_recovery ? "Written-off loan: the cash becomes a recovery (Principal → Penalty → Interest → Insurance) only when Finance confirms the bank deposit." : `Principal ${money(data.outstanding?.principal)} · Penalty ${money(data.outstanding?.penalty)} · Interest ${money(data.outstanding?.interest)}`} — cash is held as PENDING VERIFICATION until Finance confirms the bank deposit.</small>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        open={receiving && Boolean(loan)}
-        onClose={() => setReceiving(false)}
-        title="Mobile money / bank receipt"
-        submitLabel="Send to Finance"
-        submitting={branchReceipt.isPending}
-        onSubmit={() => loan && branchReceipt.mutate({ ...receipt, amount: receipt.amount.replace(/[^\d.]/g, ""), loan_id: loan.id }, { onSuccess: () => setReceiving(false) })}
-      >
-        {data && (
-          <div className="row clearfix">
-            <div className="col-md-6">
-              <span>Amount (up to {money(data.available_to_deposit)})</span>
-              <input className="form-control" value={receipt.amount} onChange={(e) => setReceipt({ ...receipt, amount: e.target.value })} required />
-              {branchReceipt.fieldError("amount") && <div className="field-error">{branchReceipt.fieldError("amount")}</div>}
-            </div>
-            <div className="col-md-6">
-              <span>Channel</span>
-              <select className="form-control" value={receipt.channel} onChange={(e) => setReceipt({ ...receipt, channel: e.target.value })}>
-                {NON_CASH_CHANNELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </div>
-            <div className="col-md-6 m-t-10">
-              <span>Transaction ID</span>
-              <input className="form-control" maxLength={100} value={receipt.transaction_id} onChange={(e) => setReceipt({ ...receipt, transaction_id: e.target.value })} required />
-              {branchReceipt.fieldError("transaction_id") && <div className="field-error">{branchReceipt.fieldError("transaction_id")}</div>}
-            </div>
-            <div className="col-md-6 m-t-10">
-              <span>Reference</span>
-              <input className="form-control" maxLength={100} value={receipt.reference} onChange={(e) => setReceipt({ ...receipt, reference: e.target.value })} />
-            </div>
-            <div className="col-md-12 m-t-10">
-              <small className="text-muted">The receipt is PENDING APPROVAL: nothing is posted and the {data.accepts_recovery ? "write-off recovery" : "loan balance"} does not change until Finance approves it.</small>
+              <small className="text-muted">
+                {data.accepts_recovery ? "Written-off loan: the money becomes a recovery (Principal → Penalty → Interest → Insurance) once Finance confirms it." : `Principal ${money(data.outstanding?.principal)} · Penalty ${money(data.outstanding?.penalty)} · Interest ${money(data.outstanding?.interest)}`}
+                {" — "}
+                {nonCash ? `${form.p_method}` : "CASH"}: held as PENDING VERIFICATION until it is banked on a deposit slip (Teller → Bank Deposit) and Finance verifies the slip — then the loan is reduced.
+              </small>
             </div>
           </div>
         )}

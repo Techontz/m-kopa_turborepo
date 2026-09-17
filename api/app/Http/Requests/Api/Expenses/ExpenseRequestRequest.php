@@ -45,7 +45,8 @@ class ExpenseRequestRequest extends FormRequest
             ],
             default => [
                 'scope' => ['required', Rule::in(['branch', 'hq', 'bank'])],
-                'blanch_id' => ['required', $branch],
+                // A branch expense belongs to a real branch; Head Office spends through Headquarters Expenses.
+                'blanch_id' => ['required', (clone $branch)->where('is_head_office', false)],
                 'ex_id' => ['required', $expenseType('branch')],
                 'req_amount' => ['required', 'numeric', 'min:1'],
                 'req_description' => ['required', 'string', 'max:1000'],

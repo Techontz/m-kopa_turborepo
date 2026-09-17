@@ -21,6 +21,7 @@ class PaymentResource extends JsonResource
             'receipt_number' => $this->receipt_number,
             'source' => $this->source,
             'channel' => $this->channel,
+            'provider' => $this->provider ?: null,
             'reference' => $this->reference,
             'transaction_id' => $this->transaction_id,
             'phone' => $this->phone,

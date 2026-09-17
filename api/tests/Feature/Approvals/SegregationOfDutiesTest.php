@@ -95,18 +95,18 @@ class SegregationOfDutiesTest extends TestCase
         $this->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
         $this->actingAs($this->employee('teller'))->postJson("/api/v1/capital/floats/{$id}/approve")->assertForbidden()->assertJsonPath('message', 'You do not have permission to perform this action.');
 
-        $finance = $this->employee('finance');
-        $this->actingAs($finance)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_approve', true)->assertJsonPath('data.0.approve_blocked_reason', null);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertUnprocessable();
-        $this->actingAs($this->employee('finance'))->postJson("/api/v1/capital/floats/{$id}/approve")->assertUnprocessable();
+        $approver = $this->employee('admin');
+        $this->actingAs($approver)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_approve', true)->assertJsonPath('data.0.approve_blocked_reason', null);
+        $this->actingAs($approver)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
+        $this->actingAs($approver)->postJson("/api/v1/capital/floats/{$id}/approve")->assertUnprocessable();
+        $this->actingAs($this->employee('admin'))->postJson("/api/v1/capital/floats/{$id}/approve")->assertUnprocessable();
 
         $transfer = FloatTransfer::findOrFail($id);
         $this->assertSame('approved', $transfer->status);
         $this->assertSame($initiator->id, $transfer->requested_by);
-        $this->assertSame($finance->id, $transfer->approved_by);
+        $this->assertSame($approver->id, $transfer->approved_by);
         $this->assertSame($entries + 1, JournalEntry::count(), 'double approval posts once');
-        $this->assertSame($finance->id, JournalEntry::findOrFail($transfer->journal_entry_id)->employee_id);
+        $this->assertSame($approver->id, JournalEntry::findOrFail($transfer->journal_entry_id)->employee_id);
         $this->assertSame(600000.0, $this->ledger->balance($this->admin->company_id, Account::Company));
         $this->assertSame(400000.0, $this->ledger->balance($this->admin->company_id, Account::Principal));
     }
@@ -154,9 +154,9 @@ class SegregationOfDutiesTest extends TestCase
         $this->ledger->openingBalance($this->admin->company_id, Account::Bank, 500000, bankAccount: $bank->id);
         $admin = $this->employee('admin');
 
-        $id = $this->actingAs($admin)->postJson('/api/v1/bank/to-hq', ['from_acc' => $bank->id, 'amount' => 100000, 'to_acc' => 'salary', 'charger_fee' => 1000])->assertCreated()->json('data.id');
+        $id = $this->actingAs($admin)->postJson('/api/v1/bank/company-transfers', ['direction' => 'bank_to_company', 'bank_account_id' => $bank->id, 'amount' => 100000])->assertCreated()->json('data.id');
         $this->actingAs($admin)->postJson("/api/v1/bank/transfers/{$id}/approve")->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
-        $this->actingAs($admin)->getJson('/api/v1/bank/to-hq')->assertJsonPath('data.0.status', 'pending')->assertJsonPath('data.0.can_approve', false);
+        $this->actingAs($admin)->getJson('/api/v1/bank/company-transfers')->assertJsonPath('data.0.status', 'pending')->assertJsonPath('data.0.can_approve', false);
         $this->assertSame(500000.0, $this->ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank->id));
 
         $admin->role->permissions()->create(['permission' => SegregationOfDuties::PERMISSION]);
@@ -164,8 +164,8 @@ class SegregationOfDutiesTest extends TestCase
         $this->actingAs($admin->fresh())->postJson("/api/v1/bank/transfers/{$id}/approve")->assertForbidden();
         $this->allowSelfApprovalPolicy($admin->company_id, [ApprovalPolicy::BANK_TRANSFERS]);
         $this->actingAs($admin->fresh())->postJson("/api/v1/bank/transfers/{$id}/approve")->assertOk();
-        $this->assertSame(399000.0, $this->ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank->id));
-        $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::HqSalaryAdvance));
+        $this->assertSame(400000.0, $this->ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank->id));
+        $this->assertSame(100000.0, $this->ledger->balance($this->admin->company_id, Account::Company));
     }
 
     public function test_reject_leaves_the_ledger_untouched_and_the_row_cannot_be_approved_later(): void
@@ -297,11 +297,11 @@ class SegregationOfDutiesTest extends TestCase
     {
         $this->ledger->openingBalance($this->admin->company_id, Account::Company, 1000);
         $id = $this->postJson('/api/v1/capital/floats', ['amount' => 1000, 'from_account' => Account::Company->value])->json('data.id');
-        $finance = $this->employee('finance');
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
+        $poster = $this->employeeWith('admin', 'accounting.reverse');
+        $this->actingAs($poster)->postJson("/api/v1/capital/floats/{$id}/approve")->assertOk();
 
-        $this->actingAs($finance)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_reverse', false)->assertJsonPath('data.0.reverse_blocked_reason', SegregationOfDuties::REVERSER_MESSAGE);
-        $this->actingAs($finance)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertForbidden()->assertJsonPath('message', SegregationOfDuties::REVERSER_MESSAGE);
+        $this->actingAs($poster)->getJson('/api/v1/capital/floats')->assertJsonPath('data.0.can_reverse', false)->assertJsonPath('data.0.reverse_blocked_reason', SegregationOfDuties::REVERSER_MESSAGE);
+        $this->actingAs($poster)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertForbidden()->assertJsonPath('message', SegregationOfDuties::REVERSER_MESSAGE);
         $this->assertSame('approved', FloatTransfer::findOrFail($id)->status);
 
         $this->actingAs($this->admin)->postJson("/api/v1/capital/floats/{$id}/reverse", ['reason' => 'Mistake'])->assertOk();

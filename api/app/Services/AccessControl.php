@@ -48,6 +48,15 @@ class AccessControl
             return $portal;
         }
 
+        return $this->withoutCompanyMoneyUnlessOwner($employee, $this->staffPermissionsFor($employee, $portal));
+    }
+
+    /**
+     * @param  list<string>  $portal
+     * @return list<string>
+     */
+    private function staffPermissionsFor(Employee $employee, array $portal): array
+    {
         if ($employee->role?->key === 'super_admin') {
             $explicit = $employee->permissionOverrides->whereIn('permission', $this->explicitOnlyPermissions());
             $granted = $explicit->where('granted', true)->pluck('permission')->all();
@@ -65,6 +74,35 @@ class AccessControl
         $effective = [...$staff, ...$portal];
 
         return array_values(array_intersect(array_keys(config('permissions.permissions')), $effective));
+    }
+
+    /**
+     * Company money permissions (bank accounts and transfers) stay only with Super Admin, Admin or a shareholder of the company.
+     *
+     * @param  list<string>  $permissions
+     * @return list<string>
+     */
+    private function withoutCompanyMoneyUnlessOwner(Employee $employee, array $permissions): array
+    {
+        if ($this->isCompanyOwner($employee)) {
+            return $permissions;
+        }
+
+        return array_values(array_diff($permissions, config('permissions.company_money.permissions', [])));
+    }
+
+    /**
+     * Whether the login may see company money: a Super Admin / Admin staff login, or a login linked to a shareholder of its company.
+     */
+    public function isCompanyOwner(Employee $employee): bool
+    {
+        if (in_array($employee->role?->key, config('permissions.company_money.roles', []), true) && ! $employee->isShareholderAccount()) {
+            return true;
+        }
+
+        $holder = $employee->shareHolder;
+
+        return $holder !== null && (int) $holder->company_id === (int) $employee->company_id;
     }
 
     /**

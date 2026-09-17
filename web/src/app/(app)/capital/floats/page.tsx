@@ -25,6 +25,8 @@ interface FloatList {
   data: FloatTransfer[];
   total: number;
   sources: FloatSource[];
+  /** Only Super Admin and Admin request, approve or reject floats; everyone else with access only views. */
+  can_transfer: boolean;
 }
 
 const EMPTY = { amount: "", from_account: "", bank_account_id: "" };
@@ -45,13 +47,15 @@ export default function CompanyFloatPage() {
   const create = useAction<typeof EMPTY>("post", "capital/floats");
   const transfers = data?.data;
   const sources = data?.sources ?? [];
+  const canTransfer = data?.can_transfer ?? false;
   const selected = sources.find((source) => sourceKey(source) === `${form.from_account}:${form.bank_account_id}`);
 
   return (
     <>
       <PageHeader crumbs={["Transfer Float From Company Account To HQ"]} />
 
-      <Card title="Transfer Float Form">
+      {canTransfer && (
+        <Card title="Transfer Float Form">
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(form, { onSuccess: () => setForm(EMPTY) }); }}>
           <div className="row">
             <Field label="Amount:" required className="col-md-6" error={create.fieldError("amount")}>
@@ -80,7 +84,8 @@ export default function CompanyFloatPage() {
             <button type="submit" className="btn btn-primary" disabled={create.isPending}><i className="icon-pencil" />Request Transfer</button>
           </div>
         </form>
-      </Card>
+        </Card>
+      )}
 
       <Card title={filters ? `Transaction ${filters.from} - ${filters.to}` : "Today Transaction"} actions={<button type="button" className="btn btn-primary btn-sm" onClick={() => setFilterOpen(true)}><i className="icon-calendar" />Previous</button>}>
         <DataTable

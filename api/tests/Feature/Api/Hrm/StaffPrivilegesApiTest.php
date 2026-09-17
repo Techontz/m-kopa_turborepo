@@ -216,13 +216,13 @@ class StaffPrivilegesApiTest extends TestCase
         $groups = config('permissions.privileges');
         $keys = array_keys(config('permissions.permissions'));
 
-        // Live admin/privillage/{id}: 16 items in the displayed (alphabetical) order with the live item keys.
+        // Live admin/privillage/{id}: 16 items less CLIENTLESS (Agent module removed 2026-09-17) = 15 in the displayed (alphabetical) order with the live item keys.
         $this->assertSame(
-            ['apply', 'aprove', 'bank', 'bankpassword', 'clientless', 'customer', 'debit', 'expenses', 'float', 'group', 'income', 'loan', 'penarty', 'report', 'saving', 'teller'],
+            ['apply', 'aprove', 'bank', 'bankpassword', 'customer', 'debit', 'expenses', 'float', 'group', 'income', 'loan', 'penarty', 'report', 'saving', 'teller'],
             array_column($groups[0]['items'], 'key'),
         );
         $this->assertSame(
-            ['APPLY LOAN', 'APPROVE', 'BANK', 'BANK PASSWORD', 'CLIENTLESS', 'CUSTOMER', 'DEBIT PENDING', 'EXPENSES', 'FLOAT', 'GROUP', 'INCOME', 'LOAN', 'PENALTY', 'REPORTS', 'SAVING', 'TELLER'],
+            ['APPLY LOAN', 'APPROVE', 'BANK', 'BANK PASSWORD', 'CUSTOMER', 'DEBIT PENDING', 'EXPENSES', 'FLOAT', 'GROUP', 'INCOME', 'LOAN', 'PENALTY', 'REPORTS', 'SAVING', 'TELLER'],
             array_column($groups[0]['items'], 'label'),
         );
 
@@ -244,7 +244,7 @@ class StaffPrivilegesApiTest extends TestCase
         $this->getJson("/api/v1/hrm/staff/{$teller->id}/privileges")
             ->assertOk()
             ->assertJsonPath('data.privilege_groups.0.label', 'Privilege List')
-            ->assertJsonPath('data.privilege_groups.0.items.9', ['key' => 'group', 'label' => 'GROUP', 'permissions' => ['groups.view', 'groups.manage']])
+            ->assertJsonPath('data.privilege_groups.0.items.8', ['key' => 'group', 'label' => 'GROUP', 'permissions' => ['groups.view', 'groups.manage']])
             ->assertJsonCount(count($groups), 'data.privilege_groups');
     }
 

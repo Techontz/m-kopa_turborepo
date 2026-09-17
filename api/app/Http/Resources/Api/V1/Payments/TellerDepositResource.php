@@ -28,7 +28,9 @@ class TellerDepositResource extends JsonResource
             'slip_number' => $this->slip_number,
             'amount' => (float) $this->amount,
             'expected_amount' => $expected,
-            'difference' => round((float) $this->amount - $expected, 2),
+            // Once Finance has checked the statement: statement − slip (what MISMATCH is about); before that: slip − receipts.
+            'difference' => $this->statement_amount === null ? round((float) $this->amount - $expected, 2) : round((float) $this->statement_amount - (float) $this->amount, 2),
+            'can_edit' => $this->status === TellerDeposit::STATUS_MISMATCH && (int) $this->employee_id === (int) $request->user()?->id,
             'deposit_date' => $this->deposit_date?->toDateString(),
             'status' => $this->status,
             'statement_amount' => $this->statement_amount === null ? null : (float) $this->statement_amount,

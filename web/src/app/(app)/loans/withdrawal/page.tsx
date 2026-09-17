@@ -25,7 +25,7 @@ const STATUSES = ["PENDING", "APROVED", "DISBURSED", "ACTIVE", "DONE", "DEFALT",
 const STATUS_LABELS: Record<string, string> = { APROVED: "APPROVED", DEFALT: "DEFAULT" };
 
 /**
- * Report → Loan Withdrawal (live loan_withdrawal): loans whose money reached the customer in the period (default today),
+ * Loan → Disbursement (live loan_withdrawal "Loan Withdrawal"): loans whose money reached the customer in the period (default today),
  * grouped All / Monthly / Weekly / Daily. "Method" is the disbursement channel (Vodacom, Airtel, bank or cash).
  */
 export default function LoanWithdrawalPage() {
@@ -43,7 +43,7 @@ export default function LoanWithdrawalPage() {
 
   return (
     <>
-      <PageHeader crumbs={["Report", "Loan Withdrawal"]} right={<button type="button" className="btn btn-primary" onClick={() => setOpen(true)}><i className="icon-calendar" /> Filter</button>} />
+      <PageHeader crumbs={["Loan", "Disbursement"]} right={<button type="button" className="btn btn-primary" onClick={() => setOpen(true)}><i className="icon-calendar" /> Filter</button>} />
       {groups.map((group) => (
         <Card key={group.title} title={group.title}>
           <DataTable
@@ -65,7 +65,7 @@ export default function LoanWithdrawalPage() {
               { key: "customer_name", header: "Customer Name" },
               { key: "branch", header: "Branch Name" },
               { key: "loan_number", header: "Loan Ac" },
-              { key: "amount_approved", header: "Loan Withdrawal", render: (row) => money(row.amount_approved) },
+              { key: "amount_approved", header: "Amount Disbursed", render: (row) => money(row.amount_approved) },
               { key: "interest_rate", header: "Interest", render: (row) => percent(row.interest_rate) },
               { key: "total_payable", header: "Principal + Interest", render: (row) => money(row.total_payable) },
               { key: "disbursement_channel", header: "Method", render: (row) => (row.disbursement_channel ?? "cash").toUpperCase() },
@@ -73,7 +73,7 @@ export default function LoanWithdrawalPage() {
               { key: "sessions", header: "Number of Repayment" },
               { key: "restoration", header: "Restoration", render: (row) => money(row.restoration) },
               { key: "loan_fee", header: "Loan Fee", render: (row) => money(row.loan_fee) },
-              { key: "withdrawn_at", header: "Withdrawal Date" },
+              { key: "withdrawn_at", header: "Disbursement Date" },
               { key: "end_date", header: "End Date" },
               { key: "status_label", header: "Action", render: (row) => <span className={`badge badge-${row.status_badge}`}>{row.status_label}</span> },
             ]}

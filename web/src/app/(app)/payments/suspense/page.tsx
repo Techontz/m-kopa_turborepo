@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 
+import { ChannelProviderFields } from "@/components/payments/ChannelProviderFields";
 import { PaymentFilterModal, SearchButton, total, type PaymentFilters } from "@/components/payments/PaymentFilterModal";
 import type { Payment } from "@/components/payments/types";
 import { Badge } from "@/components/ui/Badge";
@@ -35,9 +36,9 @@ const STATUSES = [
   { value: "all", label: "ALL" },
 ];
 
-const EMPTY_CONFIRMED = { loan_id: "", amount: "", channel: "BANK", bank_account_id: "", transaction_id: "", reference: "", paid_on: todayIso(), note: "" };
+const EMPTY_CONFIRMED = { loan_id: "", amount: "", channel: "BANK", provider: "", paid_on: todayIso(), note: "" };
 
-const EMPTY_UNMATCHED = { amount: "", channel: "BANK", transaction_id: "", reference: "", phone: "", paid_on: todayIso(), note: "" };
+const EMPTY_UNMATCHED = { amount: "", channel: "BANK", provider: "", phone: "", paid_on: todayIso(), note: "" };
 
 /** Payments → Suspense Account: unmatched / overpaid money; Finance confirms ownership and allocates. */
 export default function SuspensePage() {
@@ -99,7 +100,7 @@ export default function SuspensePage() {
           columns={[
             { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
             { key: "receipt_number", header: "Receipt" },
-            { key: "channel", header: "Channel" },
+            { key: "channel", header: "Channel", render: (row) => (row.provider ? `${row.channel} · ${row.provider}` : row.channel) },
             { key: "transaction_id", header: "Transaction ID" },
             { key: "reference", header: "Reference" },
             { key: "phone", header: "Phone Number" },
@@ -200,31 +201,18 @@ export default function SuspensePage() {
           <Field label="Amount:" required className="col-md-4" error={recordConfirmed.fieldError("amount")}>
             <input type="number" className="form-control" value={confirmed.amount} onChange={(e) => setConfirmed({ ...confirmed, amount: e.target.value })} required />
           </Field>
-          <Field label="Channel:" required className="col-md-4" error={recordConfirmed.fieldError("channel")}>
-            <select className="form-control" value={confirmed.channel} onChange={(e) => setConfirmed({ ...confirmed, channel: e.target.value })}>
-              {["BANK", "VODACOM", "AIRTEL", "TIGO", "HALOPESA", "MPESA", "CASH", "OTHER"].map((channel) => <option key={channel} value={channel}>{channel}</option>)}
-            </select>
-          </Field>
-          <Field label="Bank account (blank = bank clearing):" className="col-md-4" error={recordConfirmed.fieldError("bank_account_id")}>
-            <SelectBox placeholder="Bank clearing" optionsUrl="teller/bank-accounts" isClearable value={confirmed.bank_account_id} onChange={(value) => setConfirmed({ ...confirmed, bank_account_id: value ?? "" })} />
-          </Field>
+          <ChannelProviderFields channel={confirmed.channel} provider={confirmed.provider} onChange={(value) => setConfirmed({ ...confirmed, ...value })} fieldError={recordConfirmed.fieldError} />
           <Field label="Date:" required className="col-md-4" error={recordConfirmed.fieldError("paid_on")}>
             <input type="date" className="form-control" value={confirmed.paid_on} onChange={(e) => setConfirmed({ ...confirmed, paid_on: e.target.value })} required />
           </Field>
-          <Field label="Transaction ID:" className="col-md-4" error={recordConfirmed.fieldError("transaction_id")}>
-            <input className="form-control" value={confirmed.transaction_id} onChange={(e) => setConfirmed({ ...confirmed, transaction_id: e.target.value })} />
-          </Field>
-          <Field label="Reference:" className="col-md-4" error={recordConfirmed.fieldError("reference")}>
-            <input className="form-control" value={confirmed.reference} onChange={(e) => setConfirmed({ ...confirmed, reference: e.target.value })} />
-          </Field>
-          <Field label="Comment:" className="col-md-4" error={recordConfirmed.fieldError("note")}>
+          <Field label="Comment:" className="col-md-12" error={recordConfirmed.fieldError("note")}>
             <input className="form-control" value={confirmed.note} onChange={(e) => setConfirmed({ ...confirmed, note: e.target.value })} />
           </Field>
           <div className="col-md-12">
             <small className="text-muted">
               {confirmedLoan?.written_off
                 ? `WRITTEN-OFF loan: recorded as a recovery (unrecovered TZS ${money(confirmedLoan.outstanding.total)}), split Principal → Penalty → Interest → Insurance.`
-                : "Single step: the payment is CONFIRMED, received into suspense (Dr BANK / Cr SUSPENSE) and allocated to the loan (Principal → Penalty → Interest → Insurance) in one transaction."}
+                : "Transaction ID and reference are generated automatically. Single step: the payment is CONFIRMED, received into suspense (Dr BANK clearing / Cr SUSPENSE) and allocated to the loan (Principal → Penalty → Interest → Insurance) in one transaction."}
             </small>
           </div>
         </div>
@@ -243,21 +231,11 @@ export default function SuspensePage() {
           <Field label="Amount:" required className="col-md-4" error={record.fieldError("amount")}>
             <input type="number" className="form-control" placeholder="Enter Amount" value={unmatched.amount} onChange={(e) => setUnmatched({ ...unmatched, amount: e.target.value })} required />
           </Field>
-          <Field label="Channel:" required className="col-md-4" error={record.fieldError("channel")}>
-            <select className="form-control" value={unmatched.channel} onChange={(e) => setUnmatched({ ...unmatched, channel: e.target.value })}>
-              {["BANK", "VODACOM", "AIRTEL", "TIGO", "HALOPESA", "OTHER"].map((channel) => <option key={channel} value={channel}>{channel}</option>)}
-            </select>
-          </Field>
+          <ChannelProviderFields channel={unmatched.channel} provider={unmatched.provider} onChange={(value) => setUnmatched({ ...unmatched, ...value })} fieldError={record.fieldError} />
           <Field label="Date:" required className="col-md-4" error={record.fieldError("paid_on")}>
             <input type="date" className="form-control" value={unmatched.paid_on} onChange={(e) => setUnmatched({ ...unmatched, paid_on: e.target.value })} required />
           </Field>
-          <Field label="Transaction ID:" className="col-md-4" error={record.fieldError("transaction_id")}>
-            <input className="form-control" value={unmatched.transaction_id} onChange={(e) => setUnmatched({ ...unmatched, transaction_id: e.target.value })} />
-          </Field>
-          <Field label="Reference:" className="col-md-4" error={record.fieldError("reference")}>
-            <input className="form-control" value={unmatched.reference} onChange={(e) => setUnmatched({ ...unmatched, reference: e.target.value })} />
-          </Field>
-          <Field label="Phone Number:" className="col-md-4" error={record.fieldError("phone")}>
+          <Field label="Phone Number:" className="col-md-8" error={record.fieldError("phone")}>
             <input className="form-control" value={unmatched.phone} onChange={(e) => setUnmatched({ ...unmatched, phone: e.target.value })} />
           </Field>
           <Field label="Comment:" className="col-md-12" error={record.fieldError("note")}>

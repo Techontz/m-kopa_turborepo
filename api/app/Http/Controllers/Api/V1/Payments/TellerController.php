@@ -127,7 +127,7 @@ class TellerController extends ApiController
             throw ValidationException::withMessages(['depost' => 'This customer has no active loan.']);
         }
 
-        $payment = $this->payments->recordCash($loan, (float) $request->input('depost'), $request->string('p_method')->toString(), $this->currentEmployee());
+        $payment = $this->payments->recordCash($loan, (float) $request->input('depost'), $request->string('p_method')->toString(), $this->currentEmployee(), provider: $request->validated('provider'));
 
         return $this->message('Deposit successfully', 201, [
             'data' => new PaymentResource($payment->load(['customer', 'branch', 'employee', 'loan'])),
@@ -206,6 +206,22 @@ class TellerController extends ApiController
         $deposit = $this->payments->submitBankDeposit($this->currentEmployee(), (int) $branchIds->first(), $request->validated(), array_map('intval', $request->input('payment_ids')));
 
         return $this->message('Bank deposit submitted successfully', 201, [
+            'data' => new TellerDepositResource($deposit->load(['branch', 'employee', 'bankAccount', 'payments.customer'])),
+        ]);
+    }
+
+    /**
+     * Teller corrects a slip Finance marked MISMATCH; it returns to Finance as PENDING for a fresh verification.
+     */
+    public function updateBankDeposit(BankDepositRequest $request, TellerDeposit $tellerDeposit): JsonResponse
+    {
+        $this->authorizeAny('payments.cash');
+        abort_unless((int) $tellerDeposit->company_id === (int) $this->currentEmployee()->company_id, 404);
+        $this->assertBranchAccessible((int) $tellerDeposit->branch_id);
+
+        $deposit = $this->payments->updateBankDeposit($this->currentEmployee(), $tellerDeposit, $request->validated(), array_map('intval', $request->input('payment_ids')));
+
+        return $this->message('Bank deposit updated and sent back to Finance for verification', 200, [
             'data' => new TellerDepositResource($deposit->load(['branch', 'employee', 'bankAccount', 'payments.customer'])),
         ]);
     }

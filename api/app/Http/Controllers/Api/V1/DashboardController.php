@@ -41,11 +41,17 @@ class DashboardController extends ApiController
             'header_accounts' => $showFinance ? $statistics->headerAccounts($company) : null,
             'cards' => $statistics->cards($company, $today, $branchIds, $investment),
             'account_balances' => $accountBalances,
-            'account_balances_total' => $accountBalances === null ? null : round(array_sum($accountBalances), 2),
-            'account_memos' => $accountBalances === null ? null : $statistics->accountMemos($company, $branchIds),
-            'branch_accounts' => $showFinance ? $statistics->branchAccounts($company)->values() : null,
+            'account_balances_total' => match (true) {
+                $accountBalances === null => null,
+                $investment => round(array_sum($accountBalances), 2),
+                default => $statistics->hqFundsTotal($company, $accountBalances),
+            },
+            // The HQ Account List shows only its six accounts; the memo lines belong to the owners' Company Account List.
+            'account_memos' => $investment ? $statistics->accountMemos($company, $branchIds) : null,
+            'branch_accounts' => $showFinance ? $statistics->branchAccounts($company, $today) : null,
             'operating_income' => $showFinance ? $statistics->operatingIncome($company) : null,
-            'today' => $statistics->today($company, $today, $branchIds),
+            // Capital received is shareholders' money (the Investment): owners only, never HQ or Finance.
+            'today' => array_merge($statistics->today($company, $today, $branchIds), $investment ? [] : ['capital_received' => null]),
             'finance_kpis' => $statistics->financeKpis($employee, [
                 'penalty' => $employee->can('penalties.manage'),
                 'salary_advance' => $employee->can('salary_advance.manage'),

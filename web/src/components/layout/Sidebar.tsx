@@ -11,6 +11,11 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
 }
 
+/** Among sibling links, only the most specific match is active (e.g. /teller/bank-deposits, not also /teller). */
+function isActiveChild(pathname: string, href: string, siblings: MenuLink[]): boolean {
+  return isActive(pathname, href) && !siblings.some((sibling) => sibling.href.length > href.length && isActive(pathname, sibling.href));
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { user, can, logout } = useAuth();
@@ -89,7 +94,7 @@ export function Sidebar() {
                         </a>
                         <ul className="collapse">
                           {item.children.map((child) => (
-                            <li key={child.href} className={isActive(pathname, child.href) ? "active" : ""}>
+                            <li key={child.href} className={isActiveChild(pathname, child.href, item.children ?? []) ? "active" : ""}>
                               <Link href={child.href}>{child.label}</Link>
                             </li>
                           ))}

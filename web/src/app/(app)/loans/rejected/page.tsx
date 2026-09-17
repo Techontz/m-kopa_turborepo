@@ -10,14 +10,14 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { money } from "@/lib/format";
 import { useApi } from "@/lib/hooks";
 
-/** Loan → Loan Rejected (live all_loan_lejected), plus loans cancelled after an escalated disbursement. */
+/** Loan → Rejected Loans (live all_loan_lejected), plus loans cancelled after an escalated disbursement. */
 export default function LoanRejectedPage() {
   const { data, isLoading } = useApi<Loan[]>("loans", { stage: "rejected" });
 
   return (
     <>
-      <PageHeader crumbs={["Loan", "Loan Rejected"]} />
-      <Card title="Loan Rejected">
+      <PageHeader crumbs={["Loan", "Rejected Loans"]} />
+      <Card title="Rejected Loans">
         <DataTable
           rows={data}
           loading={isLoading}

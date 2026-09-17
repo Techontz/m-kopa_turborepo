@@ -80,13 +80,21 @@ class CommissionController extends HrmController
     /**
      * Staff portal: the signed-in employee's own commission per period and its payment status (spec §21).
      */
+    /** @var list<string> */
+    private const STAFF_HIDDEN = [
+        'can_approve', 'approve_blocked_reason', 'can_pay', 'pay_blocked_reason',
+        'distributable_profit', 'pool_amount', 'commission_base', 'offset_amount', 'paying_account', 'journal_entry_id',
+    ];
+
     public function mine(): JsonResponse
     {
         $employee = $this->currentEmployee();
         $allocations = $this->payments->select($this->companyId(), null, null, null, (int) $employee->id)->sortByDesc('accounting_period_id');
 
         return response()->json(['data' => collect($this->present($allocations, false))
-            ->map(fn (array $row): array => collect($row)->except(['can_approve', 'approve_blocked_reason', 'can_pay', 'pay_blocked_reason', 'distributable_profit'])->all())
+            // §60: staff see their own commission, never the branch figures behind it (profit, pool, base, offset) or how it
+            // was paid out of the company's accounts.
+            ->map(fn (array $row): array => collect($row)->except(self::STAFF_HIDDEN)->all())
             ->values()->all()]);
     }
 

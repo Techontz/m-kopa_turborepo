@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Hrm\CategoryController;
 use App\Http\Controllers\Api\V1\Hrm\CommissionController;
 use App\Http\Controllers\Api\V1\Hrm\DeductionController;
 use App\Http\Controllers\Api\V1\Hrm\LeaveController;
+use App\Http\Controllers\Api\V1\Hrm\MyPortalController;
 use App\Http\Controllers\Api\V1\Hrm\MyStaffCreditController;
 use App\Http\Controllers\Api\V1\Hrm\NegligenceDeductionController;
 use App\Http\Controllers\Api\V1\Hrm\PayrollController;
@@ -103,6 +104,16 @@ Route::prefix('hrm')->name('hrm.')->group(function (): void {
         Route::post('my/staff-loans', 'storeLoan')->name('my.staff-loans.store');
         Route::get('my/salary-advances', 'advances')->name('my.salary-advances.index');
         Route::post('my/salary-advances', 'storeAdvance')->name('my.salary-advances.store');
+    });
+
+    Route::controller(MyPortalController::class)->group(function (): void {
+        Route::get('my/overview', 'overview')->name('my.overview');
+        Route::get('my/payslips', 'payslips')->name('my.payslips');
+        Route::get('my/staff-fund', 'staffFund')->name('my.staff-fund');
+        Route::get('my/commission', 'commission')->name('my.commission');
+        Route::get('my/allowances', 'allowances')->name('my.allowances');
+        Route::get('my/negligence', 'negligence')->name('my.negligence');
+        Route::get('my/repayments', 'repayments')->name('my.repayments');
     });
 
     Route::controller(SalaryChangeController::class)->group(function (): void {

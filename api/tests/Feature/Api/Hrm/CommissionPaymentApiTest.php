@@ -120,7 +120,9 @@ class CommissionPaymentApiTest extends TestCase
         $mine = $this->actingAs($this->staffA)->getJson('/api/v1/hrm/commission/mine')->assertOk()->json('data');
         $this->assertCount(1, $mine);
         $this->assertEquals(['2026-07', 'calculated', 75000], [$mine[0]['period'], $mine[0]['status'], $mine[0]['net_commission']]);
-        $this->assertArrayNotHasKey('can_approve', $mine[0]);
+        foreach (['can_approve', 'distributable_profit', 'pool_amount', 'commission_base', 'offset_amount', 'paying_account'] as $hidden) {
+            $this->assertArrayNotHasKey($hidden, $mine[0], $hidden);
+        }
         $this->actingAs($this->staffA)->getJson('/api/v1/hrm/commission/payments?period=2026-07')->assertForbidden();
 
         // HR finalises: Awaiting Payment Request, and the month can no longer be recalculated.

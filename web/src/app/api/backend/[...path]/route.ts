@@ -29,12 +29,21 @@ async function forward(request: NextRequest, context: RouteContext<"/api/backend
   }
 
   const hasBody = !["GET", "HEAD"].includes(request.method);
-  const response = await fetch(target, {
-    method: request.method,
-    headers,
-    body: hasBody ? await request.arrayBuffer() : undefined,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      method: request.method,
+      headers,
+      body: hasBody ? await request.arrayBuffer() : undefined,
+      cache: "no-store",
+    });
+  } catch (error) {
+    console.error(`API proxy failed reaching ${target}:`, error);
+    return Response.json(
+      { message: "Unable to reach the server. Please try again shortly." },
+      { status: 502 },
+    );
+  }
 
   if (response.status === 401) {
     await clearToken();

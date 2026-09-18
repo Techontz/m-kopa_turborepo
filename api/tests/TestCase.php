@@ -2,10 +2,12 @@
 
 namespace Tests;
 
+use App\Enums\Account;
 use App\Models\Branch;
 use App\Models\Company;
 use App\Models\Employee;
 use App\Services\AccessControl;
+use App\Services\Ledger;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -27,5 +29,20 @@ abstract class TestCase extends BaseTestCase
         $this->actingAs($admin);
 
         return $admin;
+    }
+
+    /**
+     * Put money in the accounts payroll is paid from — the branch INTEREST A/C (branch staff) and the COMPANY ACCOUNT
+     * (HQ staff) — because a payroll that would leave either, or Operation Income, below zero is refused.
+     */
+    protected function fundPayroll(Employee $admin, float $interest = 10000000, float $company = 10000000): void
+    {
+        $ledger = app(Ledger::class);
+        if ($interest > 0) {
+            $ledger->openingBalance($admin->company_id, Account::Interest, $interest, branch: $admin->branch_id);
+        }
+        if ($company > 0) {
+            $ledger->openingBalance($admin->company_id, Account::Company, $company);
+        }
     }
 }

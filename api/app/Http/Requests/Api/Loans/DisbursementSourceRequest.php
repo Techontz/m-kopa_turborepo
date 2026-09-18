@@ -8,8 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Disbursement source chosen by Finance: "cash" (the loan branch's PRINCIPAL A/C) or "bank" with a company bank
- * account. Optional: without it a new batch keeps the previous batch's source (branch cash for the first batch).
+ * Disbursement source: loans are always paid out of the HQ PRINCIPAL A/C ("cash"). The field is optional and only
+ * "cash" is accepted — a company bank account is no longer a disbursement source.
  */
 class DisbursementSourceRequest extends FormRequest
 {
@@ -32,8 +32,7 @@ class DisbursementSourceRequest extends FormRequest
     public static function sourceRules(int $companyId): array
     {
         return [
-            'source_account' => ['nullable', Rule::in([LoanDisbursement::SOURCE_CASH, LoanDisbursement::SOURCE_BANK])],
-            'source_bank_account_id' => ['nullable', 'required_if:source_account,'.LoanDisbursement::SOURCE_BANK, Rule::exists('bank_accounts', 'id')->where('company_id', $companyId)],
+            'source_account' => ['nullable', Rule::in([LoanDisbursement::SOURCE_CASH])],
         ];
     }
 
@@ -43,7 +42,7 @@ class DisbursementSourceRequest extends FormRequest
     public function source(): ?array
     {
         return $this->filled('source_account')
-            ? ['source_account' => $this->string('source_account')->toString(), 'source_bank_account_id' => $this->filled('source_bank_account_id') ? $this->integer('source_bank_account_id') : null]
+            ? ['source_account' => $this->string('source_account')->toString(), 'source_bank_account_id' => null]
             : null;
     }
 
@@ -52,6 +51,6 @@ class DisbursementSourceRequest extends FormRequest
      */
     public function attributes(): array
     {
-        return ['source_account' => 'disbursement source', 'source_bank_account_id' => 'source bank account'];
+        return ['source_account' => 'disbursement source'];
     }
 }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { SelectBox } from "@/components/ui/SelectBox";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/lib/auth";
+import { BRAND_LOGO, BRAND_NAME } from "@/lib/brand";
 
 export function Navbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const router = useRouter();
@@ -20,7 +21,8 @@ export function Navbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       </div>
       <div className="navbar-brand">
         <Link href="/dashboard" className="mf-brand-link">
-          <span className="mf-brand" aria-label="M-KOPA">M-KOPA</span>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset */}
+          <img src={BRAND_LOGO} alt={BRAND_NAME} className="mf-brand-logo" />
         </Link>
       </div>
       <div className="navbar-right">

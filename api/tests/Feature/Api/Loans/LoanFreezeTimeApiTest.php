@@ -16,6 +16,7 @@ use App\Services\Ledger;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\UploadsLoanAgreement;
 use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
@@ -27,6 +28,7 @@ use Tests\TestCase;
 class LoanFreezeTimeApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UploadsLoanAgreement;
     use UsesSecondApprover;
 
     private const MESSAGE = 'Customer fully settled the previous loan early. Re-borrowing is frozen until 01 October 2026.';
@@ -127,6 +129,7 @@ class LoanFreezeTimeApiTest extends TestCase
         app(LoanService::class)->deposit($running, 91000, now()->toImmutable());
         $topup = $this->applyLoan($other, amount: 200000);
         $this->postJson(route('api.v1.loans.approve-manager', $topup), ['loan_aprove' => 200000])->assertOk();
+        $this->uploadAgreement($topup)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $topup))->assertOk();
         $this->settle($running, '2026-09-08 10:00:00');
 
@@ -284,6 +287,7 @@ class LoanFreezeTimeApiTest extends TestCase
         $loan = $this->applyLoan();
         $this->travelTo('2026-08-25 11:00:00');
         $this->postJson(route('api.v1.loans.approve-manager', $loan), ['loan_aprove' => 100000])->assertOk();
+        $this->uploadAgreement($loan)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertOk();
         $this->travelTo('2026-08-28 12:00:00');
@@ -465,6 +469,7 @@ class LoanFreezeTimeApiTest extends TestCase
     {
         $loan = $this->applyLoan($customer, $category, $amount, $sessions);
         $this->postJson(route('api.v1.loans.approve-manager', $loan), ['loan_aprove' => $amount])->assertOk();
+        $this->uploadAgreement($loan)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.prepare-disbursement', $loan))->assertOk();

@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
@@ -14,7 +15,7 @@ import { toastError, toastInfo, toastSuccess } from "../toast";
 import type { Customer, CustomerType, DraftResource, FieldDef, MasterData, MasterRow, RegistrationOptions, RequirementProfile } from "../types";
 import { composeStep2Fields } from "./composition";
 import { errorToast, fieldDomId, firstErrorStep, flattenServerErrors } from "./errors";
-import { buildRegistrationPayload, changeCustomerType, draftLabel, emptyForm, repairDraftPayload, resumeStep, type WizardForm } from "./form";
+import { buildRegistrationPayload, changeCustomerType, changedPayload, draftLabel, emptyForm, errorsForChanges, formFromCustomer, repairDraftPayload, resumeStep, type WizardForm } from "./form";
 import { resolveProfile } from "./profile";
 import { SavedRegistrations } from "./SavedRegistrations";
 import { Step1Basic, type Update } from "./Step1Basic";
@@ -66,44 +67,63 @@ function clearBrowserCopy(userId: number | undefined) {
   }
 }
 
-/** The 4-step Register Customer wizard (CUSTOMER_MODULE_SPEC §2–§8). */
-export function RegisterWizard() {
-  const { user } = useAuth();
+/**
+ * The 4-step Register Customer wizard (CUSTOMER_MODULE_SPEC §2–§8). Given `editing`, the same Basic Information and
+ * Customer Details steps edit that customer instead: no drafts, no KYC upload or face scan, and only the changed
+ * fields are saved (PUT /customers/{id}).
+ */
+export function RegisterWizard({ editing }: { editing?: Customer } = {}) {
+  const { user, can } = useAuth();
   const client = useQueryClient();
+  const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
   const touchedRef = useRef(false);
 
-  const { data: options } = useApi<RegistrationOptions>("customers/registration-options");
+  const { data: loadedOptions } = useApi<RegistrationOptions>("customers/registration-options");
+  // Staff who may only correct details (customers.edit) see the customer's branch and officer, locked.
+  const options = useMemo<RegistrationOptions | undefined>(
+    () =>
+      editing && loadedOptions && !can("customers.manage")
+        ? { ...loadedOptions, lockedBranchId: editing.branchId, canAssignOfficer: false, officers: editing.employeeId ? [{ id: editing.employeeId, name: editing.employeeName ?? "—", branchId: editing.branchId }] : [] }
+        : loadedOptions,
+    [editing, loadedOptions, can],
+  );
   const { data: types } = useApi<CustomerType[]>(CUSTOMER_TYPES_ENDPOINT);
   const { data: masterData } = useApi<MasterData>("master-data");
   const { data: requirements } = useApi<{ profiles: RequirementProfile[] }>("registration/requirements");
-  const { data: drafts } = useApi<DraftResource[]>("customer-drafts");
+  const { data: drafts } = useApi<DraftResource[]>(editing ? null : "customer-drafts");
 
-  const [form, setForm] = useState<WizardForm>(emptyForm);
+  const [initialForm] = useState<WizardForm>(() => (editing ? formFromCustomer(editing) : emptyForm()));
+  const [form, setForm] = useState<WizardForm>(initialForm);
   const [step, setStep] = useState(0);
-  const [passed, setPassed] = useState([false, false, false]);
+  const [passed, setPassed] = useState(editing ? [true, true, false] : [false, false, false]);
   const [errors, setErrors] = useState<Errors>({});
   const [file, setFile] = useState<File | null>(null);
   const [draftId, setDraftId] = useState<number | null>(null);
   const [savedCustomer, setSavedCustomer] = useState<Customer | null>(null);
   const [faceDone, setFaceDone] = useState(false);
-  const [busy, setBusy] = useState<"draft" | "complete" | null>(null);
+  const [busy, setBusy] = useState<"draft" | "complete" | "update" | null>(null);
   const [draftBusyId, setDraftBusyId] = useState<number | null>(null);
   const [draftsHidden, setDraftsHidden] = useState(false);
-  const [browserCopy, setBrowserCopy] = useState<BrowserCopy | null>(() => readBrowserCopy(user?.id));
+  const [browserCopy, setBrowserCopy] = useState<BrowserCopy | null>(() => (editing ? null : readBrowserCopy(user?.id)));
   const [focusTick, setFocusTick] = useState(0);
 
+  // A new registration defaults to the signed-in branch and officer; an edit keeps exactly what the customer has.
   const effective: WizardForm = useMemo(
-    () => ({ ...form, branchId: form.branchId ?? options?.lockedBranchId ?? null, employeeId: form.employeeId ?? options?.currentEmployeeId ?? null }),
-    [form, options],
+    () => (editing ? form : { ...form, branchId: form.branchId ?? options?.lockedBranchId ?? null, employeeId: form.employeeId ?? options?.currentEmployeeId ?? null }),
+    [editing, form, options],
   );
   const type = types?.find((item) => item.id === effective.customerCategoryId);
   const profile = useMemo(() => resolveProfile(requirements?.profiles, effective.customerCategoryId), [requirements, effective.customerCategoryId]);
   const fields = useMemo(() => composeStep2Fields(type, profile), [type, profile]);
+  const initialFields = useMemo(
+    () => composeStep2Fields(types?.find((item) => item.id === initialForm.customerCategoryId), resolveProfile(requirements?.profiles, initialForm.customerCategoryId)),
+    [types, requirements, initialForm],
+  );
 
   // Browser copy of the whole form state, written on every change (never applied silently).
   useEffect(() => {
-    if (!touchedRef.current || !user?.id || savedCustomer) {
+    if (editing || !touchedRef.current || !user?.id || savedCustomer) {
       return;
     }
     try {
@@ -112,7 +132,7 @@ export function RegisterWizard() {
     } catch {
       // Storage full or unavailable.
     }
-  }, [form, step, draftId, user?.id, savedCustomer]);
+  }, [form, step, draftId, user?.id, savedCustomer, editing]);
 
   // Focus the first failing field after errors are shown.
   useEffect(() => {
@@ -206,8 +226,44 @@ export function RegisterWizard() {
     setBusy(null);
   };
 
+  /** Edit mode: what the form changes, as the PUT body. */
+  const editChanges = () => changedPayload(buildRegistrationPayload(initialForm, initialFields), buildRegistrationPayload(effective, fields));
+
+  const onSaveChanges = async () => {
+    if (!editing) {
+      return;
+    }
+    const changes = editChanges();
+    if (Object.keys(changes).length === 0) {
+      toastInfo("Nothing has changed.");
+      return;
+    }
+    const found = errorsForChanges({ ...validateStep1(effective, profile), ...validateStep2(effective, fields, profile, codeOf) }, changes);
+    if (Object.keys(found).length > 0) {
+      showErrors(found, firstErrorStep(found) ?? step);
+      return;
+    }
+    setBusy("update");
+    try {
+      await api.put(`customers/${editing.id}`, changes);
+    } catch (error) {
+      setBusy(null);
+      if (error instanceof ApiError && error.status === 422 && Object.keys(error.errors).length > 0) {
+        const serverErrors = flattenServerErrors(error.errors);
+        showErrors(serverErrors, firstErrorStep(serverErrors) ?? step);
+      } else {
+        toastError(error instanceof ApiError ? error.firstError : "The changes could not be saved.");
+      }
+      return;
+    }
+    await client.invalidateQueries();
+    toastSuccess(`${effective.firstName} ${effective.lastName}'s details were updated.`);
+    router.push(`/customers/${editing.id}`);
+  };
+
   const onSaveAndContinue = () => {
-    const found = step === 0 ? validateStep1(effective, profile) : validateStep2(effective, fields, profile, codeOf);
+    const all = step === 0 ? validateStep1(effective, profile) : validateStep2(effective, fields, profile, codeOf);
+    const found = editing ? errorsForChanges(all, editChanges()) : all;
     if (Object.keys(found).length > 0) {
       showErrors(found, step);
       return;
@@ -217,7 +273,9 @@ export function RegisterWizard() {
     const next = step + 1;
     setStep(next);
     rootRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-    void saveDraft(next, true);
+    if (!editing) {
+      void saveDraft(next, true);
+    }
   };
 
   const onComplete = async () => {
@@ -338,7 +396,8 @@ export function RegisterWizard() {
   const openDrafts = (drafts ?? []).filter((draft) => !draft.submittedAt);
   const copyName = browserCopy ? draftLabel(repairDraftPayload(browserCopy.form)) : "";
   const stepDone = (index: number) => (index === 3 ? faceDone : passed[index]);
-  const canOpenStep = (index: number) => !savedCustomer && index <= 2 && passed.slice(0, index).every(Boolean);
+  const canOpenStep = (index: number) => (editing ? index <= 1 : !savedCustomer && index <= 2 && passed.slice(0, index).every(Boolean));
+  const steps = editing ? STEPS.slice(0, 2) : STEPS;
 
   return (
     <div ref={rootRef} className="mf-wizard">
@@ -358,14 +417,14 @@ export function RegisterWizard() {
         </div>
       )}
 
-      {!savedCustomer && !draftsHidden && openDrafts.length > 0 && (
+      {!editing && !savedCustomer && !draftsHidden && openDrafts.length > 0 && (
         <SavedRegistrations drafts={openDrafts} currentEmployeeId={options?.currentEmployeeId ?? user?.id ?? null} busyId={draftBusyId} onResume={(draft) => void onResumeDraft(draft)} onDiscard={(draft) => void onDiscardDraft(draft)} onNotNow={() => setDraftsHidden(true)} />
       )}
 
       <div className="card mf-wizard-card">
         <div className="body">
           <ol className="mf-stepper">
-            {STEPS.map((label, index) => {
+            {steps.map((label, index) => {
               const clickable = canOpenStep(index) && index !== step;
               return (
                 <li key={label} className={`${index === step ? "current" : ""} ${stepDone(index) ? "done" : ""}`}>
@@ -416,7 +475,26 @@ export function RegisterWizard() {
             </div>
           )}
 
-          {step <= 2 && (
+          {editing && (
+            <div className="mf-wizard-actions">
+              <button type="button" className="btn btn-outline-secondary" disabled={step === 0 || busy !== null} onClick={() => { setErrors({}); setStep(step - 1); }}>
+                <i className="icon-arrow-left" /> Back
+              </button>
+              <span className="mf-wizard-actions-right">
+                <Link href={`/customers/${editing.id}`} className="btn btn-outline-secondary">Cancel</Link>
+                {step === 0 && (
+                  <button type="button" className="btn btn-outline-primary" disabled={busy !== null} onClick={onSaveAndContinue}>
+                    Next <i className="icon-arrow-right" />
+                  </button>
+                )}
+                <button type="button" className="btn btn-primary" disabled={busy !== null} onClick={() => void onSaveChanges()}>
+                  {busy === "update" ? "Saving..." : "Save changes"}
+                </button>
+              </span>
+            </div>
+          )}
+
+          {!editing && step <= 2 && (
             <div className="mf-wizard-actions">
               <button type="button" className="btn btn-outline-secondary" disabled={step === 0 || Boolean(savedCustomer) || busy !== null} onClick={() => { setErrors({}); setStep(step - 1); }}>
                 <i className="icon-arrow-left" /> Back

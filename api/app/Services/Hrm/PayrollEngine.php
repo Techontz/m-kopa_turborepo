@@ -5,7 +5,9 @@ namespace App\Services\Hrm;
 use App\Enums\Account;
 use App\Enums\SalaryType;
 use App\Enums\StaffCreditStatus;
+use App\Models\Branch;
 use App\Models\CommissionAllocation;
+use App\Models\Company;
 use App\Models\Employee;
 use App\Models\HrmSetting;
 use App\Models\NegligenceRecovery;
@@ -215,12 +217,20 @@ class PayrollEngine
         }
 
         return DB::transaction(function () use ($run, $payer): int {
+            Company::whereKey($run->company_id)->lockForUpdate()->firstOrFail();
+            if (PayrollRun::whereKey($run->id)->lockForUpdate()->value('status') !== PayrollRun::STATUS_APPROVED) {
+                throw ValidationException::withMessages(['status' => 'Payroll must be approved by HR before payment']);
+            }
+
             $run->load(['items.employee.salaryInfo']);
+            $before = $this->payingBalances($run);
             $totalNet = 0.0;
 
             foreach ($run->items as $item) {
                 $totalNet += $this->payItem($run, $item, $payer);
             }
+
+            $this->assertFunded($run, $before);
 
             StaffAllowance::where('payroll_run_id', $run->id)->where('status', StaffAllowance::STATUS_APPROVED)->update(['status' => StaffAllowance::STATUS_PAID, 'paid_at' => now()]);
 
@@ -234,6 +244,64 @@ class PayrollEngine
 
             return $run->items->count();
         });
+    }
+
+    /** OPERATION INCOME on the HQ Account List: interest, loan fee and penalty of every branch plus HQ's own. */
+    private const OPERATION_INCOME = [Account::Interest, Account::HqInterest, Account::LoanFee, Account::HqLoanFee, Account::Penalty, Account::HqPenalty];
+
+    /**
+     * Balance of every account the run pays from (branch INTEREST A/C, COMPANY A/C) and of the OPERATION INCOME pool,
+     * taken before anything is posted.
+     *
+     * @return array<string, array{account: Account, branch: int|null, balance: float}>
+     */
+    private function payingBalances(PayrollRun $run): array
+    {
+        $balances = [];
+        foreach ($run->items as $item) {
+            $paying = $this->payingAccount($item);
+            $key = $paying['account']->value.':'.($paying['branch'] ?? 'hq');
+            $balances[$key] ??= $paying + ['balance' => $this->ledger->balance($run->company_id, $paying['account'], $paying['branch'])];
+        }
+        $balances['operation_income'] = ['account' => Account::Interest, 'branch' => null, 'balance' => $this->operationIncome($run->company_id)];
+
+        return $balances;
+    }
+
+    private function operationIncome(int $companyId): float
+    {
+        return round(array_sum(array_map(fn (Account $account): float => $this->ledger->balance($companyId, $account, allBranches: true), self::OPERATION_INCOME)), 2);
+    }
+
+    /**
+     * A payroll is paid in full or not at all: when any paying account, or OPERATION INCOME as a whole, would end below zero
+     * the payment is refused and the transaction rolls every salary back.
+     *
+     * @param  array<string, array{account: Account, branch: int|null, balance: float}>  $before
+     *
+     * @throws ValidationException
+     */
+    private function assertFunded(PayrollRun $run, array $before): void
+    {
+        $errors = [];
+        foreach ($before as $key => $row) {
+            $after = $key === 'operation_income'
+                ? $this->operationIncome($run->company_id)
+                : $this->ledger->balance($run->company_id, $row['account'], $row['branch']);
+            if ($after > -0.001) {
+                continue;
+            }
+
+            $label = $key === 'operation_income'
+                ? 'Operation Income'
+                : $row['account']->label().($row['branch'] !== null ? ' ('.(Branch::find($row['branch'])?->name ?? 'branch '.$row['branch']).')' : '');
+            $errors[] = 'Insufficient balance in '.$label.': available '.number_format(max(0, $row['balance']), 2)
+                .', payroll needs '.number_format(round($row['balance'] - $after, 2), 2).'.';
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages(['status' => $errors]);
+        }
     }
 
     /**

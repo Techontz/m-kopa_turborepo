@@ -17,6 +17,7 @@ use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\LoanCategory;
 use App\Models\LoanDisbursement;
+use App\Models\LoanOffset;
 use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
 use App\Models\Payment;
@@ -914,7 +915,11 @@ class LoanService
             return 'The loan has been written off; its repayments cannot be reversed.';
         }
         if ($method === 'TOPUP' || str_contains(strtoupper((string) $deposit->description), 'TOPUP')) {
-            return 'This repayment settled the loan from a top-up disbursement and must be reversed from its origin (the top-up loan), which is not supported.';
+            $topup = $this->topupLoanOf($deposit);
+
+            return $topup !== null
+                ? "This repayment is the settlement made by top-up loan {$topup->loan_number}; reverse that loan's disbursement and this settlement is reversed with it."
+                : 'This repayment settled the loan from a top-up disbursement, but the top-up loan could not be found; it needs a manual correction.';
         }
         if ($method === 'SAVING') {
             return 'This repayment came from the customer\'s savings (CLEAR LOAN) and must be reversed from its origin, which is not supported.';
@@ -1012,67 +1017,83 @@ class LoanService
 
             $entry = $this->repaymentEntry($deposit);
             app(SegregationOfDuties::class)->assertCanReverse($entry, $employee);
-            $closedPeriod = $this->closedPeriodOn((int) $loan->company_id, CarbonImmutable::parse($entry->entry_date));
-            $penaltyPayments = $this->penaltyPaymentsFor($deposit) ?? new Collection;
-            $from = $loan->status;
-            $freeze = $loan->only(['closed_at', 'early_settlement', 'expected_completion_date', 'freeze_started_at', 'freeze_days', 'frozen_until']);
 
-            $reversal = $this->ledger->reverse($entry->loadMissing('lines'), 'REPAYMENT REVERSED: '.$reason);
+            return $this->unwindRepayment($loan, $deposit, $entry, $reason, $employee, toSuspense: true);
+        });
+    }
 
-            foreach ($penaltyPayments as $penaltyPayment) {
-                Penalty::whereKey($penaltyPayment->penalty_id)->lockForUpdate()->firstOrFail()->decrement('paid_amount', (float) $penaltyPayment->amount);
-                $penaltyPayment->delete();
-            }
+    /**
+     * The posting part of a repayment reversal, inside the caller's transaction with the loan and deposit rows locked and
+     * every blocker already checked. With $toSuspense the money returns to SUSPENSE (a real repayment); without it nothing
+     * is returned because the money never left the company (a top-up settlement, undone with its top-up disbursement).
+     *
+     * @return array{transaction: LoanTransaction, reversal: JournalEntry, payment: Payment|null, closed_period: string|null}
+     */
+    private function unwindRepayment(Loan $loan, LoanTransaction $deposit, JournalEntry $entry, string $reason, Employee $employee, bool $toSuspense): array
+    {
+        $closedPeriod = $this->closedPeriodOn((int) $loan->company_id, CarbonImmutable::parse($entry->entry_date));
+        $penaltyPayments = $this->penaltyPaymentsFor($deposit) ?? new Collection;
+        $from = $loan->status;
+        $freeze = $loan->only(['closed_at', 'early_settlement', 'expected_completion_date', 'freeze_started_at', 'freeze_days', 'frozen_until']);
 
-            $deposit->update([
-                'reversed_at' => now(),
-                'reversed_by' => $employee->id,
-                'reversal_reason' => $reason,
-                'reversal_journal_entry_id' => $reversal->id,
-            ]);
-            $this->rebuildSchedules($loan);
+        $reversal = $this->ledger->reverse($entry->loadMissing('lines'), 'REPAYMENT REVERSED: '.$reason);
 
+        foreach ($penaltyPayments as $penaltyPayment) {
+            Penalty::whereKey($penaltyPayment->penalty_id)->lockForUpdate()->firstOrFail()->decrement('paid_amount', (float) $penaltyPayment->amount);
+            $penaltyPayment->delete();
+        }
+
+        $deposit->update([
+            'reversed_at' => now(),
+            'reversed_by' => $employee->id,
+            'reversal_reason' => $reason,
+            'reversal_journal_entry_id' => $reversal->id,
+        ]);
+        $this->rebuildSchedules($loan);
+
+        $payment = null;
+        if ($toSuspense) {
             $payments = app(PaymentService::class);
             $allocation = $deposit->paymentAllocation()->whereNull('reversed_at')->first();
             $payment = $allocation !== null
                 ? $payments->returnReversedRepaymentToSuspense($allocation, $employee)
                 : $payments->holdReversedRepayment($deposit, $employee);
+        }
 
-            $this->reopenAfterReversal($loan, $from, $freeze, $employee);
+        $this->reopenAfterReversal($loan, $from, $freeze, $employee);
 
-            AuditLog::create([
-                'company_id' => $loan->company_id,
-                'employee_id' => $employee->id,
-                'action' => 'LoanTransaction.reversed',
-                'auditable_type' => $deposit->getMorphClass(),
-                'auditable_id' => $deposit->id,
-                'before' => ['reversed_at' => null],
-                'after' => ['reversed_at' => $deposit->reversed_at?->toIso8601String(), 'reversal_journal_entry_id' => $reversal->id],
-                'context' => [
-                    'reason' => $reason,
-                    'penalty_payments_removed' => $penaltyPayments->map(fn (PenaltyPayment $row): array => $row->only(['id', 'penalty_id', 'amount', 'paid_on']))->values()->all(),
-                    'payment_id' => $payment->id,
-                ],
-                'ip_address' => request()?->ip(),
-            ]);
-
-            app(LoanWorkflow::class)->record($loan->fresh(), 'REPAYMENT_REVERSED', $from, $employee, [
-                'transaction_id' => $deposit->id,
-                'amount' => (float) $deposit->amount,
-                'principal' => (float) $deposit->principal,
-                'penalty' => (float) $deposit->penalty,
-                'interest' => (float) $deposit->interest,
-                'reserve' => (float) $deposit->reserve,
-                'insurance' => (float) $deposit->insurance,
+        AuditLog::create([
+            'company_id' => $loan->company_id,
+            'employee_id' => $employee->id,
+            'action' => 'LoanTransaction.reversed',
+            'auditable_type' => $deposit->getMorphClass(),
+            'auditable_id' => $deposit->id,
+            'before' => ['reversed_at' => null],
+            'after' => ['reversed_at' => $deposit->reversed_at?->toIso8601String(), 'reversal_journal_entry_id' => $reversal->id],
+            'context' => [
                 'reason' => $reason,
-                'journal_reference' => $entry->reference,
-                'reversal_reference' => $reversal->reference,
-                'returned_to_suspense' => $payment->receipt_number,
-                'closed_period_adjustment' => $closedPeriod?->period_start->format('Y-m'),
-            ]);
+                'penalty_payments_removed' => $penaltyPayments->map(fn (PenaltyPayment $row): array => $row->only(['id', 'penalty_id', 'amount', 'paid_on']))->values()->all(),
+                'payment_id' => $payment?->id,
+            ],
+            'ip_address' => request()?->ip(),
+        ]);
 
-            return ['transaction' => $deposit, 'reversal' => $reversal, 'payment' => $payment, 'closed_period' => $closedPeriod?->period_start->format('Y-m')];
-        });
+        app(LoanWorkflow::class)->record($loan->fresh(), 'REPAYMENT_REVERSED', $from, $employee, [
+            'transaction_id' => $deposit->id,
+            'amount' => (float) $deposit->amount,
+            'principal' => (float) $deposit->principal,
+            'penalty' => (float) $deposit->penalty,
+            'interest' => (float) $deposit->interest,
+            'reserve' => (float) $deposit->reserve,
+            'insurance' => (float) $deposit->insurance,
+            'reason' => $reason,
+            'journal_reference' => $entry->reference,
+            'reversal_reference' => $reversal->reference,
+            'returned_to_suspense' => $payment?->receipt_number,
+            'closed_period_adjustment' => $closedPeriod?->period_start->format('Y-m'),
+        ]);
+
+        return ['transaction' => $deposit, 'reversal' => $reversal, 'payment' => $payment, 'closed_period' => $closedPeriod?->period_start->format('Y-m')];
     }
 
     /**
@@ -1093,8 +1114,8 @@ class LoanService
         if (Payment::where('loan_id', $loan->id)->whereIn('status', PaymentStatus::values(...PaymentStatus::awaitingFinance()))->exists()) {
             return 'The loan has branch receipts waiting for Finance verification or approval; resolve them first.';
         }
-        if ($loan->topup_of_loan_id !== null) {
-            return 'This loan is a top-up that settled a previous loan; a top-up disbursement cannot be reversed.';
+        if ($loan->topup_of_loan_id !== null && ($blocker = $this->topupSettlementBlocker($loan)) !== null) {
+            return $blocker;
         }
         if (Loan::where('topup_of_loan_id', $loan->id)->whereNotIn('status', LoanStatus::values(LoanStatus::Rejected, LoanStatus::Cancelled))->exists()) {
             return 'Another loan is a top-up of this loan; its disbursement cannot be reversed.';
@@ -1156,6 +1177,7 @@ class LoanService
             $entry = $this->disbursementEntry($loan);
             app(SegregationOfDuties::class)->assertCanReverse($entry, $employee);
             $from = $loan->status;
+            $settlement = $this->unwindTopupSettlement($loan, $reason, $employee);
             $reversal = $this->ledger->reverse($entry->loadMissing('lines'), 'DISBURSEMENT REVERSED: '.$reason);
             $marks = ['reversed_at' => now(), 'reversed_by' => $employee->id, 'reversal_reason' => $reason, 'reversal_journal_entry_id' => $reversal->id];
 
@@ -1178,7 +1200,7 @@ class LoanService
                 'auditable_id' => $loan->id,
                 'before' => ['status' => $from->value],
                 'after' => ['status' => LoanStatus::Cancelled->value, 'reversal_journal_entry_id' => $reversal->id],
-                'context' => ['reason' => $reason, 'loan_disbursement_id' => $disbursement?->id],
+                'context' => ['reason' => $reason, 'loan_disbursement_id' => $disbursement?->id, 'topup_settlement_reversed' => $settlement?->id],
                 'ip_address' => request()?->ip(),
             ]);
             app(LoanWorkflow::class)->record($loan, 'DISBURSEMENT_REVERSED', $from, $employee, [
@@ -1336,6 +1358,102 @@ class LoanService
         }
 
         return $reason;
+    }
+
+    /**
+     * The top-up loan whose disbursement posted this settlement deposit (LoanOffset, else the audit row SETTLED_BY_TOPUP's loan).
+     */
+    public function topupLoanOf(LoanTransaction $deposit): ?Loan
+    {
+        $offset = LoanOffset::where('loan_transaction_id', $deposit->id)->first();
+
+        return $offset !== null
+            ? Loan::find($offset->new_loan_id)
+            : Loan::where('topup_of_loan_id', $deposit->loan_id)->whereIn('status', LoanStatus::disbursed())->latest('id')->first();
+    }
+
+    /**
+     * The settlement deposit a top-up loan posted on the loan it topped up, if it is still standing.
+     */
+    private function topupSettlement(Loan $topup): ?LoanTransaction
+    {
+        $offset = LoanOffset::where('new_loan_id', $topup->id)->whereNull('reversed_at')->first();
+        $deposit = $offset !== null
+            ? LoanTransaction::find($offset->loan_transaction_id)
+            : LoanTransaction::where('loan_id', $topup->topup_of_loan_id)->where('type', 'deposit')->where('method', 'TOPUP')
+                ->whereDate('transaction_date', CarbonImmutable::parse($topup->withdrawn_at ?? $topup->disbursed_at)->toDateString())->latest('id')->first();
+
+        return $deposit?->reversed_at === null ? $deposit : null;
+    }
+
+    /**
+     * Why a top-up's settlement of the previous loan cannot be undone with the top-up disbursement, or null when it can:
+     * the previous loan must be exactly as the settlement left it (no later repayment, no newer loan than the top-up, no
+     * write-off) and the settlement's own ledger posting must be reversible.
+     */
+    private function topupSettlementBlocker(Loan $topup): ?string
+    {
+        $deposit = $this->topupSettlement($topup);
+        if ($deposit === null) {
+            return null;
+        }
+        $previous = Loan::find($deposit->loan_id);
+        if ($previous === null) {
+            return 'The loan settled by this top-up no longer exists; it needs a manual correction.';
+        }
+        if (! in_array($previous->status, [...LoanStatus::repayable(), LoanStatus::Closed], true)) {
+            return "The loan {$previous->loan_number} settled by this top-up is {$previous->status->label()}; the top-up cannot be reversed.";
+        }
+        $later = LoanTransaction::where('loan_id', $previous->id)->where('type', 'deposit')->whereNull('reversed_at')->where('id', '>', $deposit->id)->exists();
+        if ($later) {
+            return "The loan {$previous->loan_number} settled by this top-up has later repayments; reverse them first.";
+        }
+        $newer = Loan::where('customer_id', $previous->customer_id)->where('id', '>', $previous->id)->whereKeyNot($topup->id)
+            ->whereNotIn('status', LoanStatus::values(LoanStatus::Rejected, LoanStatus::Cancelled))->first();
+        if ($newer !== null) {
+            return "The customer has another loan ({$newer->loan_number}) after the one this top-up settled; the top-up cannot be reversed.";
+        }
+        $entry = $this->repaymentEntry($deposit);
+        if ($entry === null) {
+            return "The top-up settlement of loan {$previous->loan_number} has no ledger posting to reverse.";
+        }
+        if ($entry->reversal()->exists()) {
+            return "The journal entry {$entry->reference} of the top-up settlement was already reversed directly in the ledger; it needs a manual correction.";
+        }
+        if (($blocker = $this->distributedPeriodBlocker((int) $previous->company_id, CarbonImmutable::parse($entry->entry_date), 'top-up settlement')) !== null) {
+            return $blocker;
+        }
+        if ((float) $deposit->penalty > 0.004 && $this->penaltyPaymentsFor($deposit) === null) {
+            return 'The penalty payments of the top-up settlement cannot be matched reliably; reverse it manually.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Reversing a top-up's disbursement first undoes the settlement it posted on the previous loan (exact mirror of its
+     * journal, penalties and instalments restored, the loan reopened) and marks the offset reversed. No money goes to
+     * SUSPENSE: the settlement was paid out of the top-up itself, whose disbursement is reversed right after.
+     */
+    private function unwindTopupSettlement(Loan $topup, string $reason, Employee $employee): ?LoanTransaction
+    {
+        if ($topup->topup_of_loan_id === null || ($deposit = $this->topupSettlement($topup)) === null) {
+            return null;
+        }
+
+        $previous = Loan::whereKey($deposit->loan_id)->lockForUpdate()->firstOrFail();
+        $deposit = LoanTransaction::whereKey($deposit->id)->lockForUpdate()->firstOrFail();
+        $deposit->setRelation('loan', $previous);
+        $entry = $this->repaymentEntry($deposit);
+        $this->unwindRepayment($previous, $deposit, $entry, 'TOP-UP '.$topup->loan_number.' REVERSED: '.$reason, $employee, toSuspense: false);
+        LoanOffset::where('new_loan_id', $topup->id)->whereNull('reversed_at')->update(['reversed_at' => now()]);
+        app(LoanWorkflow::class)->record($previous->fresh(), 'TOPUP_SETTLEMENT_REVERSED', LoanStatus::Closed, $employee, [
+            'amount' => (float) $deposit->amount,
+            'top_up_loan' => $topup->loan_number,
+            'reason' => $reason,
+        ]);
+
+        return $deposit;
     }
 
     private function pendingReversalReason(Model $subject): ?string

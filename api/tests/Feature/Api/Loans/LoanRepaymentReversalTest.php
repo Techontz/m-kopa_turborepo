@@ -165,7 +165,7 @@ class LoanRepaymentReversalTest extends TestCase
         $topup = $this->activeLoan($admin);
         $topupDeposit = $loans->deposit($topup, 10000, CarbonImmutable::today(), 'TOPUP', $admin);
         $this->postJson("/api/v1/loans/{$topup->id}/transactions/{$topupDeposit->id}/reverse", ['reason' => 'Undo'])
-            ->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'This repayment settled the loan from a top-up disbursement and must be reversed from its origin (the top-up loan), which is not supported.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'This repayment settled the loan from a top-up disbursement, but the top-up loan could not be found; it needs a manual correction.']);
 
         $saving = $this->activeLoan($admin);
         $savingDeposit = $loans->deposit($saving, 10000, CarbonImmutable::today(), 'SAVING', $admin);

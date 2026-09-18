@@ -146,6 +146,17 @@ class PayrollApiTest extends TestCase
         $this->actingAs($hr)->postJson('/api/v1/hrm/payroll/generate', ['period' => $period])->assertUnprocessable();
         $this->actingAs($hr)->putJson("/api/v1/hrm/staff/{$staff->id}/salary", ['salary' => 500000, 'account_name' => 'NMB', 'account_number' => '1', 'fee_salary' => 0, 'salary_type' => 'branch', 'commission_eligible' => true, 'payment_method' => 'bank'])->assertUnprocessable();
 
+        // Operation Income may never go negative: with 449,999 in the branch INTEREST A/C (1 short) nothing is paid at all.
+        $this->fundPayroll($this->admin, 449999, 180000);
+        $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertUnprocessable()
+            ->assertJsonPath('errors.status.0', 'Insufficient balance in INTEREST A/C ('.Branch::find($branchId)->name.'): available 449,999.00, payroll needs 450,000.00.')
+            ->assertJsonPath('errors.status.1', 'Insufficient balance in Operation Income: available 449,999.00, payroll needs 450,000.00.');
+        $this->assertSame('approved', $run->fresh()->status);
+        $this->assertSame(0, SalaryPayment::count());
+        $this->assertEquals(449999, $this->balance(Account::Interest, $branchId));
+        $this->assertEquals(500000, $this->balance(Account::StaffPayable, employee: $staff->id));
+
+        $this->fundPayroll($this->admin, 1, 0);
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertOk()->assertJsonPath('message', 'Salary Paid successfully');
 
         $this->assertSame('paid', $run->fresh()->status);
@@ -157,9 +168,9 @@ class PayrollApiTest extends TestCase
         // Fund cash: 40,000 + 20,000 contributions + 4,000 loan restoration.
         $this->assertEquals(64000, $this->balance(Account::StaffFundCash));
         // Interest pays branch staff: take home 386,000 + fund 40,000 + loan 4,000 + advance back to HQ 20,000.
-        $this->assertEquals(-450000, $this->balance(Account::Interest, $branchId));
+        $this->assertEquals(0, $this->balance(Account::Interest, $branchId));
         // Company account pays HQ staff 180,000 + 20,000 fund, receives the 20,000 advance recovery.
-        $this->assertEquals(-180000, $this->balance(Account::Company));
+        $this->assertEquals(0, $this->balance(Account::Company));
         $this->assertEquals(-20000, $this->balance(Account::StaffAdvanceReceivable, employee: $staff->id));
         $this->assertSame('completed', $advance->fresh()->status);
         $this->assertSame('repaying', $loan->fresh()->status);

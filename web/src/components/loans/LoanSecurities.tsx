@@ -5,23 +5,19 @@ import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
 import { Field } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
-import { SelectBox } from "@/components/ui/SelectBox";
 import { confirmAction } from "@/components/ui/notify";
 import { money } from "@/lib/format";
 import { useAction } from "@/lib/hooks";
 
+import { GuarantorModal } from "./GuarantorModal";
 import type { LoanDetail } from "./types";
 
-const EMPTY_GUARANTOR = { first_name: "", middle_name: "", last_name: "", phone: "", gender: "", relationship: "", id_number: "", region_id: "", district: "", ward: "", street: "" };
 const EMPTY_COLLATERAL = { colateral_name: "", colateral_type: "", colateral_location: "", colateral_value: "" };
 
 /** Guarantors List + Collateral List (live loan_sponser / view_Dataloan), editable while the application is pending. */
 export function LoanSecurities({ detail, editable }: { detail: LoanDetail; editable: boolean }) {
   const loanId = detail.loan.id;
   const [guarantorMode, setGuarantorMode] = useState<"import" | "add" | null>(null);
-  const [guarantor, setGuarantor] = useState(EMPTY_GUARANTOR);
-  const [existing, setExisting] = useState("");
   const [collateral, setCollateral] = useState(EMPTY_COLLATERAL);
   const [attachment, setAttachment] = useState<File | null>(null);
 
@@ -29,8 +25,6 @@ export function LoanSecurities({ detail, editable }: { detail: LoanDetail; edita
   const removeGuarantor = useAction<{ id: number }>("delete", (body) => `loans/${loanId}/guarantors/${body.id}`);
   const addCollateral = useAction<FormData>("post", `loans/${loanId}/collaterals`);
   const removeCollateral = useAction<{ id: number }>("delete", (body) => `loans/${loanId}/collaterals/${body.id}`);
-
-  const set = (key: keyof typeof EMPTY_GUARANTOR, value: string) => setGuarantor({ ...guarantor, [key]: value });
 
   return (
     <>
@@ -118,49 +112,16 @@ export function LoanSecurities({ detail, editable }: { detail: LoanDetail; edita
         <p className="mb-0"><b>General collateral Attachment: </b>{detail.collateral_attachment ? <a href={detail.collateral_attachment} target="_blank" rel="noreferrer">View attachment</a> : "—"}</p>
       </Card>
 
-      <Modal
-        open={guarantorMode !== null}
-        onClose={() => setGuarantorMode(null)}
-        title={guarantorMode === "import" ? "Import Guarantor" : "Add Guarantor"}
-        size="lg"
-        submitLabel={guarantorMode === "import" ? (detail.available_guarantors.length > 0 ? "Import" : undefined) : "Save"}
-        submitting={addGuarantor.isPending}
-        onSubmit={() => {
-          const body = guarantorMode === "import" ? { guarantor_id: existing } : Object.fromEntries(Object.entries(guarantor).filter(([, value]) => value !== ""));
-          addGuarantor.mutate(body, { onSuccess: () => { setGuarantorMode(null); setGuarantor(EMPTY_GUARANTOR); setExisting(""); } });
-        }}
-      >
-        <div className="row">
-          {guarantorMode === "import" && (
-            detail.available_guarantors.length > 0 ? (
-              <Field label="Guarantor of the customer (profile or previous loans):" required className="col-md-12" error={addGuarantor.fieldError("guarantor_id")}>
-                <SelectBox placeholder="Select guarantor" options={detail.available_guarantors} value={existing} isClearable onChange={(value) => setExisting(value ?? "")} />
-              </Field>
-            ) : (
-              <p className="col-md-12 mb-0">This customer has no saved guarantors to import. Use <b>Add Guarantor</b> to register a new one.</p>
-            )
-          )}
-          {guarantorMode === "add" && (
-            <>
-              <Field label="First name:" required className="col-md-4" error={addGuarantor.fieldError("first_name")}><input className="form-control" value={guarantor.first_name} onChange={(e) => set("first_name", e.target.value)} /></Field>
-              <Field label="Middle name:" className="col-md-4" error={addGuarantor.fieldError("middle_name")}><input className="form-control" value={guarantor.middle_name} onChange={(e) => set("middle_name", e.target.value)} /></Field>
-              <Field label="Last name:" required className="col-md-4" error={addGuarantor.fieldError("last_name")}><input className="form-control" value={guarantor.last_name} onChange={(e) => set("last_name", e.target.value)} /></Field>
-              <Field label="Phone number:" required className="col-md-4" error={addGuarantor.fieldError("phone")}><input type="number" className="form-control" placeholder="255XXXXXXXXX" value={guarantor.phone} onChange={(e) => set("phone", e.target.value)} /></Field>
-              <Field label="Gender:" className="col-md-4" error={addGuarantor.fieldError("gender")}>
-                <select className="form-control" value={guarantor.gender} onChange={(e) => set("gender", e.target.value)}><option value="">Select</option><option value="male">male</option><option value="female">female</option></select>
-              </Field>
-              <Field label="Relationship:" required className="col-md-4" error={addGuarantor.fieldError("relationship")}><input className="form-control" value={guarantor.relationship} onChange={(e) => set("relationship", e.target.value)} /></Field>
-              <Field label="Identification No:" className="col-md-4" error={addGuarantor.fieldError("id_number")}><input className="form-control" value={guarantor.id_number} onChange={(e) => set("id_number", e.target.value)} /></Field>
-              <Field label="Region:" className="col-md-4" error={addGuarantor.fieldError("region_id")}>
-                <SelectBox placeholder="Select Region" optionsUrl="options/regions" value={guarantor.region_id} onChange={(value) => set("region_id", value ?? "")} />
-              </Field>
-              <Field label="District:" className="col-md-4"><input className="form-control" value={guarantor.district} onChange={(e) => set("district", e.target.value)} /></Field>
-              <Field label="Ward:" className="col-md-6"><input className="form-control" value={guarantor.ward} onChange={(e) => set("ward", e.target.value)} /></Field>
-              <Field label="Street:" className="col-md-6"><input className="form-control" value={guarantor.street} onChange={(e) => set("street", e.target.value)} /></Field>
-            </>
-          )}
-        </div>
-      </Modal>
+      {guarantorMode && (
+        <GuarantorModal
+          mode={guarantorMode}
+          onClose={() => setGuarantorMode(null)}
+          candidatesUrl={`loans/${loanId}/guarantor-candidates`}
+          submitting={addGuarantor.isPending}
+          fieldError={addGuarantor.fieldError}
+          onSubmit={(entry) => addGuarantor.mutate(entry, { onSuccess: () => setGuarantorMode(null) })}
+        />
+      )}
     </>
   );
 }

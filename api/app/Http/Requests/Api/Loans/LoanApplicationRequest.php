@@ -23,6 +23,8 @@ class LoanApplicationRequest extends LiveLoanApplicationRequest
 
         if ($this->isMethod('post')) {
             $rules['customer_id'] = ['required', Rule::exists('customers', 'id')->where('company_id', $this->user()->company_id)];
+            // Each entry is validated against the borrower by LoanGuarantors.
+            $rules['guarantors'] = ['nullable', 'array', 'max:10'];
         }
 
         return $rules;

@@ -70,6 +70,7 @@ export default function CustomerProfilePage() {
   }
 
   const canManage = can("customers.manage") && !customer.deletedAt;
+  const canEdit = (can("customers.manage") || can("customers.edit")) && !customer.deletedAt;
   const canApprove = can("customers.approve") && customer.approvalStatus === "pending";
   const counts = overview?.counts;
 
@@ -127,6 +128,11 @@ export default function CustomerProfilePage() {
               <Link href={`/loans/apply?customer_id=${customer.id}`} className="btn btn-sm btn-info">Loan Application</Link>
             )}
             {can("reports.view") && <Link href={`/reports/statement?customer_id=${customer.id}`} className="btn btn-sm btn-outline-primary">Statement</Link>}
+            {canEdit && (
+              <Link href={`/customers/${customer.id}/edit`} className="btn btn-sm btn-primary">
+                <i className="icon-pencil" /> Edit
+              </Link>
+            )}
             {canManage && !customer.faceVerifiedAt && (
               <button type="button" className="btn btn-sm btn-warning" onClick={() => setTab("face")}>
                 <i className="icon-camera" /> Run face verification

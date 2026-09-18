@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import { CreditAssessmentCard } from "@/components/credit/CreditAssessmentCard";
+import { AgreementActions } from "@/components/loans/AgreementActions";
 import { DisbursementChainCard } from "@/components/loans/DisbursementChainCard";
 import { FreezeStatus } from "@/components/loans/FreezeStatus";
 import { LoanActions } from "@/components/loans/LoanActions";
@@ -93,7 +94,10 @@ export default function LoanDetailPage() {
 
 function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; openEditInitially: boolean }) {
   const id = detail.loan.id;
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  // Branch staff see the page only up to the application form; the credit,
+  // disbursement, schedule and timeline cards are for the other roles.
+  const branchView = ["branch_manager", "loan_officer"].includes(user?.role?.key ?? "");
   const [approved, setApproved] = useState(() => String(detail.loan.amount_approved > 0 ? detail.loan.amount_approved : detail.loan.amount_applied));
   const [editing, setEditing] = useState(() => openEditInitially && ["pending_manager_approval", "returned"].includes(detail.loan.status));
   const [allLoans, setAllLoans] = useState(false);
@@ -163,6 +167,17 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
       </div>
 
       <LoanActions detail={detail} onEdit={openEdit} />
+
+      {loan.agreement_available && (
+        <Card title="Loan Agreement">
+          <p className="mb-2">
+            {loan.agreement_file
+              ? <>Signed agreement uploaded <b>{loan.agreement_uploaded_at}</b>.</>
+              : <>Generated after branch manager approval. Print it for the customer to fill and sign, then upload the signed PDF — the credit officer cannot approve without it.</>}
+          </p>
+          <AgreementActions loan={{ ...loan, customer_name: customer.full_name }} />
+        </Card>
+      )}
 
       <Card title="Loan Eligibility & Re-borrowing">
         <FreezeStatus freeze={detail.customer_freeze} eligible={detail.customer_eligible} showPrevious={detail.customer_freeze?.previous_loan?.id !== detail.loan.id} />
@@ -237,6 +252,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
         </form>
       </Card>
 
+      {!branchView && (
+        <>
       <CreditAssessmentCard loanId={detail.loan.id} assessment={detail.credit_assessment ?? null} />
 
       {detail.mandate && (
@@ -311,6 +328,8 @@ function LoanDetailView({ detail, openEditInitially }: { detail: LoanDetail; ope
           ]}
         />
       </Card>
+        </>
+      )}
 
       <Modal open={editing} onClose={() => setEditing(false)} title="Edit loan" size="xl" submitLabel={loan.status === "returned" ? "Update & Resubmit" : "Update"} submitting={update.isPending} onSubmit={() => update.mutate(form, { onSuccess: () => setEditing(false) })}>
         <LoanFormFields form={form} setForm={setForm} categories={options?.data ?? []} groups={options?.groups ?? []} fieldError={update.fieldError} showInstalment />

@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { notifyError } from "@/components/ui/notify";
+import { BRAND_LOGO, BRAND_NAME } from "@/lib/brand";
 
 export default function LoginPage() {
   const [phone, setPhone] = useState("");
@@ -38,7 +39,10 @@ export default function LoginPage() {
         <div className="vertical-align-wrap">
           <div className="vertical-align-middle auth-main">
             <div className="auth-box">
-              <div className="top" />
+              <div className="top">
+                {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset */}
+                <img src={BRAND_LOGO} alt={BRAND_NAME} className="mf-auth-logo" />
+              </div>
               <div className="card">
                 <div className="header">
                   <p className="lead">Login to your account</p>

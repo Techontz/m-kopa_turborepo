@@ -1,0 +1,25 @@
+{
+    "code": "wangingombe-2025-file-report",
+    "title": "FILE REPORT - WANGING'OMBE / DATE : 2025",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "WANGING'OMBE",
+    "year": 2025,
+    "source_document": "WANGING'OMBE 2025 FILE.pdf",
+    "rows": "wangingombe-2025-file-report.csv",
+    "printed_totals": {
+        "1": 12550000,
+        "2": 21774230,
+        "3": 13929288,
+        "4": 12952000,
+        "5": 15486040,
+        "6": 14359000,
+        "7": 14892951,
+        "8": 18116520,
+        "9": 26424599,
+        "10": 14707000,
+        "11": 16564440,
+        "12": 14324646
+    },
+    "notes": "Wanging'ombe Branch File report for 2025 (115 rows). The report lists only loans withdrawn in 2025; its printed TOTAL row also counts 2025 repayments on loans withdrawn earlier, so it is larger than the sum of the listed rows in every month. Kept as printed. Every loan withdrawn in 2025 reconciles exactly with the following year's report. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed, including Collection/Paid amounts that include a 5,000-30,000 fee (so Remain is not always Loan minus Paid). The report header prints the region as KIGOMA."
+}

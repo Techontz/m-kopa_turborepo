@@ -42,6 +42,7 @@ class Loan extends Model
             'fee_deduct' => 'boolean',
             'is_special' => 'boolean',
             'approved_at' => 'datetime',
+            'agreement_uploaded_at' => 'datetime',
             'withdrawn_at' => 'date',
             'end_date' => 'date',
             'expected_completion_date' => 'date',
@@ -86,6 +87,11 @@ class Loan extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function agreementUploader(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class, 'agreement_uploaded_by');
     }
 
     public function guarantors(): HasMany

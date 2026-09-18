@@ -23,6 +23,7 @@ use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Credit\CreditAssessment;
 use App\Services\CustomerEligibility;
 use App\Services\LoanCalculator;
+use App\Services\LoanGuarantors;
 use App\Services\LoanRecoveryService;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
@@ -31,6 +32,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -50,6 +52,8 @@ class LoanController extends LoanApiController
         return [
             'pending' => [LoanStatus::PendingManagerApproval, LoanStatus::Returned, LoanStatus::MandatePendingOtp, LoanStatus::MandateFailed],
             'credit-review' => [LoanStatus::PendingCreditReview],
+            // Approved by the branch manager, before credit approval: the agreement is printed, signed and uploaded here.
+            'agreement' => [LoanStatus::MandatePendingOtp, LoanStatus::MandateFailed, LoanStatus::PendingCreditReview],
             'disbursement' => [LoanStatus::PendingFinance, LoanStatus::AwaitingDisbursement, LoanStatus::DisbursementFailed, LoanStatus::Escalated, LoanStatus::DisbursementSuspense],
             'disbursed' => LoanStatus::repayable(),
             'closed' => [LoanStatus::Closed, LoanStatus::WrittenOff],
@@ -62,10 +66,11 @@ class LoanController extends LoanApiController
         private readonly LoanWorkflow $workflow,
         private readonly LoanRecoveryService $recoveries,
         private readonly CreditAssessment $assessments,
+        private readonly LoanGuarantors $guarantors,
     ) {}
 
     /**
-     * GET /loans?stage=pending|credit-review|disbursement|disbursed|closed|rejected&special=1&status=&branch_id=&from=&to=
+     * GET /loans?stage=pending|agreement|credit-review|disbursement|disbursed|closed|rejected&special=1&status=&branch_id=&from=&to=
      */
     public function index(Request $request): JsonResponse
     {
@@ -406,8 +411,19 @@ class LoanController extends LoanApiController
         $customer = Customer::findOrFail($request->integer('customer_id'));
         $this->assertBranchAccessible((int) $customer->branch_id);
 
+        // Guarantors picked on the first form are checked before anything is written, then saved with the loan.
+        $guarantors = $this->guarantors->resolveMany($customer, (array) $request->input('guarantors', []));
+
         try {
-            $loan = $this->workflow->apply($customer, $request->loanData(), $this->currentEmployee());
+            $loan = DB::transaction(function () use ($customer, $request, $guarantors): Loan {
+                $loan = $this->workflow->apply($customer, $request->loanData(), $this->currentEmployee());
+
+                foreach ($guarantors as $index => $guarantor) {
+                    $this->guarantors->attach($loan, $guarantor, "guarantors.{$index}.");
+                }
+
+                return $loan;
+            });
         } catch (ValidationException $exception) {
             throw $this->liveFieldNames($exception);
         }
@@ -446,6 +462,17 @@ class LoanController extends LoanApiController
         $loan->delete();
 
         return $this->message('Loan Deleted successfully');
+    }
+
+    /**
+     * Import Guarantor options on the first application form, before the loan exists.
+     */
+    public function guarantorCandidates(Customer $customer): JsonResponse
+    {
+        $this->authorizeAny('loans.apply');
+        $this->assertBranchAccessible((int) $customer->branch_id);
+
+        return response()->json(['data' => $this->guarantors->candidates($customer)]);
     }
 
     /**

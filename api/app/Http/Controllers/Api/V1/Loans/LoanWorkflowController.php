@@ -15,6 +15,7 @@ use App\Models\Loan;
 use App\Models\LoanTransaction;
 use App\Models\WriteOffRequest;
 use App\Services\Approvals\SegregationOfDuties;
+use App\Services\LoanAgreement;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
 use App\Services\ReversalRequests;
@@ -351,7 +352,18 @@ class LoanWorkflowController extends LoanApiController
     }
 
     /**
-     * Live upload_loan_agrement (PDF).
+     * GET /loans/{id}/agreement: the agreement the system generates after branch manager approval, for printing.
+     */
+    public function agreement(Loan $loan, LoanAgreement $agreement): JsonResponse
+    {
+        $this->authorizeAny('loans.view');
+        $this->ensureVisible($loan);
+
+        return response()->json(['data' => $agreement->for($loan)]);
+    }
+
+    /**
+     * Live upload_loan_agrement (PDF): the agreement filled and signed by the customer, after manager approval.
      */
     public function uploadAgreement(Request $request, Loan $loan): JsonResponse
     {
@@ -359,7 +371,7 @@ class LoanWorkflowController extends LoanApiController
         $this->ensureVisible($loan);
         $request->validate(['attach' => ['required', 'file', 'mimes:pdf', 'max:10240']], ['attach.mimes' => 'PDF file is Allowed please change Your file']);
 
-        $loan->update(['agreement_file' => $request->file('attach')->store('loans/agreements', 'public')]);
+        $loan = $this->workflow->uploadAgreement($loan, $request->file('attach'), $this->currentEmployee());
 
         return $this->loanMessage('Loan Agreement uploaded successfully', $loan);
     }

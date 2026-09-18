@@ -1,0 +1,345 @@
+/*
+ * Printable loan agreement, laid out as the company's printed contract: a red letterhead band on every page, bordered
+ * sans-serif tables and serif terms. It is always printed on white whatever the app theme, so it uses fixed print
+ * colours instead of the theme tokens (same exception as the asset label).
+ */
+.document {
+    --agreement-red: #ae0000;
+    --agreement-logo-top: #ee2230;
+    --agreement-logo-bottom: #9e0f24;
+    display: flex;
+    flex-direction: column;
+    gap: 6mm;
+    overflow-x: auto;
+    color-scheme: light;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
+.document *,
+.document *::before,
+.document *::after {
+    box-sizing: border-box;
+}
+
+.page {
+    display: flex;
+    flex-direction: column;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 1.5mm 1.5mm 6mm;
+    background: #fff;
+    color: #000;
+    font-family: "DejaVu Serif", Georgia, "Times New Roman", serif;
+    font-size: 10.5pt;
+    line-height: 1.4;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .15);
+}
+
+.page * {
+    color: #000;
+}
+
+.body {
+    flex: 1;
+}
+
+.letterhead {
+    display: flex;
+    align-items: center;
+    gap: 5mm;
+    height: 31mm;
+    padding: 1.5mm;
+    background: var(--agreement-red);
+    margin-bottom: 5mm;
+}
+
+.letterhead * {
+    color: #fff;
+}
+
+.logoBox {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 39mm;
+    height: 100%;
+    padding: 2mm;
+    background: linear-gradient(180deg, var(--agreement-logo-top), var(--agreement-logo-bottom));
+}
+
+.logoBox img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.headCompany {
+    flex: 1;
+    font-family: "DejaVu Sans", Verdana, Arial, sans-serif;
+    font-weight: 700;
+    font-size: 11pt;
+    line-height: 1.35;
+}
+
+.companyName {
+    font-size: 12pt;
+}
+
+.headTitle {
+    flex: 1;
+    text-align: center;
+    font-family: "DejaVu Sans", Verdana, Arial, sans-serif;
+    font-weight: 700;
+    font-size: 11pt;
+}
+
+.barcode {
+    flex: none;
+    align-self: flex-start;
+    width: 31mm;
+    margin: 6mm 2mm 0 0;
+    font-family: "DejaVu Sans", Verdana, Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1;
+    text-align: center;
+}
+
+.barcode svg {
+    display: block;
+    width: 100%;
+    height: 10mm;
+    padding: 0 1mm;
+    background: #fff;
+}
+
+.barcode svg rect {
+    fill: #000;
+}
+
+.heading {
+    display: grid;
+    grid-template-columns: 32% 24% 1fr;
+    padding-left: 1.5mm;
+    font-weight: 700;
+    font-size: 11pt;
+    margin-bottom: 8mm;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: "DejaVu Sans", Verdana, Arial, sans-serif;
+    font-size: 8.5pt;
+    line-height: 1.3;
+}
+
+.table th,
+.table td {
+    border: 1px solid #000;
+    padding: 1.5mm 1.4mm;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.table th {
+    font-weight: 700;
+}
+
+.table td {
+    font-weight: 400;
+}
+
+.table tr {
+    break-inside: avoid;
+}
+
+.caption {
+    font-size: 9.5pt;
+}
+
+.strong {
+    font-size: 9.5pt;
+}
+
+.small {
+    font-size: 7.5pt;
+}
+
+.withPhoto {
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 5mm;
+}
+
+.withPhoto .table {
+    flex: 1;
+}
+
+.withPhoto .table th,
+.loanTable th {
+    white-space: nowrap;
+}
+
+.photoCell {
+    flex: none;
+    display: flex;
+    align-items: flex-end;
+    width: 35mm;
+    padding-left: 1mm;
+}
+
+.photo,
+.photoBlank {
+    width: 100%;
+    height: 34mm;
+    object-fit: cover;
+}
+
+.photoBlank {
+    border: 1px dashed #999;
+}
+
+.loanTable {
+    margin-bottom: 6mm;
+}
+
+.loanTable th:nth-child(1) {
+    width: 25%;
+}
+
+.loanTable td:nth-child(2) {
+    width: 25%;
+}
+
+.loanTable th:nth-child(3) {
+    width: 25%;
+}
+
+.guarantorBox {
+    border: 1px solid #000;
+    border-radius: 3mm;
+    padding: 4mm 3mm 3mm;
+    margin-bottom: 5mm;
+    break-inside: avoid;
+}
+
+.guarantorBox .withPhoto {
+    margin-bottom: 0;
+}
+
+.guarantorBox .photo,
+.guarantorBox .photoBlank {
+    height: 32mm;
+}
+
+.boxTitle {
+    font-weight: 700;
+    font-size: 11pt;
+}
+
+.consent {
+    margin: 0 0 3mm;
+    font-size: 10.5pt;
+}
+
+.consentLine {
+    display: inline-block;
+    width: 62mm;
+    border-bottom: 1px solid #000;
+    height: 1em;
+    vertical-align: baseline;
+}
+
+.subheading {
+    text-align: center;
+    font-weight: 700;
+    font-size: 10pt;
+    margin: 4mm 0 3mm;
+}
+
+.collaterals th,
+.collaterals td {
+    width: 25%;
+}
+
+.blankRow td {
+    height: 7mm;
+}
+
+.signRow {
+    display: flex;
+    align-items: flex-end;
+    margin-top: 4mm;
+    font-size: 10.5pt;
+    break-inside: avoid;
+}
+
+.line {
+    display: inline-block;
+    border-bottom: 1px solid #000;
+    width: 50mm;
+    height: 1em;
+}
+
+.terms {
+    font-size: 10.5pt;
+}
+
+.terms p {
+    margin: 0 0 4mm;
+}
+
+.termsTitle {
+    font-weight: 700;
+}
+
+.fill {
+    display: inline-block;
+    border-bottom: 1px solid #000;
+    height: 1em;
+    vertical-align: baseline;
+}
+
+.schedule th,
+.schedule td {
+    padding: 1.4mm 1.5mm;
+}
+
+.schedule th:first-child,
+.schedule td:first-child {
+    width: 21%;
+}
+
+.schedule th:nth-child(2),
+.schedule td:nth-child(2) {
+    width: 38%;
+}
+
+.pageNumber {
+    text-align: center;
+    font-size: 8pt;
+    margin-top: 4mm;
+}
+
+@media print {
+    .document {
+        gap: 0;
+        overflow: visible;
+    }
+
+    .page {
+        width: auto;
+        margin: 0;
+        min-height: 278mm;
+        padding: 0;
+        box-shadow: none;
+        break-after: page;
+    }
+
+    .page:last-child {
+        break-after: auto;
+    }
+}

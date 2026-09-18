@@ -80,6 +80,9 @@ export interface Loan {
   days_past_due: number;
   topup_of_loan_id: number | null;
   agreement_file: string | null;
+  agreement_uploaded_at: string | null;
+  /** Past branch manager approval: the agreement can be printed and the signed copy uploaded. */
+  agreement_available: boolean;
   created_at: string | null;
   approved_at: string | null;
   disbursed_at: string | null;

@@ -277,6 +277,7 @@ class StaffCreditWorkflowApiTest extends TestCase
         $this->actingAs($hr)->postJson('/api/v1/hrm/payroll/generate', ['period' => $period])->assertOk();
         $run = PayrollRun::sole();
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
+        $this->fundPayroll($finance);
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertOk();
 
         $this->assertEquals(100000, $loan->payments()->sum('amount'));

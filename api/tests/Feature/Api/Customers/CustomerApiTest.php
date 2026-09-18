@@ -102,14 +102,15 @@ class CustomerApiTest extends TestCase
 
         $this->actingAs($this->employeeWithRole($admin, 'credit_officer'));
         $this->postJson('/api/v1/customers', [])->assertForbidden();
-        $this->putJson("/api/v1/customers/{$customerId}", ['firstName' => ''])->assertForbidden();
+        // Correcting details is customers.edit, which every role that views customers holds (2026-09-18).
+        $this->putJson("/api/v1/customers/{$customerId}", ['firstName' => ''])->assertUnprocessable()->assertJsonValidationErrors('firstName');
         $this->post("/api/v1/customers/{$customerId}/documents", [], ['Accept' => 'application/json'])->assertForbidden();
         $this->post("/api/v1/customers/{$customerId}/face-verify", [], ['Accept' => 'application/json'])->assertForbidden();
         $this->postJson("/api/v1/customers/{$customerId}/next-of-kin", [])->assertForbidden();
         $this->postJson("/api/v1/customers/{$customerId}/guarantors", [])->assertForbidden();
         $this->postJson("/api/v1/customers/{$customerId}/notes", [])->assertForbidden();
         $this->postJson('/api/v1/customer-drafts', [])->assertForbidden();
-        $this->getJson('/api/v1/customers/registration-options')->assertForbidden();
+        $this->getJson('/api/v1/customers/registration-options')->assertOk();
         $this->getJson("/api/v1/customers/{$customerId}")->assertOk();
     }
 
@@ -188,6 +189,50 @@ class CustomerApiTest extends TestCase
         $this->actingAs($officer)->putJson("/api/v1/customers/{$existing}", ['employeeId' => $admin->id])->assertOk();
         $this->actingAs($officer)->putJson("/api/v1/customers/{$existing}", ['employeeId' => $this->employeeWithRole($admin, 'loan_officer')->id])
             ->assertUnprocessable()->assertJsonValidationErrors('employeeId');
+    }
+
+    public function test_admin_can_fill_in_an_old_record_one_field_at_a_time(): void
+    {
+        $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+        $legacy = Customer::factory()->create([
+            'branch_id' => $admin->branch_id, 'first_name' => 'MARKO', 'last_name' => 'VUKARI',
+            'gender' => null, 'date_of_birth' => null, 'customer_category_id' => null, 'region_id' => null,
+        ]);
+
+        $this->putJson("/api/v1/customers/{$legacy->id}", ['gender' => 'male', 'dob' => '1980-01-02'])
+            ->assertOk()
+            ->assertJsonPath('data.gender', 'male')
+            ->assertJsonPath('data.dob', '1980-01-02')
+            ->assertJsonPath('data.firstName', 'MARKO');
+
+        $this->putJson("/api/v1/customers/{$legacy->id}", ['lastName' => ''])->assertUnprocessable()->assertJsonValidationErrors('lastName');
+        $this->assertSame('VUKARI', $legacy->fresh()->last_name);
+    }
+
+    public function test_staff_who_view_customers_can_edit_details_but_not_move_them(): void
+    {
+        $admin = $this->signInAdmin();
+        $this->seedCustomerModule($admin);
+        $customer = Customer::factory()->create(['branch_id' => $admin->branch_id, 'first_name' => 'MARKO', 'last_name' => 'VUKARI', 'gender' => null]);
+        $otherBranch = Branch::factory()->create(['company_id' => $admin->company_id]);
+
+        // Zone managers hold customers.edit too, but only reach customers of their zone's branches (AccessControl scope).
+        foreach (['finance', 'credit_officer', 'branch_manager', 'loan_officer'] as $role) {
+            $employee = $this->employeeWithRole($admin, $role);
+            $this->actingAs($employee)->getJson('/api/v1/customers/registration-options')->assertOk();
+            $this->actingAs($employee)->putJson("/api/v1/customers/{$customer->id}", ['middleName' => strtoupper($role)])
+                ->assertOk()->assertJsonPath('data.middleName', strtoupper($role));
+        }
+
+        $finance = $this->employeeWithRole($admin, 'finance');
+        $this->actingAs($finance)->putJson("/api/v1/customers/{$customer->id}", ['branchId' => $otherBranch->id])
+            ->assertUnprocessable()->assertJsonPath('errors.branchId.0', 'Only staff who register customers can move a customer to another branch.');
+        $this->actingAs($finance)->putJson("/api/v1/customers/{$customer->id}", ['employeeId' => $admin->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('employeeId');
+        $this->assertSame($admin->branch_id, $customer->fresh()->branch_id);
+
+        $this->actingAs($this->employeeWithRole($admin, 'teller'))->putJson("/api/v1/customers/{$customer->id}", ['middleName' => 'X'])->assertForbidden();
     }
 
     public function test_approve_reject_and_resubmit(): void

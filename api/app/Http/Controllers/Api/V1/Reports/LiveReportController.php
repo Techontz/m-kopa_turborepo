@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers\Api\V1\Reports;
 
+use App\Enums\LoanStatus;
 use App\Models\Customer;
 use App\Models\Loan;
+use App\Models\LoanTransaction;
 use App\Services\LoanService;
 use App\Services\PaymentService;
 use App\Services\Reports\DailyReport;
 use App\Services\Reports\OperationalReports;
+use App\Services\ReversalRequests;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,12 +24,71 @@ class LiveReportController extends ReportApiController
 {
     public function __construct(private readonly OperationalReports $reports) {}
 
-    public function cash(Request $request): JsonResponse
+    public function cash(Request $request, LoanService $loans): JsonResponse
     {
         $this->authorizeAny('reports.view');
         $scope = $this->reportScope($request, defaultToToday: true);
 
-        return $this->report($this->reports->cash($scope) + ['filter' => $this->filterEcho($request, $scope)]);
+        $report = $this->reports->cash($scope);
+        $report['rows'] = $this->withReversal($report['rows'], $loans);
+
+        return $this->report($report + ['filter' => $this->filterEcho($request, $scope)]);
+    }
+
+    /**
+     * Cash Transaction is where Finance raises a reversal REQUEST (maker/checker, see ReversalRequests): a deposit is a loan
+     * repayment, a withdrawal is the loan's disbursement, and a top-up settlement deposit is undone by reversing its top-up
+     * loan's disbursement (target_loan_id). Eligibility — including "a reversal is already pending" and segregation of
+     * duties — comes from the same LoanService checks as the loan page, and is shown on the row, not only on hover.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function withReversal(array $rows, LoanService $loans): array
+    {
+        $viewer = $this->currentEmployee();
+        $mayRepayment = $viewer->can('loans.reverse_repayment');
+        $mayDisbursement = $viewer->can('loans.reverse_disbursement');
+        $transactions = $mayRepayment || $mayDisbursement
+            ? LoanTransaction::query()->with('loan')->whereIn('id', array_column($rows, 'id'))->get()->keyBy('id')
+            : collect();
+        $requests = app(ReversalRequests::class);
+
+        return array_map(function (array $row) use ($transactions, $loans, $viewer, $mayRepayment, $mayDisbursement, $requests): array {
+            $transaction = $transactions->get($row['id']);
+            $settlement = $transaction !== null && $transaction->type === 'deposit' && strtoupper((string) $transaction->method) === 'TOPUP';
+            $target = match (true) {
+                $transaction === null => null,
+                $settlement => $loans->topupLoanOf($transaction),
+                $transaction->type === 'withdrawal' => $transaction->loan,
+                default => null,
+            };
+            $type = $transaction?->type === 'deposit' && ! $settlement ? 'loan_repayment' : 'loan_disbursement';
+            $allowed = $transaction !== null && ($type === 'loan_repayment' ? $mayRepayment : $mayDisbursement && $target !== null);
+            $subject = $type === 'loan_repayment' ? $transaction : $target;
+            $pending = $allowed ? $requests->pendingFor($subject) : null;
+            $blocker = match (true) {
+                ! $allowed => null,
+                $type === 'loan_repayment' => $loans->repaymentReverseBlockedReason($transaction, $viewer),
+                in_array($target->status, LoanStatus::disbursed(), true) => $loans->disbursementReverseBlockedReason($target, $viewer),
+                default => "The loan {$target->loan_number} is {$target->status->label()}; only an active or overdue loan can have its disbursement reversed.",
+            };
+
+            return $row + [
+                'method' => $transaction?->method,
+                'loan_number' => $transaction?->loan?->loan_number,
+                'reversal_type' => $type,
+                'target_loan_id' => $type === 'loan_disbursement' ? $target?->id : $row['loan_id'],
+                'target_loan_number' => $type === 'loan_disbursement' ? $target?->loan_number : $transaction?->loan?->loan_number,
+                'target_amount' => $type === 'loan_disbursement' ? (float) ($target?->amount_approved ?? 0) : (float) ($row['deposit'] ?? 0),
+                'is_topup_settlement' => $settlement,
+                'is_topup' => $type === 'loan_disbursement' && $target?->topup_of_loan_id !== null,
+                'may_reverse' => $allowed,
+                'can_reverse' => $allowed && $blocker === null,
+                'reverse_blocked_reason' => $blocker,
+                'reversal_request_id' => $pending?->id,
+            ];
+        }, $rows);
     }
 
     public function branchwise(Request $request): JsonResponse
@@ -44,7 +106,21 @@ class LiveReportController extends ReportApiController
         $scope = $this->reportScope($request);
         $year = $request->integer('year') ?: (int) now()->format('Y');
 
-        return $this->report($this->reports->file($scope, $year, $request->string('loan_status')->toString() ?: null) + ['year' => $year, 'years' => $this->years()]);
+        return $this->report($this->reports->file($scope, $year, $request->string('loan_status')->toString() ?: null) + ['year' => $year, 'years' => $this->years($this->reports->historicalYears($scope))]);
+    }
+
+    /**
+     * File → Historical Payments: the month-by-month amounts of imported historical File reports (records only).
+     */
+    public function historicalPayments(Request $request): JsonResponse
+    {
+        $this->authorizeAny('reports.view');
+        $request->validate(['year' => ['nullable', 'integer', 'between:2000,2100']]);
+        $scope = $this->reportScope($request);
+        $historicalYears = $this->reports->historicalYears($scope);
+        $year = $request->integer('year') ?: ($historicalYears[0] ?? (int) now()->format('Y'));
+
+        return $this->report($this->reports->historicalPayments($scope, $year) + ['year' => $year, 'years' => $historicalYears]);
     }
 
     public function newLoans(Request $request): JsonResponse
@@ -216,15 +292,17 @@ class LiveReportController extends ReportApiController
     }
 
     /**
-     * Years offered by the File filter: the current year back to the first loan cash-out (live: 2026 … 2023).
+     * Years offered by the File filter: the current year back to the first loan cash-out (live: 2026 … 2023), or further
+     * back to the earliest imported historical File report.
      *
+     * @param  list<int>  $historicalYears
      * @return list<int>
      */
-    private function years(): array
+    private function years(array $historicalYears = []): array
     {
         $first = Loan::where('company_id', $this->currentEmployee()->company_id)->whereNotNull('withdrawn_at')->min('withdrawn_at');
         $current = (int) now()->format('Y');
-        $start = $first ? min($current, (int) substr((string) $first, 0, 4)) : $current;
+        $start = min($current, $first ? (int) substr((string) $first, 0, 4) : $current, ...$historicalYears);
 
         return range($current, $start);
     }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Api\V1\Loans;
 
+use App\Enums\LoanStatus;
 use App\Models\Loan;
 use App\Models\LoanDisbursement;
 use App\Services\CustomerEligibility;
@@ -80,6 +81,9 @@ class LoanResource extends JsonResource
             'days_past_due' => (int) $this->days_past_due,
             'topup_of_loan_id' => $this->topup_of_loan_id,
             'agreement_file' => $this->agreement_file ? asset('storage/'.$this->agreement_file) : null,
+            'agreement_uploaded_at' => $this->agreement_uploaded_at?->toDateTimeString(),
+            // Generated after branch manager approval; the signed copy must be uploaded before credit approval.
+            'agreement_available' => in_array($this->status, LoanStatus::agreementAvailable(), true),
             'created_at' => $this->created_at?->toDateString(),
             'approved_at' => $this->approved_at?->toDateString(),
             'disbursed_at' => $this->disbursed_at?->toDateTimeString(),

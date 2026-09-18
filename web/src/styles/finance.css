@@ -58,6 +58,7 @@ body[data-shell="finance"] {
     text-decoration: none;
 }
 .fin-brand:hover, .fin-brand:focus { color: var(--fin-bar-text); text-decoration: none; }
+.fin-brand-logo { height: 38px; width: auto; border-radius: 4px; }
 
 .fin-nav { flex: 1; text-align: center; }
 .fin-menu { display: inline; margin: 0; padding: 0; list-style: none; }

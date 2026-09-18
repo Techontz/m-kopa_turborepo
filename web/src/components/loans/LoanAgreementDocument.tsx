@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { backendUrl } from "@/lib/api";
+import { BRAND_LOGO } from "@/lib/brand";
 import { money, percent } from "@/lib/format";
 
 import { FREQUENCY_LABEL, type LoanAgreementData } from "./agreement";
@@ -43,7 +44,7 @@ function Letterhead({ company, children, code }: { company: LoanAgreementData["c
     <header className={styles.letterhead}>
       <div className={styles.logoBox}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {company.logo_url ? <img src={company.logo_url} alt={company.name} /> : <span className={styles.logoText}>{company.name}</span>}
+        <img src={company.logo_url ?? BRAND_LOGO} alt={company.name} />
       </div>
       <div className={code === undefined ? styles.headTitle : styles.headCompany}>{children}</div>
       {code && <Barcode value={code} />}

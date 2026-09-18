@@ -39,6 +39,9 @@ a:hover { text-decoration: none; }
 .navbar-fixed-top .navbar-btn button { font-size: 20px; border: 0; background: none; color: var(--mf-nav-icon); }
 .navbar-fixed-top .navbar-brand { width: 250px; padding: 15px; margin: 0; }
 .navbar-fixed-top .navbar-brand img { width: 85px; margin-top: 2px; vertical-align: top; }
+.navbar-fixed-top .navbar-brand .mf-brand-logo { width: auto; height: 50px; max-width: calc(100% - 14px); margin: -10px 0 0 14px; border-radius: 4px; }
+.auth-box .top { text-align: center; margin-bottom: 16px; }
+.auth-box .top .mf-auth-logo { width: 100%; max-width: 280px; height: auto; border-radius: 6px; }
 .navbar-fixed-top .navbar-brand .mf-brand { display: inline-block; font-size: 24px; font-weight: 800; line-height: 30px; letter-spacing: .06em; color: var(--mf-heading); text-decoration: none; }
 .navbar-fixed-top .navbar-brand .mf-brand:hover { color: var(--mf-heading); }
 .navbar-fixed-top .navbar-right { flex: 1; display: flex; align-items: center; justify-content: space-between; padding-right: 15px; }

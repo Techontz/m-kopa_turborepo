@@ -1,4 +1,5 @@
 import { backendUrl } from "@/lib/api";
+import { BRAND_LOGO } from "@/lib/brand";
 
 import styles from "./AssetLabel.module.css";
 import { labelLines, type AssetRow } from "./assets";
@@ -12,7 +13,8 @@ export function AssetLabel({ asset }: { asset: Pick<AssetRow, "asset_code" | "na
       {/* eslint-disable-next-line @next/next/no-img-element -- authorised API image stream */}
       <img className={styles.qr} src={backendUrl(asset.qr_endpoint)} alt={`QR code ${lines.code}`} />
       <div className={styles.text}>
-        <div className={styles.brand}>{lines.brand}</div>
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset */}
+        <img className={styles.brandLogo} src={BRAND_LOGO} alt={lines.brand} />
         <div className={styles.code}>{lines.code}</div>
         <div className={styles.line}><b>{lines.name}</b></div>
         <div className={styles.line}>{lines.type}</div>

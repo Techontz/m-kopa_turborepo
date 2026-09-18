@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useAuth } from "@/lib/auth";
+import { BRAND_LOGO, BRAND_NAME } from "@/lib/brand";
 import { activeShareholderHref, visibleShareholderMenu } from "@/lib/shareholderMenu";
 
 /**
@@ -32,7 +33,11 @@ export function ShareholderTopbar() {
 
   return (
     <header className="fin-header sh-header" data-testid="shareholder-header">
-      <Link href="/shareholder" className="fin-brand" aria-label="Shareholder portal home">M-KOPA <small className="sh-brand-sub">Shareholders</small></Link>
+      <Link href="/shareholder" className="fin-brand" aria-label="Shareholder portal home">
+        {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset */}
+        <img src={BRAND_LOGO} alt={BRAND_NAME} className="fin-brand-logo" />
+        <small className="sh-brand-sub">Shareholders</small>
+      </Link>
 
       <button type="button" className="fin-nav-toggle" aria-expanded={open} aria-controls="sh-nav" aria-label={open ? "Close menu" : "Open menu"} onClick={() => setOpen((value) => !value)}>
         <i className={open ? "fa fa-times" : "fa fa-bars"} />

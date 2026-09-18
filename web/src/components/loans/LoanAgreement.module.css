@@ -76,13 +76,6 @@
     object-fit: contain;
 }
 
-.logoText {
-    font-family: "DejaVu Sans", Verdana, Arial, sans-serif;
-    font-weight: 700;
-    font-size: 12pt;
-    text-align: center;
-}
-
 .headCompany {
     flex: 1;
     font-family: "DejaVu Sans", Verdana, Arial, sans-serif;

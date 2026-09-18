@@ -1,0 +1,22 @@
+{
+    "code": "makambako-2026-file-report",
+    "title": "FILE REPORT - MAKAMBAKO / DATE : 2026",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "MAKAMBAKO",
+    "year": 2026,
+    "source_document": "MAKAMBAKO BRANCH 2026 FILE.pdf",
+    "rows": "makambako-2026-file-report.csv",
+    "printed_totals": {
+        "1": 15040240,
+        "2": 12463300,
+        "3": 16854080,
+        "4": 13657200,
+        "5": 15601260,
+        "6": 16558480,
+        "7": 12649797,
+        "8": 10625142,
+        "9": 3274564
+    },
+    "notes": "Makambako Branch File report for 2026 (151 rows, January to September 2026), including the status \"New\", five empty rows with loan 0 and no withdrawal date or status (rows 39, 52, 112, 125, 127) and row 130 (BARAKA H. MWAIPAYA) with status \"Disbursed\" and no withdrawal date. The printed TOTAL row equals the sum of the listed rows in every month except January, where it is 802,000 more: that is MICHAEL T. KISANGAIKE's January payment on his loan of 2025-08-25 (2025 report row 92), which the 2026 report does not list. Kept as printed. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed, including Collection/Paid amounts that include a 5,000-30,000 fee (so Remain is not always Loan minus Paid). The report header prints the region as KIGOMA."
+}

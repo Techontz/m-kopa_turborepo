@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\SmsLog;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Sends customer SMS through the swappable SMS connector and records them in sms_logs
@@ -20,6 +21,10 @@ class CustomerMessenger
 
     public function send(Customer $customer, string $message, Employee $employee, ?CarbonInterface $followUpDate = null): CrmInteraction
     {
+        if (blank($customer->phone)) {
+            throw ValidationException::withMessages(['customer_id' => "{$customer->full_name} has no phone number; add it to the customer before sending an SMS."]);
+        }
+
         $this->gateway->send($customer->phone, $message);
 
         return DB::transaction(function () use ($customer, $message, $employee, $followUpDate): CrmInteraction {

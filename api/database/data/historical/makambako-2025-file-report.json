@@ -1,0 +1,25 @@
+{
+    "code": "makambako-2025-file-report",
+    "title": "FILE REPORT - MAKAMBAKO / DATE : 2025",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "MAKAMBAKO",
+    "year": 2025,
+    "source_document": "MAKAMBAKO BRANCH 2025 FILE.pdf",
+    "rows": "makambako-2025-file-report.csv",
+    "printed_totals": {
+        "1": 13055500,
+        "2": 11811500,
+        "3": 10404000,
+        "4": 13901900,
+        "5": 13628009,
+        "6": 13111191,
+        "7": 13176400,
+        "8": 19105300,
+        "9": 14757500,
+        "10": 40046414,
+        "11": 16523400,
+        "12": 14429800
+    },
+    "notes": "Makambako Branch File report for 2025 (122 rows). The report lists only loans withdrawn in 2025; its printed TOTAL row also counts 2025 repayments on loans withdrawn earlier, so it is larger than the sum of the listed rows in every month. Kept as printed. Every loan withdrawn in 2025 reconciles exactly with the following year's report. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed, including Collection/Paid amounts that include a 5,000-30,000 fee (so Remain is not always Loan minus Paid). The report header prints the region as KIGOMA."
+}

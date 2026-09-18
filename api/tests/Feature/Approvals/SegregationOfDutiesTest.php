@@ -28,6 +28,7 @@ use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Ledger;
 use App\Services\ShareholderOwnership;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UploadsLoanAgreement;
 use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
@@ -39,6 +40,7 @@ use Tests\TestCase;
 class SegregationOfDutiesTest extends TestCase
 {
     use RefreshDatabase;
+    use UploadsLoanAgreement;
     use UsesSecondApprover;
 
     private Employee $admin;
@@ -390,6 +392,7 @@ class SegregationOfDutiesTest extends TestCase
         $manager = $this->employeeWith('branch_manager', 'loans.credit_review');
         $this->actingAs($manager)->postJson(route('api.v1.loans.approve-manager', $loan), ['loan_aprove' => 100000])->assertOk();
         $this->actingAs($manager)->postJson(route('api.v1.loans.kyc-verify', $loan))->assertOk();
+        $this->uploadAgreement($loan)->assertOk();
         $this->actingAs($manager)->postJson(route('api.v1.loans.approve-credit', $loan))->assertForbidden()->assertJsonPath('message', SegregationOfDuties::STAGE_MESSAGE);
         $this->actingAs($applicant)->postJson(route('api.v1.loans.approve-credit', $loan))->assertForbidden()->assertJsonPath('message', SegregationOfDuties::INITIATOR_MESSAGE);
 

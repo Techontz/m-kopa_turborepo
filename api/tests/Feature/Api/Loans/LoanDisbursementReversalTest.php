@@ -11,6 +11,8 @@ use App\Models\Employee;
 use App\Models\JournalEntry;
 use App\Models\Loan;
 use App\Models\LoanDisbursement;
+use App\Models\LoanOffset;
+use App\Models\Payment;
 use App\Models\Penalty;
 use App\Services\Ledger;
 use App\Services\LoanService;
@@ -95,10 +97,6 @@ class LoanDisbursementReversalTest extends TestCase
         Penalty::create(['company_id' => $admin->company_id, 'branch_id' => $admin->branch_id, 'customer_id' => $penalised->customer_id, 'loan_id' => $penalised->id, 'amount' => 1000, 'penalty_date' => today()]);
         $reverse($penalised)->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'The loan has penalties; its disbursement cannot be reversed.']);
 
-        $topup = $this->disbursedLoan($admin);
-        $topup->update(['topup_of_loan_id' => $penalised->id]);
-        $reverse($topup)->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'This loan is a top-up that settled a previous loan; a top-up disbursement cannot be reversed.']);
-
         $toppedUp = $this->disbursedLoan($admin);
         Loan::factory()->create(['customer_id' => $toppedUp->customer_id, 'topup_of_loan_id' => $toppedUp->id]);
         $reverse($toppedUp)->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'Another loan is a top-up of this loan; its disbursement cannot be reversed.']);
@@ -110,6 +108,46 @@ class LoanDisbursementReversalTest extends TestCase
         $this->getJson("/api/v1/loans/{$penalised->id}")->assertOk()
             ->assertJsonPath('data.can_reverse_disbursement', false)
             ->assertJsonPath('data.reverse_disbursement_blocked_reason', 'The loan has penalties; its disbursement cannot be reversed.');
+    }
+
+    public function test_a_top_up_reversal_also_reverses_its_settlement_of_the_previous_loan(): void
+    {
+        $admin = $this->signInAdmin();
+        app(Ledger::class)->openingBalance($admin->company_id, Account::Principal, 1000000);
+        $previous = $this->disbursedLoan($admin);
+        $before = $this->balances($admin);
+        $suspense = $this->balance($admin, Account::Suspense, $admin->branch_id);
+        $payments = Payment::count();
+
+        $topup = $this->disbursedLoan($admin);
+        $topup->update(['customer_id' => $previous->customer_id, 'topup_of_loan_id' => $previous->id]);
+        $balance = app(LoanService::class)->outstanding($previous)['total'];
+        $settlement = app(LoanService::class)->deposit($previous, $balance, CarbonImmutable::today(), 'TOPUP', $admin);
+        $offset = LoanOffset::create([
+            'company_id' => $previous->company_id, 'branch_id' => $previous->branch_id, 'customer_id' => $previous->customer_id, 'old_loan_id' => $previous->id,
+            'new_loan_id' => $topup->id, 'loan_transaction_id' => $settlement->id, 'amount' => $settlement->amount, 'principal_amount' => $settlement->principal,
+            'penalty_amount' => 0, 'interest_amount' => $settlement->interest, 'salary_advance_amount' => 0, 'insurance_amount' => 0, 'cash_disbursed' => 0, 'settled_on' => today(),
+        ]);
+        $this->assertSame(LoanStatus::Closed, $previous->fresh()->status);
+
+        $approver = $this->secondApprover($admin);
+        $this->actingAs($approver)->postJson("/api/v1/loans/{$previous->id}/transactions/{$settlement->id}/reverse", ['reason' => 'Undo'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['reason' => "This repayment is the settlement made by top-up loan {$topup->loan_number}; reverse that loan's disbursement and this settlement is reversed with it."]);
+        $this->getJson('/api/v1/reports/cash')->assertOk();
+
+        $this->approveReversal($this->actingAs($approver)->postJson("/api/v1/loans/{$topup->id}/reverse-disbursement", ['reason' => 'Top-up sent in error']))
+            ->assertOk()
+            ->assertJsonPath('message', "Loan disbursement reversed successfully; the loan is cancelled. The top-up settlement of loan {$previous->loan_number} was reversed too; that loan is open again.");
+
+        $this->assertSame(LoanStatus::Cancelled, $topup->fresh()->status);
+        $this->assertSame(LoanStatus::Active, $previous->fresh()->status);
+        $this->assertEquals($balance, app(LoanService::class)->outstanding($previous->fresh())['total'], 'the previous loan owes its balance again');
+        $this->assertNotNull($settlement->fresh()->reversed_at);
+        $this->assertNotNull($offset->fresh()->reversed_at);
+        $this->assertSame($before, $this->balances($admin), 'the ledger is exactly as before the top-up');
+        $this->assertSame($suspense, $this->balance($admin, Account::Suspense, $admin->branch_id), 'nothing goes to suspense: the settlement was paid by the top-up');
+        $this->assertSame($payments, Payment::count());
+        $this->assertTrue(AuditLog::where('action', 'TOPUP_SETTLEMENT_REVERSED')->where('auditable_id', $previous->id)->exists());
     }
 
     public function test_permission_and_company_scope(): void

@@ -224,6 +224,7 @@ class NegligenceDeductionApiTest extends TestCase
         $this->actingAs($this->finance)->postJson("/api/v1/hrm/negligence-deductions/{$id}/approve")->assertOk();
 
         // HQ staff earn no commission, so nothing is recovered and the whole balance carries forward.
+        $this->fundPayroll($this->admin);
         $run = $this->runPayroll('2026-07');
         $item = $run->items()->where('employee_id', $hq->id)->sole();
         $this->assertEquals([0, 0, 320000], [(float) $item->commission, (float) $item->negligence, (float) $item->take_home]);

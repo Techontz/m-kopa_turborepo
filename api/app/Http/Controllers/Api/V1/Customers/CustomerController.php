@@ -95,7 +95,7 @@ class CustomerController extends ApiController
      */
     public function registrationOptions(): JsonResponse
     {
-        $this->authorizeAny('customers.manage');
+        $this->authorizeAny('customers.manage', 'customers.edit');
 
         $actor = $this->currentEmployee();
         $viewAll = Gate::allows('branches.view_all');

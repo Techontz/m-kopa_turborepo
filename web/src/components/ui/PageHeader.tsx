@@ -11,8 +11,9 @@ export function PageHeader({ crumbs, right }: { crumbs: string[]; right?: ReactN
             <li className="breadcrumb-item">
               <Link href="/dashboard"><i className="icon-home" /></Link>
             </li>
-            {crumbs.map((crumb) => (
-              <li className="breadcrumb-item active" key={crumb}>{crumb}</li>
+            {/* Crumbs are a fixed trail and may repeat a label ("Loan / Loan"), so position is the identity. */}
+            {crumbs.map((crumb, index) => (
+              <li className="breadcrumb-item active" key={index}>{crumb}</li>
             ))}
           </ul>
         </div>

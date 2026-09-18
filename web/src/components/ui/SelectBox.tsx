@@ -10,10 +10,16 @@ export interface Option {
   label: string;
 }
 
+/** A labelled section of options (react-select renders the label as a group heading). */
+export interface OptionGroup {
+  label: string;
+  options: Option[];
+}
+
 interface SelectBoxProps {
   value?: string | number | null;
   onChange: (value: string | null) => void;
-  options?: Option[];
+  options?: (Option | OptionGroup)[];
   /** API path returning { data: Option[] } — used for dependent / remote dropdowns. */
   optionsUrl?: string;
   query?: Query;
@@ -30,13 +36,14 @@ export function SelectBox({ value, onChange, options, optionsUrl, query, placeho
   const enabled = Boolean(optionsUrl) && !isDisabled;
   const { data: remote = [], isLoading } = useQuery({
     queryKey: ["options", optionsUrl, query],
-    queryFn: () => api.get<{ data: Option[] }>(optionsUrl as string, query).then((response) => response.data),
+    queryFn: () => api.get<{ data: (Option | OptionGroup)[] }>(optionsUrl as string, query).then((response) => response.data),
     enabled,
     staleTime: 60 * 1000,
   });
 
-  const list = options ?? remote;
-  const selected = list.find((option) => String(option.value) === String(value ?? "")) ?? null;
+  const list: (Option | OptionGroup)[] = options ?? remote;
+  const flat = list.flatMap((entry) => ("options" in entry ? entry.options : [entry]));
+  const selected = flat.find((option) => String(option.value) === String(value ?? "")) ?? null;
 
   return (
     <div style={{ width: width ?? "100%" }}>
@@ -48,7 +55,7 @@ export function SelectBox({ value, onChange, options, optionsUrl, query, placeho
         classNamePrefix="mf-select"
         options={list}
         value={selected}
-        onChange={(option) => onChange(option ? option.value : null)}
+        onChange={(option) => onChange(option && "value" in option ? option.value : null)}
         placeholder={placeholder}
         isDisabled={isDisabled}
         isClearable={isClearable}

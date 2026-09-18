@@ -56,7 +56,8 @@ class ReversalRequestController extends ApiController
         $message = match ($row->type) {
             ReversalRequest::REPAYMENT => 'Repayment reversed successfully. TZS '.money($result['result']['transaction']->amount).' returned to suspense (receipt '.$result['result']['payment']->receipt_number.').'
                 .($result['result']['closed_period'] !== null ? " The repayment belongs to the closed period {$result['result']['closed_period']}; the reversal was posted today as an adjustment in the current open period." : ''),
-            ReversalRequest::DISBURSEMENT => 'Loan disbursement reversed successfully; the loan is cancelled.',
+            ReversalRequest::DISBURSEMENT => 'Loan disbursement reversed successfully; the loan is cancelled.'
+                .($row->loan?->topupOf !== null ? " The top-up settlement of loan {$row->loan->topupOf->loan_number} was reversed too; that loan is open again." : ''),
             default => 'Penalty payment reversed successfully. TZS '.money($row->amount).' is owed on the penalty again.',
         };
 

@@ -14,7 +14,6 @@ import { useAction } from "@/lib/hooks";
 import { DisbursementSourceFields } from "./DisbursementSourceFields";
 import { ReversalModal } from "./ReversalModal";
 import { approvePath, pendingNote, rejectPath } from "./reversalRequest";
-import { EMPTY_SOURCE, sourcePayload, type SourceChoice } from "./disbursementSource";
 import { formatFreezeUntil } from "./freeze";
 import type { LoanDetail } from "./types";
 
@@ -27,7 +26,6 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
   const [mandateForm, setMandateForm] = useState({ bank_name: "", account_number: "", account_name: detail.customer.full_name });
   const [otp, setOtp] = useState("");
   const [comment, setComment] = useState("");
-  const [source, setSource] = useState<SourceChoice>(EMPTY_SOURCE);
   const [reversing, setReversing] = useState(false);
 
   const reject = useAction<{ reason: string }>("post", path("reject"));
@@ -36,7 +34,7 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
   const verifyOtp = useAction<{ otp: string }>("post", path("e-mandate/verify-otp"));
   const verifyTelco = useAction<Record<string, never>>("post", path("kyc-verify"));
   const approveCredit = useAction<Record<string, never>>("post", path("approve-credit"));
-  const prepare = useAction<ReturnType<typeof sourcePayload>>("post", path("prepare-disbursement"));
+  const prepare = useAction("post", path("prepare-disbursement"));
   const disburse = useAction<Record<string, never>, { portal_url?: string | null }>("post", path("disburse"));
   const retry = useAction<Record<string, never>, { portal_url?: string | null }>("post", path("retry-disbursement"));
   const close = useAction<Record<string, never>>("post", path("close"));
@@ -120,8 +118,9 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
               <><span className={`badge badge-${loan.telco_matched ? "success" : "danger"}`}>{loan.telco_matched ? "MATCHED" : "NAME MISMATCH"}</span> {detail.customer.phone} → {loan.telco_name ?? "not registered"}</>
             )}
           </p>
+          {!loan.agreement_file && <div className="alert alert-warning">The customer&apos;s signed loan agreement has not been uploaded yet. Approval is possible after it is uploaded.</div>}
           <button type="button" className="btn btn-info mr-1" disabled={verifyTelco.isPending} onClick={() => verifyTelco.mutate({})}>Verification</button>
-          <button type="button" className="btn btn-success mr-1" disabled={!loan.telco_matched || approveCredit.isPending} onClick={async () => (await confirmAction("Approve this loan?")) && approveCredit.mutate({})}>Approve</button>
+          <button type="button" className="btn btn-success mr-1" disabled={!loan.telco_matched || !loan.agreement_file || approveCredit.isPending} onClick={async () => (await confirmAction("Approve this loan?")) && approveCredit.mutate({})}>Approve</button>
           {rejectModify("loans.credit_review")}
         </>
       ) : <p>Waiting for credit officer review.</p>;
@@ -131,8 +130,8 @@ export function LoanActions({ detail, onEdit }: { detail: LoanDetail; onEdit: ()
         <>
           <p>Approved by credit officer. Reference number <b>{loan.reference_number}</b>. Amount to send: <b>{money(detail.net_disbursement)}</b>. Destination: <b>LOAN RECEIVABLE - {loan.loan_number}</b>.</p>
           {can("loans.prepare_disbursement") && (
-            <form onSubmit={(e) => { e.preventDefault(); prepare.mutate(sourcePayload(source)); }}>
-              <div className="row"><div className="col-lg-6"><DisbursementSourceFields loanId={loan.id} value={source} onChange={setSource} fieldError={prepare.fieldError} /></div></div>
+            <form onSubmit={(e) => { e.preventDefault(); prepare.mutate({}); }}>
+              <div className="row"><div className="col-lg-6"><DisbursementSourceFields loanId={loan.id} fieldError={prepare.fieldError} /></div></div>
               <button type="submit" className="btn btn-primary mt-2" disabled={prepare.isPending}>Prepare Disbursement</button>
             </form>
           )}

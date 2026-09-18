@@ -85,6 +85,7 @@ class PayrollPeriodExpenseTest extends TestCase
 
         $this->actingAs($this->admin)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
         $this->travelTo(CarbonImmutable::parse('2026-08-05 11:00:00'));
+        $this->fundPayroll($this->admin);
         $this->actingAs($this->finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertOk();
 
         $run->refresh();

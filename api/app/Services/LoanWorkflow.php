@@ -10,7 +10,6 @@ use App\Integrations\Vodacom\DisbursementCallback;
 use App\Integrations\Vodacom\VodacomGateway;
 use App\Models\ApprovalPolicy;
 use App\Models\AuditLog;
-use App\Models\BankAccount;
 use App\Models\Customer;
 use App\Models\Employee;
 use App\Models\Loan;
@@ -24,6 +23,7 @@ use App\Models\SmsLog;
 use App\Services\Approvals\SegregationOfDuties;
 use App\Services\Credit\CreditAssessment;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -48,6 +48,10 @@ use Illuminate\Validation\ValidationException;
  */
 class LoanWorkflow
 {
+    public const AGREEMENT_MISSING = 'Upload the loan agreement filled and signed by the customer before approving';
+
+    public const AGREEMENT_NOT_READY = 'The loan agreement is available after the branch manager approves the loan';
+
     public function __construct(
         private readonly LoanService $loans,
         private readonly CustomerEligibility $eligibility,
@@ -380,6 +384,9 @@ class LoanWorkflow
                 : 'Name mismatch: modify or reject the loan']);
         }
         $this->assertSegregated($loan, $employee, self::MANAGER_STAGE);
+        if ($loan->agreement_file === null) {
+            throw ValidationException::withMessages(['loan' => self::AGREEMENT_MISSING]);
+        }
 
         return DB::transaction(function () use ($loan, $employee): Loan {
             $loan->update([
@@ -390,6 +397,27 @@ class LoanWorkflow
 
             return $loan;
         });
+    }
+
+    /**
+     * The customer's filled and signed copy of the generated agreement (PDF). Only once the branch manager has
+     * approved: before that the terms can still change. Uploading again replaces the file.
+     */
+    public function uploadAgreement(Loan $loan, UploadedFile $file, Employee $employee): Loan
+    {
+        if (! in_array($loan->status, LoanStatus::agreementAvailable(), true)) {
+            throw ValidationException::withMessages(['attach' => self::AGREEMENT_NOT_READY]);
+        }
+
+        $replaced = $loan->agreement_file;
+        $loan->update([
+            'agreement_file' => $file->store('loans/agreements', 'public'),
+            'agreement_uploaded_at' => now(),
+            'agreement_uploaded_by' => $employee->id,
+        ]);
+        $this->record($loan, $replaced === null ? 'AGREEMENT_UPLOADED' : 'AGREEMENT_REPLACED', $loan->status, $employee);
+
+        return $loan;
     }
 
     /**
@@ -497,7 +525,7 @@ class LoanWorkflow
      * Documents: "IF status == DISBURSEMENT_FAILED → allow retry ELSE reject"; max 3 attempts; each retry has a new
      * batch id and an audit record {action: RETRY_DISBURSEMENT, user, timestamp, batch_id, attempt}. Finance edits nothing.
      *
-     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  defaults to the previous batch's source
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  always the HQ PRINCIPAL A/C
      * @return array{status: LoanStatus, message: string, portal_url: string|null, batch_id: string}
      */
     public function retryDisbursement(Loan $loan, Employee $employee, ?array $source = null): array
@@ -650,9 +678,9 @@ class LoanWorkflow
     }
 
     /**
-     * Accounts Finance may disburse from, with live balances and the amount this loan needs from each.
+     * The account every loan is disbursed from (HQ PRINCIPAL A/C), with its live balance and what this loan needs.
      *
-     * @return array{cash: array{value: string, label: string, balance: float, required: float}, banks: list<array{value: string, label: string, balance: float, required: float}>}
+     * @return array{cash: array{value: string, label: string, balance: float, required: float}}
      */
     public function sourceOptions(Loan $loan): array
     {
@@ -666,13 +694,6 @@ class LoanWorkflow
                 'balance' => $ledger->balance($loan->company_id, Account::Principal) + 0.0,
                 'required' => $this->sourceOutflow($loan, LoanDisbursement::SOURCE_CASH),
             ],
-            'banks' => BankAccount::where('company_id', $loan->company_id)->orderBy('id')->get()
-                ->map(fn (BankAccount $account): array => [
-                    'value' => (string) $account->id,
-                    'label' => $account->name,
-                    'balance' => $account->balance() + 0.0,
-                    'required' => $this->sourceOutflow($loan, LoanDisbursement::SOURCE_BANK),
-                ])->values()->all(),
         ];
     }
 
@@ -802,15 +823,12 @@ class LoanWorkflow
     }
 
     /**
-     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  defaults to the previous batch's source, else branch cash
+     * @param  array{source_account?: string|null, source_bank_account_id?: int|null}|null  $source  always resolves to the HQ PRINCIPAL A/C
      */
     private function newBatch(Loan $loan, string $channel, ?Employee $employee, ?array $source = null): LoanDisbursement
     {
         $attempt = (int) $loan->disbursement_attempts + 1;
-        $previous = $loan->latestDisbursement()->first();
-        $source = filled($source['source_account'] ?? null)
-            ? $this->resolveSource($loan, $source)
-            : ['source_account' => $previous?->source_account ?? LoanDisbursement::SOURCE_CASH, 'source_bank_account_id' => $previous?->source_bank_account_id];
+        $source = $this->resolveSource($loan, $source ?? []);
         $prefix = match ($channel) {
             'airtel' => 'AIRT',
             'bank' => 'BANK',
@@ -839,19 +857,11 @@ class LoanWorkflow
     private function resolveSource(Loan $loan, array $source): array
     {
         $account = (string) ($source['source_account'] ?? '');
-        if (! in_array($account, [LoanDisbursement::SOURCE_CASH, LoanDisbursement::SOURCE_BANK], true)) {
-            throw ValidationException::withMessages(['source_account' => 'Select the account the loan is disbursed from']);
-        }
-        if ($account === LoanDisbursement::SOURCE_CASH) {
-            return ['source_account' => $account, 'source_bank_account_id' => null];
+        if ($account !== '' && $account !== LoanDisbursement::SOURCE_CASH) {
+            throw ValidationException::withMessages(['source_account' => 'Loans are disbursed from the PRINCIPAL A/C only']);
         }
 
-        $bank = BankAccount::where('company_id', $loan->company_id)->find($source['source_bank_account_id'] ?? null);
-        if ($bank === null) {
-            throw ValidationException::withMessages(['source_bank_account_id' => 'Select the company bank account the loan is disbursed from']);
-        }
-
-        return ['source_account' => $account, 'source_bank_account_id' => $bank->id];
+        return ['source_account' => LoanDisbursement::SOURCE_CASH, 'source_bank_account_id' => null];
     }
 
     /**

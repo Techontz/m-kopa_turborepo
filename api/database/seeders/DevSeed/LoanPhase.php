@@ -121,6 +121,11 @@ final class LoanPhase
             return;
         }
 
+        // The customer fills and signs the generated agreement; the loan officer uploads it before credit review.
+        $this->ctx->timeline->at($apply->setTime(13, 0)->addMinutes($index % 50), "{$label} signed agreement uploaded", function () use ($loan, $branch): void {
+            $this->ctx->api->call($this->ctx->branchActor($branch, 'loan_officer'), 'POST', "loans/{$loan()->id}/agreement", [], ['attach' => Images::signedAgreement()]);
+        }, fn (): bool => $loan()?->agreement_file !== null);
+
         $creditOfficer = fn () => $this->ctx->staff($index % 2 === 0 ? 'HQ_CR1' : 'HQ_CR2');
         $this->ctx->timeline->at($apply->setTime(14, 0)->addMinutes($index % 50), "{$label} credit review", function () use ($loan, $creditOfficer, $stop): void {
             $verification = $this->ctx->api->call($creditOfficer(), 'POST', "loans/{$loan()->id}/kyc-verify");

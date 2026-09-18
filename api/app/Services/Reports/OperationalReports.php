@@ -6,6 +6,9 @@ use App\Enums\LoanStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Branch;
 use App\Models\Customer;
+use App\Models\HistoricalFilePayment;
+use App\Models\HistoricalFileRecord;
+use App\Models\HistoricalFileReport;
 use App\Models\Loan;
 use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
@@ -157,18 +160,141 @@ class OperationalReports
         $monthNumbers = $deposits->map(fn (LoanTransaction $deposit): int => (int) $deposit->transaction_date->format('n'))->unique()->sort()->values();
 
         $rows = $this->loanRows($this->loans($scope)->whereIn('loans.id', array_keys($monthly) ?: [0]))
-            ->map(fn (array $row): array => $row + ['months' => (object) ($monthly[$row['id']] ?? [])]);
+            ->map(fn (array $row): array => $row + ['months' => (object) ($monthly[$row['id']] ?? []), 'historical' => false]);
+
+        $reports = $this->historicalReports($scope, $year);
+        $historical = $this->historicalRows($reports, $status);
+        $rows = $historical->concat($rows);
+        $monthNumbers = $monthNumbers->toBase()
+            ->concat($historical->flatMap(fn (array $row): array => array_keys((array) $row['months'])))
+            ->unique()->sort()->values();
 
         $totals = $this->sums($rows, ['total_payable', 'restoration', 'paid', 'remain']);
         foreach ($monthNumbers as $month) {
-            $totals["month_{$month}"] = round(collect($monthly)->sum(fn (array $amounts): float => $amounts[$month] ?? 0), 2);
+            $totals["month_{$month}"] = round($rows->sum(fn (array $row): float => ((array) $row['months'])[$month] ?? 0), 2);
         }
 
         return [
             'rows' => $rows->values()->all(),
             'months' => $monthNumbers->map(fn (int $month): array => ['number' => $month, 'name' => CarbonImmutable::create($year, $month, 1)->format('F')])->all(),
             'totals' => $totals,
+            'historical' => $reports->map(fn (HistoricalFileReport $report): array => [
+                'id' => $report->id,
+                'title' => $report->title,
+                'source_document' => $report->source_document,
+                'branch' => $report->branch_name,
+                'year' => $report->year,
+                'records' => $report->records->count(),
+                'printed_totals' => (object) ($report->printed_totals ?? []),
+                'notes' => $report->notes,
+            ])->values()->all(),
         ];
+    }
+
+    /**
+     * The monthly amounts behind the historical rows of the File report, one line per record and month — the
+     * payment history as printed, kept apart from real repayments (no receipt, transaction or journal entry).
+     *
+     * @return array{rows: list<array<string, mixed>>, totals: array{amount: float}}
+     */
+    public function historicalPayments(ReportScope $scope, int $year): array
+    {
+        $rows = HistoricalFilePayment::query()
+            ->join('historical_file_records', 'historical_file_records.id', '=', 'historical_file_payments.historical_file_record_id')
+            ->join('historical_file_reports', 'historical_file_reports.id', '=', 'historical_file_records.historical_file_report_id')
+            ->tap(fn (Builder $query) => $scope->apply($query, 'historical_file_reports'))
+            ->where('historical_file_payments.year', $year)
+            ->orderBy('historical_file_payments.month')
+            ->orderBy('historical_file_reports.id')
+            ->orderBy('historical_file_records.serial_number')
+            ->get([
+                'historical_file_payments.id', 'historical_file_payments.year', 'historical_file_payments.month', 'historical_file_payments.amount',
+                'historical_file_records.id as record_id', 'historical_file_records.serial_number', 'historical_file_records.customer_name',
+                'historical_file_records.phone', 'historical_file_records.status', 'historical_file_reports.branch_name',
+                'historical_file_reports.title', 'historical_file_reports.source_document',
+            ])
+            ->map(fn (HistoricalFilePayment $payment): array => [
+                'id' => $payment->id,
+                'record_id' => $payment->record_id,
+                'serial_number' => $payment->serial_number,
+                'branch' => $payment->branch_name,
+                'customer' => $payment->customer_name,
+                'phone' => $payment->phone,
+                'status' => $payment->status,
+                'year' => $payment->year,
+                'month' => $payment->month,
+                'month_name' => CarbonImmutable::create($payment->year, $payment->month, 1)->format('F'),
+                'amount' => (float) $payment->amount,
+                'source' => "{$payment->title} ({$payment->source_document})",
+            ]);
+
+        return ['rows' => $rows->values()->all(), 'totals' => ['amount' => round((float) $rows->sum('amount'), 2)]];
+    }
+
+    /**
+     * Years that have an imported historical File report in the employee's scope.
+     *
+     * @return list<int>
+     */
+    public function historicalYears(ReportScope $scope): array
+    {
+        return $scope->apply(HistoricalFileReport::query(), 'historical_file_reports')->distinct()->orderByDesc('year')->pluck('year')->all();
+    }
+
+    /**
+     * @return Collection<int, HistoricalFileReport>
+     */
+    private function historicalReports(ReportScope $scope, int $year): Collection
+    {
+        return $scope->apply(HistoricalFileReport::query(), 'historical_file_reports')
+            ->where('year', $year)
+            ->with(['records' => fn ($query) => $query->orderBy('serial_number'), 'records.payments'])
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * Historical File report rows in the live File row shape, figures exactly as printed. The status filter matches the
+     * printed status (ACTIVE → "Active", CLOSED → "Done", DEFAULT → "Default").
+     *
+     * @param  Collection<int, HistoricalFileReport>  $reports
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function historicalRows(Collection $reports, ?string $status): Collection
+    {
+        $printed = match ($status) {
+            'ACTIVE' => 'ACTIVE',
+            'CLOSED' => 'DONE',
+            'DEFAULT' => 'DEFAULT',
+            default => null,
+        };
+
+        return $reports->flatMap(fn (HistoricalFileReport $report): Collection => $report->records
+            ->filter(fn (HistoricalFileRecord $record): bool => $printed === null || strtoupper((string) $record->status) === $printed)
+            ->map(fn (HistoricalFileRecord $record): array => [
+                'id' => "historical-{$record->id}",
+                'historical' => true,
+                'source' => $report->label(),
+                'serial_number' => $record->serial_number,
+                'customer_id' => $record->customer_id,
+                'branch' => $report->branch_name,
+                'customer' => $record->customer_name,
+                'phone' => $record->phone,
+                'total_payable' => (float) $record->loan_amount,
+                'duration' => $record->duration_type,
+                'sessions' => $record->sessions,
+                'restoration' => (float) $record->collection,
+                'paid' => (float) $record->paid_amount,
+                'remain' => (float) $record->remain_amount,
+                'withdrawal_date' => $record->withdrawal_date?->toDateString(),
+                'status' => $record->status,
+                'status_badge' => $record->statusBadge(),
+                'months' => (object) $record->payments
+                    ->where('year', $report->year)
+                    ->mapWithKeys(fn (HistoricalFilePayment $payment): array => [$payment->month => (float) $payment->amount])
+                    ->all(),
+            ]))
+            ->values();
     }
 
     /**

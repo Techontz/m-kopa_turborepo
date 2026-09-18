@@ -22,7 +22,7 @@ interface DataTableProps<T> {
   pageSize?: number;
   searchable?: boolean;
   headClassName?: string;
-  emptyMessage?: string;
+  emptyMessage?: ReactNode;
 }
 
 /**

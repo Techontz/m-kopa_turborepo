@@ -14,7 +14,8 @@ import { useAction, useApi } from "@/lib/hooks";
 
 /**
  * Credit officer review (handwritten note: 4 buttons — Verification, Approve, Reject (sababu), Modify → back to loan officer).
- * Approval is only possible after the Vodacom name/number verification matched; the reference number is generated on approval.
+ * Approval is only possible after the Vodacom name/number verification matched and the customer's signed loan agreement
+ * is uploaded; the reference number is generated on approval.
  */
 export default function CreditReviewPage() {
   const { data, isLoading } = useApi<Loan[]>("loans", { stage: "credit-review" });
@@ -49,6 +50,14 @@ export default function CreditReviewPage() {
                 ? <Badge tone="warning">NOT VERIFIED</Badge>
                 : <><Badge tone={row.telco_matched ? "success" : "danger"}>{row.telco_matched ? "MATCHED" : "MISMATCH"}</Badge> <small>{row.telco_name ?? "not registered"}</small></>,
             },
+            {
+              key: "agreement",
+              header: "Signed Agreement",
+              value: (row) => (row.agreement_file ? "UPLOADED" : "NOT UPLOADED"),
+              render: (row) => (row.agreement_file
+                ? <a href={row.agreement_file} target="_blank" rel="noreferrer"><Badge tone="success">UPLOADED</Badge></a>
+                : <Badge tone="warning">NOT UPLOADED</Badge>),
+            },
             { key: "status_label", header: "Loan Status", render: (row) => <LoanStatusBadge loan={row} /> },
             {
               key: "action",
@@ -58,7 +67,7 @@ export default function CreditReviewPage() {
               render: (row) => (
                 <>
                   <button type="button" className="btn btn-sm btn-info mr-1" disabled={verify.isPending} onClick={() => verify.mutate({ id: row.id })}>Verification</button>
-                  <button type="button" className="btn btn-sm btn-success mr-1" disabled={!row.telco_matched || approve.isPending} onClick={async () => (await confirmAction("Approve this loan?")) && approve.mutate({ id: row.id })}>Approve</button>
+                  <button type="button" className="btn btn-sm btn-success mr-1" disabled={!row.telco_matched || !row.agreement_file || approve.isPending} title={row.agreement_file ? undefined : "Upload the signed loan agreement first"} onClick={async () => (await confirmAction("Approve this loan?")) && approve.mutate({ id: row.id })}>Approve</button>
                   <button type="button" className="btn btn-sm btn-danger mr-1" onClick={async () => { const reason = await promptReason("Reject loan"); if (reason) { reject.mutate({ id: row.id, reason }); } }}>Reject</button>
                   <button type="button" className="btn btn-sm btn-warning" onClick={async () => { const reason = await promptReason("Modify: send back to loan officer"); if (reason) { modify.mutate({ id: row.id, reason }); } }}>Modify</button>
                 </>

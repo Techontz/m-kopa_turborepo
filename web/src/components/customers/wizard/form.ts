@@ -2,7 +2,7 @@
  * The registration wizard's single form state, its pure updaters (cascade clearing, payment switching,
  * customer type change), the POST /customers payload builder and the draft payload repair.
  */
-import type { FieldDef } from "../types";
+import type { Customer, FieldDef } from "../types";
 import { STEP2_COLUMNS, descendantsOf } from "./composition";
 
 export const RELATIONSHIPS = ["spouse", "parent", "sibling", "relative", "friend", "colleague", "other"] as const;
@@ -470,6 +470,43 @@ export function repairDraftPayload(raw: unknown): WizardForm {
   form.wardMode = source.wardMode === "text" || (form.wardId === null && form.wardName !== "") ? "text" : "select";
 
   return form;
+}
+
+/* ------------------------------------------------------------------ edit ------------------------------------------------------------------ */
+
+/**
+ * The wizard form for editing an existing customer. The customer resource uses the registration payload's names, so
+ * it goes through the same repair as a draft; the stored gender ("M", "Female") is normalised on the way in.
+ */
+export function formFromCustomer(customer: Customer): WizardForm {
+  const gender = (customer.gender ?? "").trim().toLowerCase();
+  return repairDraftPayload({
+    ...customer,
+    gender: gender.startsWith("f") ? "female" : gender.startsWith("m") ? "male" : "",
+    idNumber: customer.idNumber ?? customer.nidaNumber,
+    nextOfKin: customer.nextOfKin ?? [],
+    guarantors: customer.guarantors ?? [],
+  });
+}
+
+/**
+ * The PUT /customers/{id} body: only the top-level payload keys whose value differs from the customer as loaded, so
+ * an old record with gaps can be corrected one field at a time. Verification stamps are never sent from an edit.
+ */
+export function changedPayload(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const locked = new Set(["nidaVerifiedAt", "otpVerifiedAt", "faceVerifiedAt"]);
+  return Object.fromEntries(Object.entries(after).filter(([key, value]) => !locked.has(key) && JSON.stringify(value ?? null) !== JSON.stringify(before[key] ?? null)));
+}
+
+/**
+ * Keeps the validation errors about what an edit changes ("guarantors.0.phone" belongs to "guarantors"); a changed
+ * customer type re-checks everything, as the API does.
+ */
+export function errorsForChanges<T>(errors: Record<string, T>, changed: Record<string, unknown>): Record<string, T> {
+  if ("customerCategoryId" in changed) {
+    return errors;
+  }
+  return Object.fromEntries(Object.entries(errors).filter(([key]) => key.split(".")[0] in changed));
 }
 
 /** Saved draft step (0-based) clamped to at most Step 3. */

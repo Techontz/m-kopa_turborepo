@@ -65,6 +65,7 @@ class StaffFundContributionTest extends TestCase
         $this->assertEquals(1000000, $this->balance(Account::SalaryExpense), 'the basic salary only — no extra 20 % expense');
         $this->assertEquals(0, $this->balance(Account::StaffFundCash), 'no fund cash before the salary is paid');
 
+        $this->fundPayroll($this->admin);
         $this->actingAs($finance)->postJson("/api/v1/hrm/payroll/{$runId}/pay", ['ac_id' => 'interest'])->assertOk();
 
         $this->assertEquals(1000000, $this->balance(Account::SalaryExpense));

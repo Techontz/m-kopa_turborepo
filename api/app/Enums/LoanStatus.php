@@ -129,6 +129,21 @@ enum LoanStatus: string
     }
 
     /**
+     * Past branch manager approval and not ended by rejection or cancellation: the loan agreement can be generated,
+     * printed for the customer to fill and sign, and the signed copy uploaded.
+     *
+     * @return list<self>
+     */
+    public static function agreementAvailable(): array
+    {
+        return [
+            self::MandatePendingOtp, self::MandateFailed, self::PendingCreditReview, self::PendingFinance,
+            self::AwaitingDisbursement, self::DisbursementFailed, self::Escalated, self::DisbursementSuspense,
+            ...self::disbursed(),
+        ];
+    }
+
+    /**
      * @return list<string>
      */
     public static function values(self ...$statuses): array

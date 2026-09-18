@@ -16,12 +16,14 @@ use App\Models\LoanOffset;
 use App\Services\Ledger;
 use App\Services\LoanService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\UploadsLoanAgreement;
 use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class LoanLifecycleApiTest extends TestCase
 {
     use RefreshDatabase;
+    use UploadsLoanAgreement;
     use UsesSecondApprover;
 
     private Employee $admin;
@@ -60,6 +62,7 @@ class LoanLifecycleApiTest extends TestCase
         $this->assertSame(LoanStatus::PendingCreditReview, $loan->fresh()->status);
 
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertUnprocessable();
+        $this->uploadAgreement($loan)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $loan))->assertOk()->assertJsonPath('verification.matched', true);
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertOk();
         $loan->refresh();
@@ -270,6 +273,7 @@ class LoanLifecycleApiTest extends TestCase
         $this->assertSame($old->id, $new->topup_of_loan_id);
 
         $this->postJson(route('api.v1.loans.approve-manager', $new), ['loan_aprove' => 200000])->assertOk();
+        $this->uploadAgreement($new)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $new))->assertOk();
         $this->postJson(route('api.v1.loans.approve-credit', $new))->assertOk();
         $this->postJson(route('api.v1.loans.prepare-disbursement', $new))->assertOk();
@@ -320,6 +324,81 @@ class LoanLifecycleApiTest extends TestCase
         $this->assertModelMissing($loan);
     }
 
+    public function test_another_customer_of_the_branch_is_imported_as_guarantor(): void
+    {
+        $neighbour = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'first_name' => 'Rehema', 'phone' => '255700333444']);
+        $otherBranch = Customer::factory()->create(['company_id' => $this->admin->company_id, 'phone' => '255700555666']);
+        $loan = $this->applyLoan();
+
+        $values = $this->candidateValues(route('api.v1.loans.guarantors.candidates', $loan));
+        $this->assertContains("c:{$neighbour->id}", $values);
+        $this->assertNotContains("c:{$this->customer->id}", $values, 'the borrower cannot guarantee their own loan');
+        $this->assertNotContains("c:{$otherBranch->id}", $values, 'only customers of the loan branch');
+
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['customer_id' => $neighbour->id])->assertUnprocessable()->assertJsonValidationErrors('relationship');
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['customer_id' => $otherBranch->id, 'relationship' => 'Friend'])->assertUnprocessable()->assertJsonValidationErrors('customer_id');
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['customer_id' => $neighbour->id, 'relationship' => 'Friend'])->assertOk();
+
+        $guarantor = $loan->guarantors()->sole();
+        $this->assertSame(['Rehema', '255700333444', 'Friend'], [$guarantor->first_name, $guarantor->phone, $guarantor->relationship]);
+        $this->assertNotContains("c:{$neighbour->id}", $this->candidateValues(route('api.v1.loans.guarantors.candidates', $loan)));
+    }
+
+    public function test_a_new_guarantor_is_added_to_a_registered_application(): void
+    {
+        $loan = $this->applyLoan();
+
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['first_name' => 'Asha', 'last_name' => 'Juma', 'relationship' => 'Sister'])
+            ->assertUnprocessable()->assertJsonValidationErrors('phone');
+        $this->postJson(route('api.v1.loans.guarantors.store', $loan), ['first_name' => 'Asha', 'last_name' => 'Juma', 'phone' => '255700111222', 'relationship' => 'Sister'])
+            ->assertCreated();
+
+        $this->assertSame('Asha', $loan->guarantors()->sole()->first_name);
+    }
+
+    public function test_guarantors_picked_on_the_first_form_are_saved_with_the_application(): void
+    {
+        $neighbour = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255700333444']);
+        $saved = $this->customer->guarantors()->create(['first_name' => 'Asha', 'last_name' => 'Juma', 'phone' => '255700111222', 'relationship' => 'Sister']);
+
+        $values = $this->candidateValues(route('api.v1.loans.customer-guarantor-candidates', $this->customer));
+        $this->assertContains("g:{$saved->id}", $values);
+        $this->assertContains("c:{$neighbour->id}", $values);
+
+        $this->postJson(route('api.v1.loans.store'), $this->form(['guarantors' => [
+            ['guarantor_id' => $saved->id],
+            ['customer_id' => $neighbour->id, 'relationship' => 'Friend'],
+            ['first_name' => 'Juma', 'last_name' => 'Ally', 'phone' => '255700999888', 'relationship' => 'Brother'],
+        ]]))->assertCreated();
+
+        $loan = Loan::latest('id')->firstOrFail();
+        $this->assertEqualsCanonicalizing(['255700111222', '255700333444', '255700999888'], $loan->guarantors()->pluck('phone')->all());
+    }
+
+    public function test_a_bad_guarantor_on_the_first_form_registers_nothing(): void
+    {
+        $neighbour = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->admin->branch_id, 'phone' => '255700333444']);
+
+        $this->postJson(route('api.v1.loans.store'), $this->form(['guarantors' => [
+            ['customer_id' => $neighbour->id, 'relationship' => 'Friend'],
+            ['customer_id' => $neighbour->id, 'relationship' => 'Friend'],
+        ]]))->assertUnprocessable()->assertJsonValidationErrors('guarantors.1.customer_id');
+
+        $this->postJson(route('api.v1.loans.store'), $this->form(['guarantors' => [
+            ['customer_id' => $this->customer->id, 'relationship' => 'Self'],
+        ]]))->assertUnprocessable()->assertJsonValidationErrors('guarantors.0.customer_id');
+
+        $this->assertSame(0, Loan::count());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function candidateValues(string $url): array
+    {
+        return collect($this->getJson($url)->assertOk()->json('data'))->flatMap(fn (array $group): array => array_column($group['options'], 'value'))->all();
+    }
+
     /**
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
@@ -366,6 +445,7 @@ class LoanLifecycleApiTest extends TestCase
     private function toFinance(): Loan
     {
         $loan = $this->toCreditReview();
+        $this->uploadAgreement($loan)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertOk();
 

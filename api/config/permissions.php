@@ -35,6 +35,7 @@ return [
         'hq.manage' => 'Manage HQ accounts and transactions',
         'customers.view' => 'View customers',
         'customers.manage' => 'Create and edit customers, upload documents, face verification, freeze, save and resume drafts',
+        'customers.edit' => 'Edit the details of a customer already registered (not the branch or officer, documents, face verification or freeze)',
         'customers.approve' => 'Approve or reject customer registrations',
         'customers.assign_officer' => 'Register a customer for another officer',
         'groups.view' => 'View customer groups and their members',
@@ -120,13 +121,13 @@ return [
         'super_admin' => ['name' => 'Super Admin', 'scope' => 'company', 'permissions' => ['*']],
         'admin' => ['name' => 'Admin', 'scope' => 'company', 'permissions' => [
             'dashboard.view', 'settings.manage', 'users.manage', 'hrm.staff_privileges', 'hrm.staff_reset_password', 'float.manage', 'bank.manage', 'expenses.request',
-            'expenses.approve_hq', 'hq.manage', 'customers.view', 'customers.manage', 'customers.approve',
+            'expenses.approve_hq', 'hq.manage', 'customers.view', 'customers.manage', 'customers.edit', 'customers.approve',
             'customers.assign_officer', 'groups.view', 'groups.manage', 'branches.view_all', 'loans.view', 'loans.write_off', 'loans.reverse_repayment', 'loans.reverse_disbursement',
             'reversals.approve', 'loans.recover', 'accounting.view', 'salary_advance.manage', 'penalties.manage', 'savings.manage', 'visa.manage',
             'reports.view', 'reports.financial', 'income.view', 'crm.use', 'messages.use', 'goals.manage', 'goals.view', 'audit.view', 'approvals.view',
         ]],
         'finance' => ['name' => 'Finance', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'float.manage', 'funds.transfer', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
+            'dashboard.view', 'float.manage', 'funds.transfer', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'customers.edit', 'groups.view', 'branches.view_all',
             'loans.view', 'loans.prepare_disbursement', 'loans.disburse', 'loans.reverse_repayment', 'loans.reverse_disbursement', 'loans.recover', 'payments.verify', 'payments.suspense',
             'accounting.view', 'accounting.reverse', 'accounting.close_period', 'salary_advance.manage', 'penalties.manage', 'penalties.reverse_payment', 'reversals.approve',
             'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view', 'approvals.view',
@@ -135,18 +136,18 @@ return [
             'dashboard.view', 'users.manage', 'hrm.manage', 'hrm.staff_privileges', 'payroll.approve', 'branches.view_all', 'reports.view', 'messages.use', 'goals.view',
         ]],
         'zone_manager' => ['name' => 'Zone Manager', 'scope' => 'zone', 'permissions' => [
-            'dashboard.view', 'customers.view', 'groups.view', 'loans.view', 'reports.view', 'crm.use', 'messages.use', 'goals.view',
+            'dashboard.view', 'customers.view', 'customers.edit', 'groups.view', 'loans.view', 'reports.view', 'crm.use', 'messages.use', 'goals.view',
         ]],
         'branch_manager' => ['name' => 'Branch Manager', 'scope' => 'branch', 'permissions' => [
-            'dashboard.view', 'customers.view', 'customers.manage', 'customers.approve', 'customers.assign_officer', 'groups.view', 'groups.manage',
+            'dashboard.view', 'customers.view', 'customers.manage', 'customers.edit', 'customers.approve', 'customers.assign_officer', 'groups.view', 'groups.manage',
             'loans.view', 'loans.approve_manager', 'expenses.request', 'penalties.manage', 'reports.view', 'crm.use',
             'messages.use', 'goals.view',
         ]],
         'credit_officer' => ['name' => 'Credit Officer', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'customers.view', 'groups.view', 'branches.view_all', 'loans.view', 'loans.credit_review', 'reports.view', 'messages.use', 'goals.view',
+            'dashboard.view', 'customers.view', 'customers.edit', 'groups.view', 'branches.view_all', 'loans.view', 'loans.credit_review', 'reports.view', 'messages.use', 'goals.view',
         ]],
         'loan_officer' => ['name' => 'Loan Officer', 'scope' => 'branch', 'permissions' => [
-            'dashboard.view', 'customers.view', 'customers.manage', 'groups.view', 'groups.manage',
+            'dashboard.view', 'customers.view', 'customers.manage', 'customers.edit', 'groups.view', 'groups.manage',
             'loans.view', 'loans.apply', 'crm.use', 'messages.use', 'goals.view',
         ]],
         'teller' => ['name' => 'Teller', 'scope' => 'branch', 'permissions' => [
@@ -180,7 +181,7 @@ return [
                 ['key' => 'aprove', 'label' => 'APPROVE', 'permissions' => ['loans.approve_manager', 'loans.credit_review', 'customers.approve']],
                 ['key' => 'bank', 'label' => 'BANK', 'permissions' => ['bank.manage', 'funds.transfer']],
                 ['key' => 'bankpassword', 'label' => 'BANK PASSWORD', 'permissions' => ['visa.manage']],
-                ['key' => 'customer', 'label' => 'CUSTOMER', 'permissions' => ['customers.view', 'customers.manage']],
+                ['key' => 'customer', 'label' => 'CUSTOMER', 'permissions' => ['customers.view', 'customers.manage', 'customers.edit']],
                 ['key' => 'debit', 'label' => 'DEBIT PENDING', 'permissions' => ['salary_advance.manage']],
                 ['key' => 'expenses', 'label' => 'EXPENSES', 'permissions' => ['expenses.request', 'expenses.approve_branch']],
                 ['key' => 'float', 'label' => 'FLOAT', 'permissions' => ['float.manage']],

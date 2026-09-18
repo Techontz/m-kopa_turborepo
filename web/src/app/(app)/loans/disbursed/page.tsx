@@ -3,25 +3,20 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { AgreementActions } from "@/components/loans/AgreementActions";
 import type { Loan, LoanDetail } from "@/components/loans/types";
 import { Card } from "@/components/ui/Card";
 import { DataTable } from "@/components/ui/DataTable";
-import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { useAuth } from "@/lib/auth";
 import { money, percent } from "@/lib/format";
-import { useAction, useApi } from "@/lib/hooks";
+import { useApi } from "@/lib/hooks";
 
 /** Loan → Active Loans (live disburse_loan "Loan Disbursed"): running loans with agreement upload, repayment schedule and agreement. */
 export default function LoanDisbursedPage() {
-  const { can } = useAuth();
   const { data, isLoading } = useApi<Loan[]>("loans", { stage: "disbursed" });
-  const [uploading, setUploading] = useState<Loan | null>(null);
-  const [file, setFile] = useState<File | null>(null);
   const [scheduleOf, setScheduleOf] = useState<Loan | null>(null);
   const { data: detail } = useApi<LoanDetail>(scheduleOf ? `loans/${scheduleOf.id}` : null);
-  const upload = useAction<FormData>("post", () => `loans/${uploading?.id}/agreement`);
 
   const rows = data ?? [];
   const total = (key: "amount_approved" | "total_payable") => rows.reduce((sum, row) => sum + Number(row[key]), 0);
@@ -65,37 +60,14 @@ export default function LoanDisbursedPage() {
               className: "text-nowrap",
               render: (row) => (
                 <>
-                  {can(["loans.apply", "loans.approve_manager", "loans.disburse"]) && (
-                    <button type="button" className="btn btn-sm btn-icon btn-primary mr-1" title="Upload Loan Agreement" onClick={() => { setUploading(row); setFile(null); }}><i className="icon-cloud-upload" /></button>
-                  )}
                   <button type="button" className="btn btn-sm btn-icon btn-info mr-1" title="Repayment schedule" onClick={() => setScheduleOf(row)}><i className="icon-calendar" /></button>
-                  {row.agreement_file && <a href={row.agreement_file} target="_blank" rel="noreferrer" className="btn btn-sm btn-icon btn-success mr-1" title="Loan agreement"><i className="icon-doc" /></a>}
-                  <Link href={`/loans/${row.id}?print=agreement`} className="btn btn-sm btn-icon btn-secondary" title="Print agreement"><i className="icon-printer" /></Link>
+                  <AgreementActions loan={row} compact />
                 </>
               ),
             },
           ]}
         />
       </Card>
-
-      <Modal
-        open={uploading !== null}
-        onClose={() => setUploading(null)}
-        title="Upload Loan Agreement"
-        submitLabel="Upload"
-        submitting={upload.isPending}
-        onSubmit={() => {
-          const form = new FormData();
-          if (file) {
-            form.append("attach", file);
-          }
-          upload.mutate(form, { onSuccess: () => setUploading(null) });
-        }}
-      >
-        <Field label="Loan Agreement (PDF)" required className="col-md-12" error={upload.fieldError("attach")}>
-          <input type="file" accept="application/pdf" className="form-control" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
-        </Field>
-      </Modal>
 
       <Modal open={scheduleOf !== null} onClose={() => setScheduleOf(null)} title={`Repayment schedule — ${scheduleOf?.customer_name ?? ""}`} size="lg">
         <DataTable

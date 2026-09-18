@@ -76,6 +76,7 @@ class AllowanceApprovalApiTest extends TestCase
     {
         $run = PayrollRun::whereDate('period', $month.'-01')->sole();
         $this->actingAs($this->admin)->postJson("/api/v1/hrm/payroll/{$run->id}/approve")->assertOk();
+        $this->fundPayroll($this->admin);
         $this->actingAs($this->finance)->postJson("/api/v1/hrm/payroll/{$run->id}/pay", ['ac_id' => 'interest'])->assertOk();
     }
 

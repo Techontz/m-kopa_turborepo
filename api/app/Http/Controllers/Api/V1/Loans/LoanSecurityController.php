@@ -3,13 +3,12 @@
 namespace App\Http\Controllers\Api\V1\Loans;
 
 use App\Http\Requests\Api\Loans\CollateralRequest;
-use App\Http\Requests\Customers\GuarantorRequest;
 use App\Models\Collateral;
 use App\Models\Guarantor;
 use App\Models\Loan;
+use App\Services\LoanGuarantors;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -18,34 +17,30 @@ use Illuminate\Validation\ValidationException;
  */
 class LoanSecurityController extends LoanApiController
 {
+    public function __construct(private LoanGuarantors $guarantors) {}
+
+    /**
+     * Import Guarantor options for this loan: the borrower's saved guarantors and the other customers of the branch,
+     * minus the borrower and anyone already on the loan.
+     */
+    public function guarantorCandidates(Loan $loan): JsonResponse
+    {
+        $this->authorizeAny('loans.apply');
+        $this->ensureVisible($loan);
+
+        return response()->json(['data' => $this->guarantors->candidates($loan->customer, $loan->guarantors()->pluck('phone'), $loan)]);
+    }
+
     public function storeGuarantor(Request $request, Loan $loan): JsonResponse
     {
         $this->authorizeEditable($loan);
 
-        if ($request->filled('guarantor_id')) {
-            $validated = $request->validate([
-                'guarantor_id' => ['required', Rule::exists('guarantors', 'id')->where('customer_id', $loan->customer_id)],
-            ]);
-            $source = Guarantor::findOrFail($validated['guarantor_id']);
+        $item = $this->guarantors->resolve($loan->customer, $request->all());
+        $this->guarantors->attach($loan, $item);
 
-            if ($loan->guarantors()->where('phone', $source->phone)->exists()) {
-                throw ValidationException::withMessages(['guarantor_id' => 'This guarantor is already on this loan']);
-            }
-
-            // A profile guarantor is attached as-is; one already backing another loan is copied, so that loan keeps its guarantor.
-            if ($source->loan_id === null) {
-                $source->update(['loan_id' => $loan->id]);
-            } else {
-                $source->replicate()->fill(['loan_id' => $loan->id])->save();
-            }
-
-            return $this->message('Guarantor imported successfully');
-        }
-
-        $data = $request->validate((new GuarantorRequest)->rules());
-        $loan->customer->guarantors()->create($data + ['loan_id' => $loan->id]);
-
-        return $this->message('Guarantor Registered successfully', 201);
+        return $item['key'] === 'phone'
+            ? $this->message('Guarantor Registered successfully', 201)
+            : $this->message('Guarantor imported successfully');
     }
 
     public function destroyGuarantor(Loan $loan, Guarantor $guarantor): JsonResponse

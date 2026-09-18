@@ -153,6 +153,7 @@ export const menu: MenuTab[] = [
         children: [
           { label: "Loan Application", href: "/loans/apply", permission: "loans.apply" },
           { label: "Pending Approval", href: "/loans/pending", permission: ["loans.view"] },
+          { label: "Loan Agreements", href: "/loans/agreements", permission: ["loans.view"] },
           { label: "Credit Review", href: "/loans/credit-review", permission: "loans.credit_review" },
           { label: "Credit Assessment", href: "/loans/credit-assessments", permission: ["loans.credit_review", "loans.approve_manager"] },
           { label: "Ready to Pay Out", href: "/loans/disbursement", permission: ["loans.prepare_disbursement", "loans.disburse"] },

@@ -14,6 +14,7 @@ Route::prefix('loans')->name('loans.')->group(function (): void {
         Route::post('preview', 'preview')->name('preview');
         Route::get('withdrawals', 'withdrawals')->name('withdrawals');
         Route::get('customers/{customer}/categories', 'categories')->whereNumber('customer')->name('categories');
+        Route::get('customers/{customer}/guarantor-candidates', 'guarantorCandidates')->whereNumber('customer')->name('customer-guarantor-candidates');
         Route::get('{loan}', 'show')->whereNumber('loan')->name('show');
         Route::put('{loan}', 'update')->whereNumber('loan')->name('update');
         Route::delete('{loan}', 'destroy')->whereNumber('loan')->name('destroy');
@@ -28,6 +29,7 @@ Route::prefix('loans')->name('loans.')->group(function (): void {
     });
 
     Route::controller(LoanSecurityController::class)->group(function (): void {
+        Route::get('{loan}/guarantor-candidates', 'guarantorCandidates')->whereNumber('loan')->name('guarantors.candidates');
         Route::post('{loan}/guarantors', 'storeGuarantor')->name('guarantors.store');
         Route::delete('{loan}/guarantors/{guarantor}', 'destroyGuarantor')->name('guarantors.destroy');
         Route::post('{loan}/collaterals', 'storeCollateral')->name('collaterals.store');
@@ -60,6 +62,7 @@ Route::prefix('loans')->name('loans.')->group(function (): void {
         Route::post('{loan}/transactions/{loanTransaction}/reverse', 'reverseRepayment')->whereNumber(['loan', 'loanTransaction'])->name('transactions.reverse');
         Route::post('{loan}/reverse-disbursement', 'reverseDisbursement')->whereNumber('loan')->name('reverse-disbursement');
         Route::post('{loan}/comments', 'comment')->name('comments');
+        Route::get('{loan}/agreement', 'agreement')->whereNumber('loan')->name('agreement.show');
         Route::post('{loan}/agreement', 'uploadAgreement')->name('agreement');
     });
 

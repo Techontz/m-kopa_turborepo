@@ -24,6 +24,7 @@ use App\Services\ShareholderOwnership;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use Tests\Concerns\UploadsLoanAgreement;
 use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
@@ -36,6 +37,7 @@ use Tests\TestCase;
 class ShareholderCapitalAccountingTest extends TestCase
 {
     use RefreshDatabase;
+    use UploadsLoanAgreement;
     use UsesSecondApprover;
 
     private Employee $admin;
@@ -93,16 +95,17 @@ class ShareholderCapitalAccountingTest extends TestCase
             ['account' => Account::OperatingExpense, 'debit' => 10000000],
             ['account' => Account::Company, 'credit' => 10000000],
         ]);
-        $this->activeLoanFrom(['source_account' => 'bank', 'source_bank_account_id' => $bank->id], 1000000);
+        $this->activeLoanFrom(['source_account' => 'cash'], 1000000);
 
         $ledger = app(Ledger::class);
         $this->assertSame(40000000.0, $ledger->balance($this->admin->company_id, Account::Company));
-        $this->assertSame(29000000.0, $ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
+        $this->assertSame(30000000.0, $ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
+        $this->assertSame(19000000.0, $ledger->balance($this->admin->company_id, Account::Principal));
         $this->assertOwnership([$a->id => [50000000, 500, 50], $b->id => [50000000, 500, 50]]);
         $this->getJson('/api/v1/capital/capitals')->assertOk()
             ->assertJsonPath('data.share_holder_capital', 100000000)
             ->assertJsonPath('data.company_cash_balance', 40000000)
-            ->assertJsonPath('data.bank_balance_total', 29000000);
+            ->assertJsonPath('data.bank_balance_total', 30000000);
     }
 
     public function test_4_contribution_posts_debit_receiving_cash_or_bank_and_credit_capital(): void
@@ -128,23 +131,24 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->assertSame(0.0, $this->typeTotal('income'), 'capital is never revenue');
     }
 
-    public function test_5_loan_disbursed_from_bank_debits_receivable_and_credits_that_bank(): void
+    public function test_5_loan_disbursed_from_principal_debits_receivable_and_credits_principal(): void
     {
         $bank = $this->bank('NMB');
         $this->contribute($this->holder('ALPHA'), 5000000, 'BANK', $bank);
         $ledger = app(Ledger::class);
+        $ledger->openingBalance($this->admin->company_id, Account::Principal, 3000000, 'FLOAT');
 
-        $loan = $this->activeLoanFrom(['source_account' => 'bank', 'source_bank_account_id' => $bank->id], 1000000);
+        $loan = $this->activeLoanFrom([], 1000000);
 
         $disbursement = LoanDisbursement::where('loan_id', $loan->id)->sole();
-        $this->assertSame([LoanDisbursement::SUCCESS, 'bank', $bank->id], [$disbursement->status, $disbursement->source_account, $disbursement->source_bank_account_id]);
+        $this->assertSame([LoanDisbursement::SUCCESS, 'cash', null], [$disbursement->status, $disbursement->source_account, $disbursement->source_bank_account_id]);
         $this->assertEntry($disbursement->journal_entry_id, [
             [Account::LoanReceivable, null, 1000000, 0],
-            [Account::Bank, $bank->id, 0, 1000000],
+            [Account::Principal, null, 0, 1000000],
         ]);
-        $this->assertSame(4000000.0, $ledger->balance($loan->company_id, Account::Bank, bankAccount: $bank));
+        $this->assertSame(5000000.0, $ledger->balance($loan->company_id, Account::Bank, bankAccount: $bank), 'company bank accounts are never a disbursement source');
         $this->assertSame(1000000.0, $ledger->balance($loan->company_id, Account::LoanReceivable, $loan->branch_id));
-        $this->assertSame(0.0, $ledger->balance($loan->company_id, Account::Principal), 'the HQ lending cash is untouched');
+        $this->assertSame(2000000.0, $ledger->balance($loan->company_id, Account::Principal));
         $this->assertSame(0.0, $this->typeTotal('expense'));
         $this->assertSame(0.0, $this->typeTotal('income'));
 
@@ -152,7 +156,7 @@ class ShareholderCapitalAccountingTest extends TestCase
             ->assertJsonPath('data.disbursement_chain.customer.id', $loan->customer_id)
             ->assertJsonPath('data.disbursement_chain.loan.loan_number', $loan->loan_number)
             ->assertJsonPath('data.disbursement_chain.manager_approval.context.amount_approved', 1000000)
-            ->assertJsonPath('data.disbursement_chain.disbursement.source_label', 'BANK - NMB')
+            ->assertJsonPath('data.disbursement_chain.disbursement.source_label', Account::Principal->label().' (HQ CASH)')
             ->assertJsonPath('data.disbursement_chain.disbursement.amount', 1000000)
             ->assertJsonPath('data.disbursement_chain.journal_entry.reference', $disbursement->journalEntry->reference)
             ->assertJsonPath('data.ledger.receivable_balance', 1000000);
@@ -163,12 +167,11 @@ class ShareholderCapitalAccountingTest extends TestCase
 
     public function test_6_failed_disbursement_leaves_no_partial_financial_transaction(): void
     {
-        $bank = $this->bank('NMB');
-        $this->contribute($this->holder('ALPHA'), 500000, 'BANK', $bank);
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 500000, 'FLOAT');
         $before = JournalEntry::count();
 
         $short = $this->loanAtFinance(1000000);
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $short), ['source_account' => 'bank', 'source_bank_account_id' => $bank->id])
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $short))
             ->assertUnprocessable()->assertJsonValidationErrors('source_account');
         $this->assertSame(LoanStatus::PendingFinance, $short->fresh()->status);
         $this->assertSame(0, LoanDisbursement::where('loan_id', $short->id)->count());
@@ -176,14 +179,14 @@ class ShareholderCapitalAccountingTest extends TestCase
 
         config(['integrations.vodacom.test_outcome' => 'failed']);
         $failed = $this->loanAtFinance(400000);
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $failed), ['source_account' => 'bank', 'source_bank_account_id' => $bank->id])->assertOk();
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $failed))->assertOk();
         $this->postJson(route('api.v1.loans.disburse', $failed))->assertUnprocessable();
         $this->assertSame(LoanStatus::DisbursementFailed, $failed->fresh()->status);
         $failed->update(['status' => LoanStatus::Cancelled]);
 
         config(['integrations.vodacom.test_outcome' => 'success']);
         $locked = $this->loanAtFinance(400000);
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $locked), ['source_account' => 'bank', 'source_bank_account_id' => $bank->id])->assertOk();
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $locked))->assertOk();
         AccountingPeriod::create(['company_id' => $this->admin->company_id, 'period_start' => today()->startOfMonth()->toDateString(), 'period_end' => today()->endOfMonth()->toDateString(), 'status' => 'closed']);
         $this->postJson(route('api.v1.loans.disburse', $locked))->assertUnprocessable()->assertJsonValidationErrors('entry_date');
 
@@ -196,7 +199,7 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->assertSame(LoanStatus::AwaitingDisbursement, $locked->fresh()->status);
         $this->assertNotSame(LoanDisbursement::SUCCESS, $locked->latestDisbursement()->value('status'));
         $this->assertSame(0, LoanDisbursement::whereNotNull('journal_entry_id')->count());
-        $this->assertSame(500000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
+        $this->assertSame(500000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Principal));
     }
 
     public function test_7_retries_and_duplicate_requests_never_post_a_second_journal(): void
@@ -223,14 +226,15 @@ class ShareholderCapitalAccountingTest extends TestCase
 
         config(['integrations.vodacom.test_outcome' => 'failed']);
         $loan = $this->loanAtFinance(500000);
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan), ['source_account' => 'bank', 'source_bank_account_id' => $bank->id])->assertOk();
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 500000, 'FLOAT');
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan), ['source_account' => 'cash'])->assertOk();
         $this->postJson(route('api.v1.loans.disburse', $loan))->assertUnprocessable();
 
         config(['integrations.vodacom.test_outcome' => 'callback', 'integrations.vodacom.callback_secret' => 'secret']);
         $this->postJson(route('api.v1.loans.retry-disbursement', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.disburse', $loan))->assertUnprocessable();
         $retry = $loan->latestDisbursement()->firstOrFail();
-        $this->assertSame([2, 'bank', $bank->id], [$retry->attempt, $retry->source_account, $retry->source_bank_account_id], 'a retry keeps the chosen source');
+        $this->assertSame([2, 'cash', null], [$retry->attempt, $retry->source_account, $retry->source_bank_account_id], 'a retry pays from the PRINCIPAL A/C');
 
         $body = json_encode(['batch_id' => $retry->batch_id, 'status' => 'SUCCESS', 'transaction_id' => 'MP777']);
         $headers = ['CONTENT_TYPE' => 'application/json', 'HTTP_X_SIGNATURE' => hash_hmac('sha256', $body, 'secret')];
@@ -248,14 +252,16 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->assertSame(1, JournalEntry::where('source_type', $loan->getMorphClass())->where('source_id', $loan->id)->count());
         $this->assertSame(1, $loan->transactions()->where('type', 'withdrawal')->count());
         $this->assertSame(1, LoanDisbursement::where('loan_id', $loan->id)->where('status', LoanDisbursement::SUCCESS)->count());
-        $this->assertSame(1500000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
+        $this->assertSame(2000000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
+        $this->assertSame(0.0, app(Ledger::class)->balance($this->admin->company_id, Account::Principal));
     }
 
     public function test_8_repayment_is_allocated_principal_penalty_interest_and_stays_balanced(): void
     {
         $bank = $this->bank('NMB');
         $this->contribute($this->holder('ALPHA'), 2000000, 'BANK', $bank);
-        $loan = $this->activeLoanFrom(['source_account' => 'bank', 'source_bank_account_id' => $bank->id], 100000);
+        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 100000, 'FLOAT');
+        $loan = $this->activeLoanFrom(['source_account' => 'cash'], 100000);
         Penalty::create(['company_id' => $loan->company_id, 'branch_id' => $loan->branch_id, 'customer_id' => $loan->customer_id, 'loan_id' => $loan->id, 'amount' => 10000, 'penalty_date' => today()->subDay()]);
 
         $loans = app(LoanService::class);
@@ -280,33 +286,30 @@ class ShareholderCapitalAccountingTest extends TestCase
         $this->assertTrue($this->getJson('/api/v1/reports/financial/balance-sheet?branch_id=all')->json('data.balanced'));
     }
 
-    public function test_sources_list_balances_and_a_bank_source_keeps_the_deducted_fee_in_the_bank(): void
+    public function test_loans_are_disbursed_from_the_principal_account_only(): void
     {
         $bank = $this->bank('NMB');
         $this->contribute($this->holder('ALPHA'), 2000000, 'BANK', $bank);
-        app(Ledger::class)->openingBalance($this->admin->company_id, Account::Principal, 300000, 'FLOAT');
+        $ledger = app(Ledger::class);
+        $ledger->openingBalance($this->admin->company_id, Account::Principal, 300000, 'FLOAT');
         $loan = $this->loanAtFinance(500000, feeDeducted: true);
 
         $this->getJson(route('api.v1.loans.disbursement-sources', $loan))->assertOk()
             ->assertJsonPath('data.cash.balance', 300000)
             ->assertJsonPath('data.cash.required', 500000)
-            ->assertJsonPath('data.banks.0.label', 'NMB')
-            ->assertJsonPath('data.banks.0.balance', 2000000)
-            ->assertJsonPath('data.banks.0.required', 495000);
+            ->assertJsonMissingPath('data.banks');
 
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan), ['source_account' => 'cash'])->assertUnprocessable()->assertJsonValidationErrors('source_account');
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan), ['source_account' => 'bank'])->assertUnprocessable()->assertJsonValidationErrors('source_bank_account_id');
-        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan), ['source_account' => 'bank', 'source_bank_account_id' => $bank->id])->assertOk();
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan), ['source_account' => 'bank', 'source_bank_account_id' => $bank->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('source_account');
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan))->assertUnprocessable()->assertJsonValidationErrors('source_account');
+
+        $ledger->openingBalance($this->admin->company_id, Account::Principal, 200000, 'FLOAT');
+        $this->postJson(route('api.v1.loans.prepare-disbursement', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.disburse', $loan))->assertOk();
 
-        $this->assertEntry($loan->latestDisbursement()->value('journal_entry_id'), [
-            [Account::LoanReceivable, null, 500000, 0],
-            [Account::Bank, $bank->id, 0, 500000],
-            [Account::Bank, $bank->id, 5000, 0],
-            [Account::FeeIncome, null, 0, 5000],
-        ]);
-        $this->assertSame(1505000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Bank, bankAccount: $bank));
-        $this->assertSame(300000.0, app(Ledger::class)->balance($this->admin->company_id, Account::Principal), 'the bank source left the HQ lending cash untouched');
+        $this->assertSame(['cash', null], [$loan->latestDisbursement()->value('source_account'), $loan->latestDisbursement()->value('source_bank_account_id')]);
+        $this->assertSame(2000000.0, $ledger->balance($this->admin->company_id, Account::Bank, bankAccount: $bank), 'company bank accounts are never a disbursement source');
+        $this->assertSame(0.0, $ledger->balance($this->admin->company_id, Account::Principal));
     }
 
     public function test_shareholder_without_shares_owns_nothing(): void
@@ -517,6 +520,7 @@ class ShareholderCapitalAccountingTest extends TestCase
         $loan = Loan::latest('id')->firstOrFail();
 
         $this->postJson(route('api.v1.loans.approve-manager', $loan), ['loan_aprove' => $amount])->assertOk();
+        $this->uploadAgreement($loan)->assertOk();
         $this->postJson(route('api.v1.loans.kyc-verify', $loan))->assertOk();
         $this->postJson(route('api.v1.loans.approve-credit', $loan))->assertOk();
 

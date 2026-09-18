@@ -12,12 +12,15 @@ use Illuminate\Support\Facades\Gate;
 /**
  * PUT /customers/{customer} — the registration payload, partially: only the fields sent are validated and changed.
  * Requirement-profile, payment and customer-type rules evaluate the customer as it would be after the update.
+ *
+ * Staff who register customers (customers.manage) and staff who may only correct details (customers.edit) both
+ * update here; moving a customer to another branch or officer stays with customers.manage.
  */
 class UpdateCustomerRequest extends StoreCustomerRequest
 {
     public function authorize(): bool
     {
-        abort_unless(Gate::allows('customers.manage'), 403, 'You do not have permission to perform this action.');
+        abort_unless(Gate::any(['customers.manage', 'customers.edit']), 403, 'You do not have permission to perform this action.');
 
         /** @var Employee $actor */
         $actor = $this->user();
@@ -33,9 +36,28 @@ class UpdateCustomerRequest extends StoreCustomerRequest
      */
     public function rules(): array
     {
-        return collect($this->staticRules())
+        $rules = collect($this->staticRules())
             ->map(fn (array $rules): array => ['sometimes', ...array_values(array_filter($rules, fn ($rule): bool => $rule !== 'present'))])
             ->all();
+
+        if (! Gate::allows('customers.manage')) {
+            $rules['branchId'][] = 'prohibited';
+            $rules['employeeId'][] = 'prohibited';
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            ...parent::messages(),
+            'branchId.prohibited' => 'Only staff who register customers can move a customer to another branch.',
+            'employeeId.prohibited' => 'Only staff who register customers can change the assigned officer.',
+        ];
     }
 
     public function customer(): Customer

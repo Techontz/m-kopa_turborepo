@@ -86,6 +86,32 @@ class ReversalRequestsTest extends TestCase
         $this->postJson("/api/v1/reversal-requests/{$request->id}/approve")->assertUnprocessable();
     }
 
+    public function test_cash_transaction_report_offers_the_reversal_request_with_the_loan_page_eligibility(): void
+    {
+        [$loan, $deposit] = $this->repaidLoan();
+        $maker = $this->employeeWithRole($this->admin, 'finance');
+        $row = fn ($response, int $id) => collect($response->json('data.rows'))->firstWhere('id', $id);
+
+        $before = $this->actingAs($maker)->getJson('/api/v1/reports/cash')->assertOk();
+        $this->assertSame(['reversal_type' => 'loan_repayment', 'may_reverse' => true, 'can_reverse' => true, 'reverse_blocked_reason' => null],
+            array_intersect_key($row($before, $deposit->id), array_flip(['reversal_type', 'may_reverse', 'can_reverse', 'reverse_blocked_reason'])));
+        $withdrawal = collect($before->json('data.rows'))->firstWhere('withdrawal', '!=', null);
+        if ($withdrawal !== null) {
+            $this->assertSame('loan_disbursement', $withdrawal['reversal_type']);
+        }
+
+        $this->postJson($this->repaymentUrl($loan, $deposit), ['reason' => 'Wrong customer'])->assertCreated();
+        $after = $this->getJson('/api/v1/reports/cash')->assertOk();
+        $this->assertFalse($row($after, $deposit->id)['can_reverse']);
+        $this->assertSame(ReversalRequests::PENDING_MESSAGE, $row($after, $deposit->id)['reverse_blocked_reason']);
+
+        $teller = $this->employeeWithRole($this->admin, 'branch_manager');
+        $viewer = $this->actingAs($teller)->getJson('/api/v1/reports/cash');
+        if ($viewer->status() === 200 && $row($viewer, $deposit->id) !== null) {
+            $this->assertFalse($row($viewer, $deposit->id)['may_reverse']);
+        }
+    }
+
     public function test_admin_and_super_admin_approve_but_branch_roles_cannot(): void
     {
         [$loan, $deposit] = $this->repaidLoan();

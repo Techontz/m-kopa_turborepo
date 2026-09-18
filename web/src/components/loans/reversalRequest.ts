@@ -19,6 +19,8 @@ export interface ReversalRequestRow {
   rejected_at: string | null;
   rejection_reason: string | null;
   reversal_reference: string | null;
+  /** What approving the request posts, in one sentence. */
+  effect: string;
   can_approve: boolean;
   approve_blocked_reason: string | null;
   can_reject: boolean;

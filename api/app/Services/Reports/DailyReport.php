@@ -83,7 +83,7 @@ class DailyReport
             'SAVING DEPOSIT' => (float) $notReversed($scoped(Saving::query()))->where('type', 'deposit')->whereBetween('transaction_date', $range)->sum('amount'),
             'DEBT PENDING' => (float) SalaryAdvancePayment::whereHas('salaryAdvance', fn (Builder $query) => $notReversed($scoped($query)))->whereBetween('paid_on', $range)->sum('amount'),
             'LOAN FEE' => $this->movement($companyId, $branchIds, Account::LoanFee, $from, $to),
-            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)
+            'PENALTY' => (float) PenaltyPayment::whereHas('penalty', fn (Builder $query) => $scoped($query))->whereBetween('paid_on', $range)->standing()
                 ->where(fn (Builder $query) => $query->whereNull('loan_transaction_id')->orWhereIn('loan_transaction_id', LoanTransaction::query()->select('id')->whereNull('reversed_at')))
                 ->sum('amount'),
         ];
@@ -95,6 +95,8 @@ class DailyReport
             'EXPENSES' => (float) $notReversed($scoped(ExpenseRequest::query()))->where('status', 'accepted')
                 ->whereRaw('DATE(COALESCE(approved_at, request_date)) BETWEEN ? AND ?', [$from->toDateString(), $to->toDateString()])
                 ->whereDoesntHave('journalEntry.reversal')->sum('amount'),
+            // Historic only: the branch → bank sweep was retired (a branch holds no money of its own beyond petty
+            // cash), so this reports rows banked before that and is 0 from then on.
             'BANK' => (float) $notReversed($scoped(BankTransfer::query()))->where('type', 'branch_to_bank')->where('status', 'approved')->whereBetween('transfer_date', $range)->sum('amount'),
             'TRANSFER' => (float) $floats('from_branch_id')->sum('amount'),
         ];

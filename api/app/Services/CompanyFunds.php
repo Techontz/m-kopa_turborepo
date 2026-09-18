@@ -22,8 +22,8 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
  * Internal company fund movements recorded as `bank_transfers` rows and posted as ledger transfers (Dr the receiving
  * account, Cr the sending account; company totals unchanged; no balance is ever edited directly):
  *  - COMPANY ACCOUNT ↔ company bank account (types company_to_bank / bank_to_company),
- *  - branch sub-account → bank (branch_to_bank),
  *  - HQ reserve → Investment RESERVE A/C (reserve_to_investment): the one allowed movement out of the interest reserve,
+ *  - Investment RESERVE A/C → OPERATION PRINCIPAL (reserve_to_principal): the owners' leg of that same chain,
  *  - HQ interest → branch PETTY CASH A/C (petty_cash_to_branch): the only money a branch holds, spent only on expenses HQ approves.
  *
  * Rule 6 (segregation of duties): every movement is created PENDING (no journal) with its initiator in employee_id and
@@ -36,9 +36,10 @@ class CompanyFunds
 
     public const BANK_TO_CASH = 'bank_to_company';
 
-    public const BRANCH_TO_BANK = 'branch_to_bank';
-
     public const RESERVE_TO_INVESTMENT = 'reserve_to_investment';
+
+    /** The second leg: what the Investment already holds goes back into the lending cash (user ruling 2026-09-17). */
+    public const RESERVE_TO_PRINCIPAL = 'reserve_to_principal';
 
     public const PETTY_CASH_TO_BRANCH = 'petty_cash_to_branch';
 
@@ -108,27 +109,6 @@ class CompanyFunds
     }
 
     /**
-     * Request a branch sub-account → bank movement (pending approval). Never from the branch RESERVE fund (rule 3).
-     */
-    public function requestBranchToBank(int $companyId, int $branchId, Account $branchAccount, int $bankAccountId, float $amount, Employee $employee): BankTransfer
-    {
-        $this->ensureAmounts($amount, 0);
-        ReserveProtection::assertNotReserveSource($branchAccount, 'ac_type');
-
-        return BankTransfer::create([
-            'company_id' => $companyId,
-            'type' => self::BRANCH_TO_BANK,
-            'branch_id' => $branchId,
-            'branch_account' => $branchAccount->value,
-            'bank_account_id' => $bankAccountId,
-            'employee_id' => $employee->id,
-            'amount' => round($amount, 2),
-            'status' => self::PENDING,
-            'transfer_date' => today(),
-        ]);
-    }
-
-    /**
      * Request HQ reserve → Investment RESERVE A/C (pending approval). All interest reserve belongs to HQ, so HQ sends an amount
      * of the HQ reserve ({@see CashAccounts::hqReserve()}); nothing moves until another authorised user approves.
      */
@@ -147,6 +127,42 @@ class CompanyFunds
             'status' => self::PENDING,
             'transfer_date' => today(),
         ]);
+    }
+
+    /**
+     * Request Investment RESERVE A/C → OPERATION PRINCIPAL (pending approval). The Investment can only send reserve Finance has
+     * already sent it ({@see Account::InvestmentReserve}), never reserve still held at HQ.
+     */
+    public function requestReserveToPrincipal(int $companyId, float $amount, Employee $employee): BankTransfer
+    {
+        $this->ensureAmounts($amount, 0);
+        $this->assertInvestmentReserveCovers($companyId, round($amount, 2));
+
+        return BankTransfer::create([
+            'company_id' => $companyId,
+            'type' => self::RESERVE_TO_PRINCIPAL,
+            'employee_id' => $employee->id,
+            'hq_account' => Account::InvestmentReserve->value,
+            'amount' => round($amount, 2),
+            'reference' => $this->newReference('RP'),
+            'status' => self::PENDING,
+            'transfer_date' => today(),
+        ]);
+    }
+
+    /**
+     * The Investment RESERVE A/C must hold what is being sent to the OPERATION PRINCIPAL.
+     *
+     * @throws ValidationException
+     */
+    public function assertInvestmentReserveCovers(int $companyId, float $amount): float
+    {
+        $available = $this->ledger->balance($companyId, Account::InvestmentReserve) + 0.0;
+        if ($available + 0.001 < $amount) {
+            throw ValidationException::withMessages(['amount' => 'The Investment RESERVE A/C holds '.money($available).' — only reserve Finance has already sent can be moved to the OPERATION PRINCIPAL.']);
+        }
+
+        return $available;
     }
 
     /**
@@ -181,7 +197,7 @@ class CompanyFunds
     }
 
     /**
-     * Whether the employee may approve or reject an HQ reserve → Investment transfer: Super Admin, Admin, or a login linked to
+     * Whether the employee may approve or reject a reserve transfer (HQ → Investment, Investment → OPERATION PRINCIPAL): Super Admin, Admin, or a login linked to
      * a shareholder of the company (Shareholder Portal account or staff who is also a shareholder). Maker/checker still applies.
      */
     public static function canDecideReserve(Employee $employee): bool
@@ -216,6 +232,22 @@ class CompanyFunds
                 return $this->postReserveToInvestment($locked, $approver);
             }
 
+            if ($locked->type === self::RESERVE_TO_PRINCIPAL) {
+                $this->assertCanDecideReserve($approver);
+                $this->assertInvestmentReserveCovers((int) $locked->company_id, (float) $locked->amount);
+                $entry = $this->ledger->transfer(
+                    $locked->company_id,
+                    ['account' => Account::InvestmentReserve],
+                    ['account' => Account::Principal],
+                    (float) $locked->amount,
+                    'INVESTMENT RESERVE A/C TO OPERATION PRINCIPAL',
+                    $locked,
+                );
+                $locked->update(['status' => self::APPROVED, 'approved_by' => $approver->id, 'approved_at' => now(), 'journal_entry_id' => $entry->id]);
+
+                return $locked;
+            }
+
             if ($locked->type === self::PETTY_CASH_TO_BRANCH) {
                 return $this->postFromPool($locked, $approver, ['account' => Account::PettyCash, 'branch' => $locked->branch_id], $this->assertInterestCovers((int) $locked->company_id, (float) $locked->amount), 'HQ INTEREST TO BRANCH PETTY CASH A/C');
             }
@@ -232,7 +264,6 @@ class CompanyFunds
             [$from, $to, $description] = match ($locked->type) {
                 self::CASH_TO_BANK => [['account' => Account::Company], $bankLine, 'COMPANY CASH TO BANK - '.$bank->name],
                 self::BANK_TO_CASH => [$bankLine, ['account' => Account::Company], 'BANK TO COMPANY CASH - '.$bank->name],
-                self::BRANCH_TO_BANK => [['account' => Account::from((string) $locked->branch_account), 'branch' => $locked->branch_id], $bankLine, 'Branch to bank transfer'],
                 default => throw ValidationException::withMessages(['amount' => 'Unknown transfer type']),
             };
             ReserveProtection::assertNotReserveSource($from['account'], 'amount');
@@ -267,7 +298,7 @@ class CompanyFunds
             if ($locked->status !== self::PENDING) {
                 throw ValidationException::withMessages(['reason' => 'Only pending transfers can be rejected']);
             }
-            if ($locked->type === self::RESERVE_TO_INVESTMENT) {
+            if (in_array($locked->type, [self::RESERVE_TO_INVESTMENT, self::RESERVE_TO_PRINCIPAL], true)) {
                 $this->assertCanDecideReserve($employee);
             }
 

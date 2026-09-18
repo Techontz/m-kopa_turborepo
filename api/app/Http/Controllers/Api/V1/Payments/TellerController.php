@@ -310,7 +310,7 @@ class TellerController extends ApiController
         $currentPenalty = $this->loans->outstanding($loan)['penalty'];
         $penalties = Penalty::where('loan_id', $loan->id)->get(['id', 'amount', 'penalty_date', 'is_waived']);
         $chargeable = $penalties->where('is_waived', false);
-        $penaltyPayments = PenaltyPayment::whereIn('penalty_id', $chargeable->modelKeys())->get(['penalty_id', 'amount', 'paid_on']);
+        $penaltyPayments = PenaltyPayment::whereIn('penalty_id', $chargeable->modelKeys())->standing()->get(['penalty_id', 'amount', 'paid_on']);
         $transactions = $loan->transactions()->orderBy('transaction_date')->orderBy('id')->get();
         $lastId = $transactions->last()?->id;
 

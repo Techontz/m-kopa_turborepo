@@ -235,6 +235,9 @@ class DashboardStatistics
      *    PRINCIPAL, so a report figure, never extra money;
      *  - interest (after the 20% reserve), loan_fee, penalty and reserve: collected in the month, exactly as the Profit & Loss
      *    report counts them ({@see ProfitLossReport::row()}: reversals net out, month-end closing entries excluded);
+     *  - salary_advance: the FULL amount its customers repaid on salary advances in the month (capital + profit, reversed
+     *    advances excluded) — a report figure only (user ruling 2026-09-17). The capital is already back in OPERATION
+     *    PRINCIPAL and the profit in Salary Advance income; nothing here moves money;
      *  - cash_pending: money the teller collected at the branch in the month (cash, bank or mobile money) that Finance has not yet
      *    verified as banked.
      *
@@ -252,7 +255,12 @@ class DashboardStatistics
             ->whereIn('status', [PaymentStatus::PendingVerification->value, PaymentStatus::Deposited->value])
             ->whereBetween('paid_on', $inMonth)->groupBy('branch_id')->selectRaw('branch_id, SUM(amount) as total')->pluck('total', 'branch_id');
 
-        $rows = $company->branches()->where('is_head_office', false)->orderBy('id')->get()->map(function (Branch $branch) use ($company, $from, $to, $principalRepaid, $cashPending): array {
+        $salaryAdvanceRepaid = SalaryAdvancePayment::join('salary_advances', 'salary_advances.id', '=', 'salary_advance_payments.salary_advance_id')
+            ->where('salary_advances.company_id', $company->id)->whereNull('salary_advances.reversed_at')
+            ->whereBetween('salary_advance_payments.paid_on', $inMonth)->groupBy('salary_advances.branch_id')
+            ->selectRaw('salary_advances.branch_id as branch_id, SUM(salary_advance_payments.amount) as total')->pluck('total', 'branch_id');
+
+        $rows = $company->branches()->where('is_head_office', false)->orderBy('id')->get()->map(function (Branch $branch) use ($company, $from, $to, $principalRepaid, $cashPending, $salaryAdvanceRepaid): array {
             $pnl = $this->profitLoss->row($this->profitLoss->companyFigures((int) $company->id, $from, $to, [$branch->id]));
 
             return [
@@ -263,12 +271,13 @@ class DashboardStatistics
                 'loan_fee' => $pnl['fee_income'],
                 'penalty' => $pnl['penalty_income'],
                 'reserve' => $pnl['reserve_amount'],
+                'salary_advance' => round((float) ($salaryAdvanceRepaid[$branch->id] ?? 0), 2),
                 'cash_pending' => round((float) ($cashPending[$branch->id] ?? 0), 2),
             ];
         })->values();
 
         $total = [];
-        foreach (['petty_cash', 'principal_repaid', 'interest', 'loan_fee', 'penalty', 'reserve', 'cash_pending'] as $key) {
+        foreach (['petty_cash', 'principal_repaid', 'interest', 'loan_fee', 'penalty', 'reserve', 'salary_advance', 'cash_pending'] as $key) {
             $total[$key] = round((float) $rows->sum($key), 2);
         }
 

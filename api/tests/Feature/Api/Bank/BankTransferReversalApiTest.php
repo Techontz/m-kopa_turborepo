@@ -54,30 +54,24 @@ class BankTransferReversalApiTest extends TestCase
         $this->assertSame(0.0, $this->ledger->balance($this->admin->company_id, Account::Company));
     }
 
-    public function test_branch_to_bank_and_company_cash_bank_reversals(): void
+    public function test_company_cash_bank_reversal(): void
     {
-        $this->ledger->openingBalance($this->admin->company_id, Account::Interest, 40000, branch: $this->admin->branch_id);
         $this->ledger->openingBalance($this->admin->company_id, Account::Company, 70000);
 
-        $this->postJson('/api/v1/bank/transfers', ['from_blanch_id' => $this->admin->branch_id, 'ac_type' => Account::Interest->value, 'amount' => 15000, 'to_account_id' => $this->bank->id])->assertCreated();
-        $request = BankTransfer::firstOrFail();
-        $this->postJson("/api/v1/bank/transfers/{$request->id}/reverse", ['reason' => 'Pending'])->assertUnprocessable();
-        $this->approve($request->id);
-        $this->assertNotNull($request->fresh()->journal_entry_id);
+        $pending = $this->postJson('/api/v1/bank/company-transfers', ['direction' => 'company_to_bank', 'bank_account_id' => $this->bank->id, 'amount' => 25000])->assertCreated()->json('data.id');
+        $this->postJson("/api/v1/bank/transfers/{$pending}/reverse", ['reason' => 'Pending'])->assertUnprocessable();
+        $this->approve($pending);
 
-        $this->approve($this->postJson('/api/v1/bank/company-transfers', ['direction' => 'company_to_bank', 'bank_account_id' => $this->bank->id, 'amount' => 25000])->assertCreated()->json('data.id'));
         $deposit = BankTransfer::where('type', 'company_to_bank')->firstOrFail();
-        $this->assertSame(40000.0, $this->bank->balance());
+        $this->assertNotNull($deposit->journal_entry_id);
+        $this->assertSame(25000.0, $this->bank->balance());
+        $this->getJson('/api/v1/bank/company-transfers')->assertOk()->assertJsonPath('data.0.can_reverse', true);
 
         $this->postJson("/api/v1/bank/transfers/{$deposit->id}/reverse", ['reason' => 'Slip rejected'])->assertOk();
         $this->assertSame(70000.0, $this->ledger->balance($this->admin->company_id, Account::Company));
-        $this->getJson('/api/v1/bank/company-transfers')->assertOk()->assertJsonPath('data.0.status', 'reversed')->assertJsonPath('total', 0)->assertJsonPath('total_reversed', 25000);
-
-        $this->getJson('/api/v1/bank/transfers?status=approved')->assertOk()->assertJsonPath('data.0.can_reverse', true);
-        $this->postJson("/api/v1/bank/transfers/{$request->id}/reverse", ['reason' => 'Wrong account'])->assertOk();
-        $this->assertSame(40000.0, $this->ledger->balance($this->admin->company_id, Account::Interest, $this->admin->branch_id));
         $this->assertSame(0.0, $this->bank->balance());
-        $this->getJson('/api/v1/bank/transfers?status=approved')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.status', 'reversed');
+        $this->getJson('/api/v1/bank/company-transfers')->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.status', 'reversed')->assertJsonPath('total', 0)->assertJsonPath('total_reversed', 25000);
     }
 
     public function test_rollback_permissions_and_company_isolation(): void

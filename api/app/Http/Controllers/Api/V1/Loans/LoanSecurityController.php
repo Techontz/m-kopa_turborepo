@@ -26,9 +26,20 @@ class LoanSecurityController extends LoanApiController
             $validated = $request->validate([
                 'guarantor_id' => ['required', Rule::exists('guarantors', 'id')->where('customer_id', $loan->customer_id)],
             ]);
-            Guarantor::whereKey($validated['guarantor_id'])->update(['loan_id' => $loan->id]);
+            $source = Guarantor::findOrFail($validated['guarantor_id']);
 
-            return $this->message('Guarantor added successfully');
+            if ($loan->guarantors()->where('phone', $source->phone)->exists()) {
+                throw ValidationException::withMessages(['guarantor_id' => 'This guarantor is already on this loan']);
+            }
+
+            // A profile guarantor is attached as-is; one already backing another loan is copied, so that loan keeps its guarantor.
+            if ($source->loan_id === null) {
+                $source->update(['loan_id' => $loan->id]);
+            } else {
+                $source->replicate()->fill(['loan_id' => $loan->id])->save();
+            }
+
+            return $this->message('Guarantor imported successfully');
         }
 
         $data = $request->validate((new GuarantorRequest)->rules());

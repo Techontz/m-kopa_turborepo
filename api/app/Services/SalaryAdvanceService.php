@@ -18,13 +18,14 @@ use Illuminate\Validation\ValidationException;
  * Customer salary advance (live "perifelar" loans): request → approve → repayment → done.
  *
  * Ledger:
- *  - approval: Dr Salary Advance Receivable (branch) / Cr HQ Salary Advance account. The category fee is NOT income at
- *    approval (C2);
+ *  - approval: Dr Salary Advance Receivable (branch) / Cr PRINCIPAL A/C. An advance is lent out of the same Operation
+ *    Principal every loan is funded from, so the money leaves HQ's lending pool and nothing else (advances approved before
+ *    this rule drew on the HQ SALARY ADVANCE account; they stay as booked). The category fee is NOT income at approval (C2);
  *  - fee collection ({@see collectFee()}): only when the fee is actually collected, once — Dr LOAN FEE A/C (branch) / Cr FEE
  *    INCOME (branch). Advances approved before C2 posted the fee with the approval journal; that stays as booked;
- *  - repayment (spec §8): principal returns to the principal pool and interest goes to the interest pool —
- *    Dr HQ Salary Advance (principal portion) + Dr HQ Interest (interest portion) / Cr Receivable (principal) /
- *    Cr Interest Income (interest). Repayments posted before this split debited HQ Salary Advance with the full amount;
+ *  - repayment (spec §8): principal returns to the Operation Principal it was lent from and the profit goes to the interest
+ *    pool as its own income — Dr PRINCIPAL A/C (principal portion) + Dr HQ Interest (profit portion) / Cr Receivable
+ *    (principal) / Cr Salary Advance Income (profit). Repayments posted before this rule debited HQ Salary Advance;
  *    they are not rewritten;
  *  - removal of an approved advance: reversal of every entry above — the fee journal only exists (and is mirrored) when the fee
  *    was collected (Documents: no delete, reversal only).
@@ -68,7 +69,7 @@ class SalaryAdvanceService
 
             $this->ledger->journal($locked->company_id, 'SALARY ADVANCE LOAN', [
                 ['account' => Account::SalaryAdvanceReceivable, 'branch' => $locked->branch_id, 'debit' => (float) $locked->amount],
-                ['account' => Account::HqSalaryAdvance, 'credit' => (float) $locked->amount],
+                ['account' => Account::Principal, 'credit' => (float) $locked->amount],
             ], $locked, null, $locked->branch_id);
 
             $advance->setRawAttributes($locked->getAttributes(), true);
@@ -146,7 +147,7 @@ class SalaryAdvanceService
             $payment = $locked->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
 
             $this->ledger->journal($locked->company_id, 'SALARY ADVANCE DEPOSIT', [
-                ['account' => Account::HqSalaryAdvance, 'debit' => $principal],
+                ['account' => Account::Principal, 'debit' => $principal],
                 ['account' => Account::HqInterest, 'debit' => $interest],
                 ['account' => Account::SalaryAdvanceReceivable, 'branch' => $locked->branch_id, 'credit' => $principal],
                 // §9: salary advance profit is its own income category and carries no 20% reserve. Repayments posted

@@ -19,6 +19,7 @@ use App\Models\Loan;
 use App\Models\NegligenceDeduction;
 use App\Models\Payment;
 use App\Models\PayrollRun;
+use App\Models\ReversalRequest;
 use App\Models\SalaryAdvance;
 use App\Models\SalaryAdvanceCategory;
 use App\Models\ShareHolder;
@@ -96,14 +97,14 @@ class PendingApprovalsTest extends TestCase
         $this->assertSame(1, $this->getJson('/api/v1/approvals/pending')->json('data.groups.0.count'));
 
         // Another authorised user (the Super Admin) may approve them.
-        foreach ([ApprovalPolicy::FLOATS, ApprovalPolicy::BANK_TRANSFERS, ApprovalPolicy::HQ_TRANSACTIONS, ApprovalPolicy::CAPITAL_CONTRIBUTIONS, ApprovalPolicy::ASSET_CONTRIBUTIONS, ApprovalPolicy::SHARE_ISSUANCES, ApprovalPolicy::DIVIDEND_DECLARATIONS, ApprovalPolicy::WRITE_OFFS, ApprovalPolicy::SALARY_ADVANCES, ApprovalPolicy::TELLER_DEPOSITS, ApprovalPolicy::BRANCH_RECEIPTS, ApprovalPolicy::LOAN_APPROVALS] as $workflow) {
+        foreach ([ApprovalPolicy::FLOATS, ApprovalPolicy::BANK_TRANSFERS, ApprovalPolicy::HQ_TRANSACTIONS, ApprovalPolicy::CAPITAL_CONTRIBUTIONS, ApprovalPolicy::ASSET_CONTRIBUTIONS, ApprovalPolicy::SHARE_ISSUANCES, ApprovalPolicy::DIVIDEND_DECLARATIONS, ApprovalPolicy::WRITE_OFFS, ApprovalPolicy::REVERSAL_REQUESTS, ApprovalPolicy::SALARY_ADVANCES, ApprovalPolicy::TELLER_DEPOSITS, ApprovalPolicy::BRANCH_RECEIPTS, ApprovalPolicy::LOAN_APPROVALS] as $workflow) {
             $this->assertTrue($groups[$workflow]['rows'][0]['can_approve'], $workflow);
         }
 
         // The initiator (Admin) is blocked on the rows they initiated.
         $this->actingAs($initiator);
         $own = collect($this->getJson('/api/v1/approvals/pending')->assertOk()->json('data.groups'))->keyBy('workflow');
-        foreach ([ApprovalPolicy::FLOATS, ApprovalPolicy::CAPITAL_CONTRIBUTIONS, ApprovalPolicy::ASSET_CONTRIBUTIONS, ApprovalPolicy::SHARE_ISSUANCES, ApprovalPolicy::DIVIDEND_DECLARATIONS, ApprovalPolicy::WRITE_OFFS, ApprovalPolicy::BRANCH_RECEIPTS] as $workflow) {
+        foreach ([ApprovalPolicy::FLOATS, ApprovalPolicy::CAPITAL_CONTRIBUTIONS, ApprovalPolicy::ASSET_CONTRIBUTIONS, ApprovalPolicy::SHARE_ISSUANCES, ApprovalPolicy::DIVIDEND_DECLARATIONS, ApprovalPolicy::WRITE_OFFS, ApprovalPolicy::REVERSAL_REQUESTS, ApprovalPolicy::BRANCH_RECEIPTS] as $workflow) {
             $this->assertFalse($own[$workflow]['rows'][0]['can_approve'], $workflow);
             $this->assertSame(SegregationOfDuties::INITIATOR_MESSAGE, $own[$workflow]['rows'][0]['approve_blocked_reason'], $workflow);
         }
@@ -124,6 +125,7 @@ class PendingApprovalsTest extends TestCase
         $this->assertContains(ApprovalPolicy::FLOATS, $workflows);
         $this->assertContains(ApprovalPolicy::BRANCH_RECEIPTS, $workflows);
         $this->assertContains(ApprovalPolicy::TELLER_DEPOSITS, $workflows);
+        $this->assertContains(ApprovalPolicy::REVERSAL_REQUESTS, $workflows, 'finance approves reversals');
         $this->assertNotContains(ApprovalPolicy::CAPITAL_CONTRIBUTIONS, $workflows, 'finance has no capital permission');
         $this->assertNotContains(ApprovalPolicy::SHARE_ISSUANCES, $workflows);
         $this->assertNotContains(ApprovalPolicy::WRITE_OFFS, $workflows);
@@ -229,7 +231,7 @@ class PendingApprovalsTest extends TestCase
         $type = ExpenseType::create(['company_id' => $companyId, 'scope' => 'branch', 'name' => 'UMEME']);
         ExpenseRequest::create(['company_id' => $companyId, 'scope' => 'branch', 'branch_id' => $branchId, 'expense_type_id' => $type->id, 'employee_id' => $initiator->id, 'amount' => 1000, 'status' => 'pending', 'request_date' => today()]);
         FloatTransfer::create(['company_id' => $companyId, 'type' => 'company_to_branch', 'to_branch_id' => $branchId, 'from_account' => 'company_cash', 'to_account' => 'principal', 'amount' => 2000, 'status' => 'pending', 'transfer_date' => today(), 'requested_by' => $initiator->id]);
-        BankTransfer::create(['company_id' => $companyId, 'type' => 'branch_to_bank', 'branch_id' => $branchId, 'branch_account' => 'interest', 'bank_account_id' => $bank->id, 'employee_id' => $initiator->id, 'amount' => 3000, 'status' => 'pending', 'transfer_date' => today()]);
+        BankTransfer::create(['company_id' => $companyId, 'type' => 'petty_cash_to_branch', 'branch_id' => $branchId, 'branch_account' => 'petty_cash', 'bank_account_id' => $bank->id, 'employee_id' => $initiator->id, 'amount' => 3000, 'status' => 'pending', 'transfer_date' => today()]);
         HqTransaction::create(['company_id' => $companyId, 'employee_id' => $initiator->id, 'from_account' => 'hq_interest', 'to_account' => 'hq_disbursement', 'amount' => 4000, 'status' => 'pending']);
         Capital::create(['company_id' => $companyId, 'share_holder_id' => $holder->id, 'amount' => 5000, 'pay_method' => 'CASH', 'receiving_account' => 'company_cash', 'status' => 'pending', 'recorded_by' => $initiator->id, 'contributed_at' => now()]);
         app(AssetRegistry::class)->contribute($holder, [
@@ -242,6 +244,7 @@ class PendingApprovalsTest extends TestCase
         $pendingLoan = Loan::factory()->create(['customer_id' => $customer->id, 'employee_id' => $staff->id, 'status' => LoanStatus::PendingManagerApproval]);
         $activeLoan = Loan::factory()->create(['customer_id' => $customer->id, 'loan_category_id' => $pendingLoan->loan_category_id, 'status' => LoanStatus::Active, 'amount_approved' => 100000, 'disbursed_at' => now()]);
         WriteOffRequest::create(['company_id' => $companyId, 'branch_id' => $branchId, 'loan_id' => $activeLoan->id, 'status' => 'pending', 'reason' => 'Defaulted', 'requested_by' => $initiator->id]);
+        ReversalRequest::create(['company_id' => $companyId, 'branch_id' => $branchId, 'loan_id' => $activeLoan->id, 'type' => ReversalRequest::DISBURSEMENT, 'subject_type' => $activeLoan->getMorphClass(), 'subject_id' => $activeLoan->id, 'amount' => 100000, 'status' => 'pending', 'reason' => 'Sent twice', 'requested_by' => $initiator->id]);
 
         $advanceCategory = SalaryAdvanceCategory::create(['company_id' => $companyId, 'name' => 'SA', 'interest_rate' => 10, 'amount_from' => 1000, 'amount_to' => 50000]);
         SalaryAdvance::create(['company_id' => $companyId, 'branch_id' => $branchId, 'customer_id' => $customer->id, 'salary_advance_category_id' => $advanceCategory->id, 'employee_id' => $staff->id, 'amount' => 8000, 'interest_rate' => 10, 'total_payable' => 8800, 'status' => 'pending']);

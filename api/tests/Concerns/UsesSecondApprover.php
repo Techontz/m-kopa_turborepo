@@ -72,6 +72,25 @@ trait UsesSecondApprover
     }
 
     /**
+     * Maker/checker reversals: assert the reverse endpoint only created a pending request, then approve it under Reversal
+     * Requests as another authorised user (a new Super Admin by default) and sign the requester back in. Returns the approval
+     * response unasserted.
+     */
+    protected function approveReversal(TestResponse $requested, ?Employee $approver = null): TestResponse
+    {
+        $requested->assertCreated()->assertJsonPath('reversal_request.status', 'pending');
+        $requester = auth()->user();
+        $approver ??= $this->secondApprover($requester);
+        $this->actingAs($approver);
+
+        try {
+            return $this->postJson('/api/v1/reversal-requests/'.$requested->json('reversal_request.id').'/approve');
+        } finally {
+            $this->actingAs($requester);
+        }
+    }
+
+    /**
      * POST an approval endpoint as a second authorised user (asserting success) and sign the initiator back in.
      *
      * @param  array<string, mixed>  $payload

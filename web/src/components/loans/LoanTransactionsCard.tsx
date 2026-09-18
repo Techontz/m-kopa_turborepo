@@ -9,10 +9,16 @@ import { useAuth } from "@/lib/auth";
 import { money } from "@/lib/format";
 import { useAction } from "@/lib/hooks";
 
+import { ApprovalActions } from "@/components/finance/Approval";
+
 import { ReversalModal } from "./ReversalModal";
+import { approvePath, pendingNote, rejectPath } from "./reversalRequest";
 import type { LoanTransactionRow } from "./types";
 
-/** Loan transactions with the repayment REVERSE action (permission loans.reverse_repayment, eligibility from the API). */
+/**
+ * Loan transactions with the repayment REVERSE action (permission loans.reverse_repayment, eligibility from the API). Reverse
+ * only raises a request; a pending request shows here with Approve / Reject for the checker.
+ */
 export function LoanTransactionsCard({ loanId, transactions }: { loanId: number; transactions: LoanTransactionRow[] }) {
   const { can } = useAuth();
   const [target, setTarget] = useState<LoanTransactionRow | null>(null);
@@ -45,6 +51,14 @@ export function LoanTransactionsCard({ loanId, transactions }: { loanId: number;
                     <small>{row.reversed_at} · {row.reversed_by ?? "—"} · {row.reversal_reason}{row.reversal_reference ? ` · ${row.reversal_reference}` : ""}</small>
                   </div>
                 )}
+                {row.reversal_request && (
+                  <div style={{ whiteSpace: "normal" }}>
+                    <Badge tone="warning">REVERSAL PENDING APPROVAL</Badge> <small>{pendingNote(row.reversal_request)}</small>
+                    <div className="mt-1">
+                      <ApprovalActions row={row.reversal_request} approvePath={approvePath(row.reversal_request)} rejectPath={rejectPath(row.reversal_request)} description={`reversal of the repayment dated ${row.date}`} />
+                    </div>
+                  </div>
+                )}
               </>
             ),
           },
@@ -61,7 +75,7 @@ export function LoanTransactionsCard({ loanId, transactions }: { loanId: number;
                 header: "Action",
                 sortable: false,
                 render: (row: LoanTransactionRow) => row.type === "deposit" && !row.reversed && (
-                  <span title={row.can_reverse ? "Reverse this repayment" : row.reverse_blocked_reason ?? ""} className="d-inline-block">
+                  <span title={row.can_reverse ? "Request the reversal of this repayment" : row.reverse_blocked_reason ?? ""} className="d-inline-block">
                     <button
                       type="button"
                       className="btn btn-sm btn-outline-danger"
@@ -84,14 +98,14 @@ export function LoanTransactionsCard({ loanId, transactions }: { loanId: number;
       <ReversalModal
         key={target?.id ?? 0}
         open={target !== null}
-        title="Reverse repayment"
+        title="Request repayment reversal"
         submitting={reverse.isPending}
         error={reverse.fieldError("reason")}
         onClose={close}
         onSubmit={(reason) => target && reverse.mutate({ id: target.id, reason }, { onSuccess: () => setTarget(null) })}
         summary={target && (
           <>
-            Reverse the repayment of <b>TZS {money(target.amount)}</b> dated {target.date}{target.receipt_number ? ` (receipt ${target.receipt_number})` : ""}:
+            On approval, reverse the repayment of <b>TZS {money(target.amount)}</b> dated {target.date}{target.receipt_number ? ` (receipt ${target.receipt_number})` : ""}:
             <ul className="mb-1 mt-1">
               <li>Principal {money(target.principal)} back to LOAN RECEIVABLE</li>
               <li>Penalty {money(target.penalty)} out of PENALTY INCOME</li>

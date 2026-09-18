@@ -110,7 +110,8 @@ class SalaryAdvanceApiTest extends TestCase
         $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/approve")->assertUnprocessable();
 
         $this->assertSame('active', $advance->fresh()->status);
-        $this->assertEquals(-20000, $ledger->balance($company, Account::HqSalaryAdvance));
+        $this->assertEquals(-20000, $ledger->balance($company, Account::Principal), 'an advance is lent out of OPERATION PRINCIPAL');
+        $this->assertEquals(0, $ledger->balance($company, Account::HqSalaryAdvance), 'the HQ salary advance pot is not the source');
         $this->assertEquals(20000, $ledger->balance($company, Account::SalaryAdvanceReceivable, $branch));
         $this->assertEquals(0, $ledger->balance($company, Account::LoanFee, $branch), 'C2: no fee at approval');
         $this->assertEquals(0, $ledger->balance($company, Account::FeeIncome, $branch), 'C2: no fee income at approval');
@@ -127,7 +128,7 @@ class SalaryAdvanceApiTest extends TestCase
 
         $this->postJson("/api/v1/salary-advance/advances/{$advance->id}/payments", ['amount' => 14000])->assertOk();
         $this->assertSame('done', $advance->fresh()->status);
-        $this->assertEquals(0, $ledger->balance($company, Account::HqSalaryAdvance), 'The HQ Salary Advance pool regains only the principal');
+        $this->assertEquals(0, $ledger->balance($company, Account::Principal), 'OPERATION PRINCIPAL regains the principal, and only the principal');
         $this->assertEquals(4000, $ledger->balance($company, Account::HqInterest), 'Salary advance interest lands in the interest pool (spec §8)');
         $this->assertEquals(0, $ledger->balance($company, Account::SalaryAdvanceReceivable, $branch));
         // §9: salary advance profit is its own income category — not interest income, and no 20% reserve on it.
@@ -172,7 +173,7 @@ class SalaryAdvanceApiTest extends TestCase
         $this->assertSame('reversed', $advance->status);
         $this->assertNotNull($advance->reversed_at);
         $this->assertSame(3, JournalEntry::whereNotNull('reversal_of_id')->count(), 'approval, repayment and the collected fee are mirrored');
-        $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::HqSalaryAdvance));
+        $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::Principal));
         $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::SalaryAdvanceReceivable, $this->admin->branch_id));
         $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::FeeIncome, $this->admin->branch_id));
         $this->assertEquals(0, $ledger->balance($this->admin->company_id, Account::LoanFee, $this->admin->branch_id));

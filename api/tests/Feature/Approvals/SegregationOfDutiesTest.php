@@ -259,13 +259,10 @@ class SegregationOfDutiesTest extends TestCase
 
     public function test_reserve_accounts_are_not_manual_transfer_or_expense_sources(): void
     {
-        $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
         $this->ledger->openingBalance($this->admin->company_id, Account::Reserve, 50000, branch: $this->admin->branch_id);
         $this->ledger->openingBalance($this->admin->company_id, Account::HqReserve, 50000);
         $entries = JournalEntry::count();
 
-        $this->postJson('/api/v1/bank/transfers', ['from_blanch_id' => $this->admin->branch_id, 'ac_type' => Account::Reserve->value, 'amount' => 1000, 'to_account_id' => $bank->id])
-            ->assertUnprocessable()->assertJsonPath('errors.ac_type.0', ReserveProtection::MESSAGE);
         $this->postJson('/api/v1/hq/transactions', ['from_account' => Account::HqReserve->value, 'to_account' => Account::HqInterest->value, 'amount' => 1000])
             ->assertUnprocessable()->assertJsonPath('errors.from_account.0', ReserveProtection::MESSAGE);
 
@@ -276,10 +273,8 @@ class SegregationOfDutiesTest extends TestCase
 
         // Legacy pending rows created before the rule are blocked at approval too — the float account → account flow no
         // longer has an endpoint, so its historic rows are the only way a reserve float can still be offered for posting.
-        $legacyBank = BankTransfer::create(['company_id' => $this->admin->company_id, 'type' => 'branch_to_bank', 'branch_id' => $this->admin->branch_id, 'branch_account' => Account::Reserve->value, 'bank_account_id' => $bank->id, 'amount' => 1000, 'status' => 'pending', 'transfer_date' => today()]);
         $legacyHq = HqTransaction::create(['company_id' => $this->admin->company_id, 'from_account' => Account::HqReserve->value, 'to_account' => Account::HqInterest->value, 'amount' => 1000, 'status' => 'pending']);
         $legacyFloat = FloatTransfer::create(['company_id' => $this->admin->company_id, 'type' => 'account_to_account', 'from_branch_id' => $this->admin->branch_id, 'to_branch_id' => $this->admin->branch_id, 'from_account' => Account::Reserve->value, 'to_account' => Account::Principal->value, 'amount' => 1000, 'status' => 'pending', 'transfer_date' => today()]);
-        $this->postJson("/api/v1/bank/transfers/{$legacyBank->id}/approve")->assertUnprocessable()->assertJsonPath('errors.amount.0', ReserveProtection::MESSAGE);
         $this->postJson("/api/v1/hq/transactions/{$legacyHq->id}/approve")->assertUnprocessable()->assertJsonPath('errors.amount.0', ReserveProtection::MESSAGE);
         $this->postJson("/api/v1/capital/floats/{$legacyFloat->id}/approve")->assertUnprocessable()->assertJsonPath('errors.transfer.0', ReserveProtection::MESSAGE);
 
@@ -287,7 +282,6 @@ class SegregationOfDutiesTest extends TestCase
         $this->assertSame(50000.0, $this->ledger->balance($this->admin->company_id, Account::Reserve, $this->admin->branch_id));
         $this->assertSame(50000.0, $this->ledger->balance($this->admin->company_id, Account::HqReserve));
 
-        $this->assertNotContains(Account::Reserve->value, array_column($this->getJson('/api/v1/bank/options/branch-accounts')->json('data'), 'value'));
         $this->assertNotContains(Account::HqReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts?direction=from')->json('data'), 'value'));
         $this->assertNotContains(Account::HqReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts?with_company=1')->json('data'), 'value'));
         $this->assertContains(Account::HqReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts')->json('data'), 'value'), 'reserve stays a valid destination');

@@ -304,17 +304,30 @@ class MoneyFlowReportsTest extends TestCase
         $deposit(9000, today()->toDateString(), reversed: true);
         $deposit(80000, today()->subMonthNoOverflow()->endOfMonth()->toDateString());
 
+        // Salary advance column = the full amount repaid in the month (capital + profit), a report figure only.
+        $ledger->transfer($companyId, ['account' => Account::SalaryAdvanceIncome, 'branch' => $branchId], ['account' => Account::HqInterest], 4000, 'SALARY ADVANCE DEPOSIT');
+        $category = SalaryAdvanceCategory::create(['company_id' => $companyId, 'name' => 'SA', 'interest_rate' => 20, 'amount_from' => 1000, 'amount_to' => 500000]);
+        $advance = fn (array $attributes = []) => SalaryAdvance::create($attributes + [
+            'company_id' => $companyId, 'branch_id' => $branchId, 'customer_id' => $customer->id, 'salary_advance_category_id' => $category->id,
+            'amount' => 100000, 'interest_rate' => 20, 'total_payable' => 120000, 'fee' => 0, 'status' => 'active', 'approved_at' => now(),
+        ]);
+        $advance()->payments()->create(['amount' => 60000, 'paid_on' => today()->toDateString()]);
+        $advance()->payments()->create(['amount' => 5000, 'paid_on' => today()->subMonthNoOverflow()->endOfMonth()->toDateString()]);
+        $advance(['reversed_at' => now()])->payments()->create(['amount' => 7000, 'paid_on' => today()->toDateString()]);
+
         $list = $this->getJson('/api/v1/dashboard')->assertOk()->json('data.branch_accounts');
 
         $this->assertSame(today()->format('F Y'), $list['month']);
         $this->assertNotContains($headOffice->name, array_column($list['rows'], 'name'), 'Head Office is not a branch');
         $row = collect($list['rows'])->firstWhere('name', $this->admin->branch->name);
-        $this->assertSame(['name', 'petty_cash', 'principal_repaid', 'interest', 'loan_fee', 'penalty', 'reserve', 'cash_pending'], array_keys($row), 'no agent or insurance columns');
+        $this->assertSame(['name', 'petty_cash', 'principal_repaid', 'interest', 'loan_fee', 'penalty', 'reserve', 'salary_advance', 'cash_pending'], array_keys($row), 'no agent or insurance columns');
         $this->assertEquals(38000, $row['petty_cash'], 'the petty cash balance available now');
         $this->assertEquals(14000, $row['principal_repaid'], 'this month only, reversed repayments excluded');
         $this->assertEquals(0, $row['interest'], 'monthly collections, not balances');
+        $this->assertEquals(60000, $row['salary_advance'], 'full salary advance repaid this month, reversed advances excluded');
         $this->assertEquals(0, $row['cash_pending']);
         $this->assertEquals(14000, $list['total']['principal_repaid']);
+        $this->assertEquals(60000, $list['total']['salary_advance']);
     }
 
     public function test_branch_scoped_dashboard_cards_cover_the_employee_branch_only(): void

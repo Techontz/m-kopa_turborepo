@@ -68,9 +68,11 @@ class LoanRepaymentReversalTest extends TestCase
             ->assertJsonPath('data.transactions.0.can_reverse', true)
             ->assertJsonPath('data.transactions.0.reverse_blocked_reason', null);
 
-        $this->postJson("/api/v1/loans/{$loan->id}/transactions/{$deposit->id}/reverse", ['reason' => 'DEVFLOW wrong loan'])
-            ->assertOk()
+        $requested = $this->postJson("/api/v1/loans/{$loan->id}/transactions/{$deposit->id}/reverse", ['reason' => 'DEVFLOW wrong loan'])
             ->assertJsonPath('data.status', 'active');
+        $this->assertNull($deposit->fresh()->reversed_at, 'a request posts nothing');
+        $this->approveReversal($requested, $checker = $this->secondApprover($admin))->assertOk()->assertJsonPath('data.status', 'approved');
+        $this->assertSame(LoanStatus::Active, $loan->fresh()->status);
 
         $this->assertSame($before, $this->snapshot($admin) + ['suspense' => $this->balance($admin, Account::Suspense), 'bank' => $this->balance($admin, Account::Bank)]);
         $this->assertEquals(['principal' => 100000, 'penalty' => 10000, 'interest' => 30000, 'insurance' => 5000, 'total' => 145000], app(LoanService::class)->outstanding($loan->fresh()));
@@ -82,7 +84,8 @@ class LoanRepaymentReversalTest extends TestCase
         $deposit->refresh();
         $this->assertNotNull($deposit->reversed_at);
         $this->assertSame('DEVFLOW wrong loan', $deposit->reversal_reason);
-        $this->assertSame($approver->id, $deposit->reversed_by);
+        $this->assertSame($checker->id, $deposit->reversed_by);
+        $this->assertNotSame($approver->id, $checker->id);
         $this->assertSame($deposit->journal_entry_id, JournalEntry::find($deposit->reversal_journal_entry_id)->reversal_of_id);
 
         $payment->refresh();
@@ -117,7 +120,7 @@ class LoanRepaymentReversalTest extends TestCase
         $this->assertNotNull($loan->frozen_until);
         $this->assertSame('close', $loan->customer->fresh()->status);
 
-        $this->actingAs($this->secondApprover($admin))->postJson("/api/v1/loans/{$loan->id}/transactions/{$deposit->id}/reverse", ['reason' => 'Cheque bounced'])->assertOk();
+        $this->approveReversal($this->actingAs($this->secondApprover($admin))->postJson("/api/v1/loans/{$loan->id}/transactions/{$deposit->id}/reverse", ['reason' => 'Cheque bounced']))->assertOk();
 
         $loan->refresh();
         $this->assertSame(LoanStatus::Active, $loan->status);
@@ -148,8 +151,8 @@ class LoanRepaymentReversalTest extends TestCase
         $this->postJson("/api/v1/loans/{$loan->id}/transactions/{$first->id}/reverse", ['reason' => 'Wrong amount'])
             ->assertUnprocessable()->assertJsonValidationErrors(['reason' => 'A later repayment of TZS 30,000 on '.today()->toDateString().' exists; reverse repayments newest first.']);
 
-        $this->postJson("/api/v1/loans/{$loan->id}/transactions/{$second->id}/reverse", ['reason' => 'Wrong amount'])->assertOk();
-        $this->postJson("/api/v1/loans/{$loan->id}/transactions/{$first->id}/reverse", ['reason' => 'Wrong amount'])->assertOk();
+        $this->approveReversal($this->postJson("/api/v1/loans/{$loan->id}/transactions/{$second->id}/reverse", ['reason' => 'Wrong amount']))->assertOk();
+        $this->approveReversal($this->postJson("/api/v1/loans/{$loan->id}/transactions/{$first->id}/reverse", ['reason' => 'Wrong amount']))->assertOk();
         $this->assertSame(130000.0, $loans->outstanding($loan->fresh())['total']);
         $this->assertSame(2, Payment::where('status', PaymentStatus::Unallocated->value)->count());
     }
@@ -205,9 +208,8 @@ class LoanRepaymentReversalTest extends TestCase
         AccountingPeriod::create(['company_id' => $admin->company_id, 'period_start' => $lastMonth, 'period_end' => $lastMonth->endOfMonth(), 'status' => AccountingPeriod::STATUS_CLOSED, 'closed_at' => now()]);
         $this->actingAs($this->secondApprover($admin));
 
-        $this->postJson("/api/v1/loans/{$open->id}/transactions/{$allowed->id}/reverse", ['reason' => 'Posted twice'])
+        $this->approveReversal($this->postJson("/api/v1/loans/{$open->id}/transactions/{$allowed->id}/reverse", ['reason' => 'Posted twice']))
             ->assertOk()
-            ->assertJsonPath('closed_period', $lastMonth->format('Y-m'))
             ->assertJsonFragment(['message' => 'Repayment reversed successfully. TZS 10,000 returned to suspense (receipt '.Payment::sole()->receipt_number.'). The repayment belongs to the closed period '.$lastMonth->format('Y-m').'; the reversal was posted today as an adjustment in the current open period.']);
         $this->assertSame(today()->toDateString(), JournalEntry::find($allowed->fresh()->reversal_journal_entry_id)->entry_date->toDateString());
 
@@ -238,7 +240,7 @@ class LoanRepaymentReversalTest extends TestCase
         $otherLoan = $this->activeLoan($admin);
         $this->actingAs($admin)->postJson("/api/v1/loans/{$otherLoan->id}/transactions/{$deposit->id}/reverse", ['reason' => 'Undo'])->assertNotFound();
 
-        $this->actingAs($this->employeeWithRole($admin, 'finance'))->postJson($url, ['reason' => 'Undo'])->assertOk();
+        $this->approveReversal($this->actingAs($this->employeeWithRole($admin, 'finance'))->postJson($url, ['reason' => 'Undo']), $this->employeeWithRole($admin, 'finance'))->assertOk();
     }
 
     public function test_nothing_changes_when_the_ledger_fails_part_way(): void

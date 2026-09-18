@@ -30,6 +30,7 @@ use App\Services\Customers\KycStatusCalculator;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -686,12 +687,13 @@ class LoanService
                 throw ValidationException::withMessages(['penart_paid' => 'Amount is greater than penalty amount ('.money($remaining).')']);
             }
 
-            $locked->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
+            $payment = $locked->payments()->create(['amount' => $amount, 'paid_on' => $date->toDateString()]);
             $locked->increment('paid_amount', $amount);
-            $this->ledger->journal($locked->company_id, 'PENALTY', [
+            $entry = $this->ledger->journal($locked->company_id, 'PENALTY', [
                 ['account' => Account::Penalty, 'branch' => $locked->branch_id, 'debit' => $amount],
                 ['account' => $locked->accrual_journal_entry_id !== null ? Account::PenaltyReceivable : Account::PenaltyIncome, 'branch' => $locked->branch_id, 'credit' => $amount],
             ], $locked, $date, $locked->branch_id, $employee, TransactionType::LoanPenaltyPayment);
+            $payment->update(['journal_entry_id' => $entry->id]);
             $penalty->setRawAttributes($locked->fresh()->getAttributes(), true);
         });
     }
@@ -976,7 +978,7 @@ class LoanService
      */
     public function repaymentReverseBlockedReason(LoanTransaction $deposit, ?Employee $viewer): ?string
     {
-        $reason = $this->repaymentReversalBlocker($deposit);
+        $reason = $this->repaymentReversalBlocker($deposit) ?? $this->pendingReversalReason($deposit);
         if ($reason === null && $viewer !== null) {
             $reason = app(SegregationOfDuties::class)->reverseBlockedReason($this->repaymentEntry($deposit), $viewer);
         }
@@ -1127,7 +1129,7 @@ class LoanService
      */
     public function disbursementReverseBlockedReason(Loan $loan, ?Employee $viewer): ?string
     {
-        $reason = $this->disbursementReversalBlocker($loan);
+        $reason = $this->disbursementReversalBlocker($loan) ?? $this->pendingReversalReason($loan);
         if ($reason === null && $viewer !== null) {
             $reason = app(SegregationOfDuties::class)->reverseBlockedReason($this->disbursementEntry($loan), $viewer);
         }
@@ -1189,6 +1191,156 @@ class LoanService
 
             return $loan;
         });
+    }
+
+    /**
+     * Why a direct penalty payment (Penalty → pay) cannot be reversed now, or null when it can. The penalty portion of a loan
+     * repayment is reversed with the repayment, never on its own. reversePenaltyPayment() enforces exactly these checks.
+     */
+    public function penaltyPaymentReversalBlocker(PenaltyPayment $payment): ?string
+    {
+        $penalty = $payment->penalty;
+        $loan = $penalty?->loan;
+
+        if ($payment->reversed_at !== null) {
+            return 'This penalty payment has already been reversed.';
+        }
+        if (! $payment->isDirect()) {
+            return 'This penalty was paid as part of a loan repayment; reverse the repayment instead.';
+        }
+        if ($penalty === null) {
+            return 'The penalty of this payment no longer exists.';
+        }
+        if ($penalty->is_waived) {
+            return 'The penalty has been waived; its payments cannot be reversed.';
+        }
+        if ($loan !== null && ! in_array($loan->status, LoanStatus::repayable(), true)) {
+            return "Penalty payments cannot be reversed while the loan is {$loan->status->label()}.";
+        }
+
+        $entry = $payment->journalEntry;
+        if ($entry === null) {
+            return 'This penalty payment has no linked ledger posting; it needs a manual correction.';
+        }
+        if ($entry->reversal()->exists()) {
+            return "The journal entry {$entry->reference} of this penalty payment was already reversed directly in the ledger; it needs a manual correction.";
+        }
+        if (($blocker = $this->distributedPeriodBlocker((int) $penalty->company_id, CarbonImmutable::parse($entry->entry_date), 'penalty payment')) !== null) {
+            return $blocker;
+        }
+
+        if ($loan !== null) {
+            $later = LoanTransaction::query()
+                ->where('loan_id', $loan->id)
+                ->where('type', 'deposit')
+                ->whereNull('reversed_at')
+                ->where('penalty', '>', 0)
+                ->where(fn ($query) => $query->whereDate('transaction_date', '>', $payment->paid_on->toDateString())
+                    ->orWhere(fn ($sameDay) => $sameDay->whereDate('transaction_date', $payment->paid_on->toDateString())->where('created_at', '>', $payment->created_at)))
+                ->exists();
+            if ($later) {
+                return 'A later loan repayment already paid penalty on this loan; reverse that repayment first (newest first).';
+            }
+        }
+
+        $available = $this->ledger->balance($penalty->company_id, Account::Penalty, $penalty->branch_id);
+        if ($available + 0.005 < (float) $payment->amount) {
+            return 'The PENALTY A/C no longer holds this payment (available TZS '.money($available).', required TZS '.money($payment->amount).').';
+        }
+
+        return null;
+    }
+
+    /**
+     * Reverse a direct penalty payment in one transaction with the penalty and payment rows locked: Ledger::reverse() of its
+     * PENALTY entry posted today (Dr PENALTY INCOME, or PENALTY RECEIVABLE for a legacy accrued penalty / Cr PENALTY A/C),
+     * the penalty's paid amount is restored and the payment row is marked reversed (kept, never deleted). Rule 6: the
+     * employee who posted the payment does not reverse it. Audited as PenaltyPayment.reversed.
+     *
+     * @throws ValidationException
+     */
+    public function reversePenaltyPayment(PenaltyPayment $payment, string $reason, Employee $employee): PenaltyPayment
+    {
+        return DB::transaction(function () use ($payment, $reason, $employee): PenaltyPayment {
+            $penalty = Penalty::whereKey($payment->penalty_id)->lockForUpdate()->firstOrFail();
+            $payment = PenaltyPayment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            $payment->setRelation('penalty', $penalty);
+
+            if (($blocker = $this->penaltyPaymentReversalBlocker($payment)) !== null) {
+                throw ValidationException::withMessages(['reason' => $blocker]);
+            }
+
+            $entry = $payment->journalEntry;
+            app(SegregationOfDuties::class)->assertCanReverse($entry, $employee);
+            $reversal = $this->ledger->reverse($entry->loadMissing('lines'), 'PENALTY PAYMENT REVERSED: '.$reason);
+
+            $penalty->decrement('paid_amount', (float) $payment->amount);
+            $payment->update([
+                'reversed_at' => now(),
+                'reversed_by' => $employee->id,
+                'reversal_reason' => $reason,
+                'reversal_journal_entry_id' => $reversal->id,
+            ]);
+
+            AuditLog::create([
+                'company_id' => $penalty->company_id,
+                'employee_id' => $employee->id,
+                'action' => 'PenaltyPayment.reversed',
+                'auditable_type' => $payment->getMorphClass(),
+                'auditable_id' => $payment->id,
+                'before' => ['reversed_at' => null, 'penalty_paid_amount' => round((float) $penalty->paid_amount + (float) $payment->amount, 2)],
+                'after' => ['reversed_at' => $payment->reversed_at?->toIso8601String(), 'reversal_journal_entry_id' => $reversal->id, 'penalty_paid_amount' => (float) $penalty->fresh()->paid_amount],
+                'context' => ['reason' => $reason, 'penalty_id' => $penalty->id, 'amount' => (float) $payment->amount, 'journal_reference' => $entry->reference, 'reversal_reference' => $reversal->reference],
+                'ip_address' => request()?->ip(),
+            ]);
+
+            if ($penalty->loan !== null) {
+                app(LoanWorkflow::class)->record($penalty->loan, 'PENALTY_PAYMENT_REVERSED', $penalty->loan->status, $employee, [
+                    'penalty_payment_id' => $payment->id,
+                    'amount' => (float) $payment->amount,
+                    'reason' => $reason,
+                    'journal_reference' => $entry->reference,
+                    'reversal_reference' => $reversal->reference,
+                ]);
+            }
+
+            return $payment;
+        });
+    }
+
+    /**
+     * The journal entry a repayment posted ({@see ReversalRequests} checks its poster when a reversal is requested).
+     */
+    public function repaymentJournalEntry(LoanTransaction $deposit): ?JournalEntry
+    {
+        return $this->repaymentEntry($deposit);
+    }
+
+    /**
+     * The disbursement journal entry of a loan ({@see ReversalRequests} checks its poster when a reversal is requested).
+     */
+    public function disbursementJournalEntry(Loan $loan): ?JournalEntry
+    {
+        return $this->disbursementEntry($loan);
+    }
+
+    /**
+     * Why the viewer cannot request the reversal of this direct penalty payment now, or null when they can: the business
+     * blockers, a pending request, and rule 6 (the employee who posted the payment does not reverse it).
+     */
+    public function penaltyPaymentReverseBlockedReason(PenaltyPayment $payment, ?Employee $viewer): ?string
+    {
+        $reason = $this->penaltyPaymentReversalBlocker($payment) ?? $this->pendingReversalReason($payment);
+        if ($reason === null && $viewer !== null) {
+            $reason = app(SegregationOfDuties::class)->reverseBlockedReason($payment->journalEntry, $viewer);
+        }
+
+        return $reason;
+    }
+
+    private function pendingReversalReason(Model $subject): ?string
+    {
+        return app(ReversalRequests::class)->pendingFor($subject) !== null ? ReversalRequests::PENDING_MESSAGE : null;
     }
 
     /**
@@ -1272,6 +1424,8 @@ class LoanService
         }
 
         $candidates = PenaltyPayment::whereNull('loan_transaction_id')
+            ->whereNull('journal_entry_id')
+            ->standing()
             ->whereDate('paid_on', $deposit->transaction_date->toDateString())
             ->whereHas('penalty', fn ($query) => $query->where('loan_id', $deposit->loan_id))
             ->get();

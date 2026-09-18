@@ -17,6 +17,7 @@ use App\Models\WriteOffRequest;
 use App\Services\Approvals\SegregationOfDuties;
 use App\Services\LoanService;
 use App\Services\LoanWorkflow;
+use App\Services\ReversalRequests;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,8 @@ use Illuminate\Http\Request;
  */
 class LoanWorkflowController extends LoanApiController
 {
+    public const REVERSAL_REQUESTED = 'Reversal request submitted. Nothing is posted until another Finance user, an Admin or the Super Admin approves it under Reversal Requests.';
+
     public function __construct(private readonly LoanWorkflow $workflow) {}
 
     /**
@@ -307,37 +310,30 @@ class LoanWorkflowController extends LoanApiController
     }
 
     /**
-     * POST /loans/{loan}/transactions/{loanTransaction}/reverse — reverse a repayment (dependency-checked, see
-     * LoanService::reverseRepayment()); the money returns to suspense unallocated.
+     * POST /loans/{loan}/transactions/{loanTransaction}/reverse — REQUEST the reversal of a repayment (maker/checker). Nothing
+     * is posted until another Finance user, an Admin or the Super Admin approves it under Reversal Requests; the approval runs
+     * LoanService::reverseRepayment() and the money then returns to suspense unallocated.
      */
-    public function reverseRepayment(ReverseRepaymentRequest $request, Loan $loan, LoanTransaction $loanTransaction, LoanService $loans): JsonResponse
+    public function reverseRepayment(ReverseRepaymentRequest $request, Loan $loan, LoanTransaction $loanTransaction, ReversalRequests $reversals): JsonResponse
     {
         $this->ensureVisible($loan);
         abort_unless((int) $loanTransaction->loan_id === (int) $loan->id, 404);
 
-        $result = $loans->reverseRepayment($loanTransaction, $request->string('reason')->toString(), $this->currentEmployee());
-        $message = 'Repayment reversed successfully. TZS '.money($result['transaction']->amount).' returned to suspense (receipt '.$result['payment']->receipt_number.').';
-        if ($result['closed_period'] !== null) {
-            $message .= " The repayment belongs to the closed period {$result['closed_period']}; the reversal was posted today as an adjustment in the current open period.";
-        }
+        $reversal = $reversals->requestRepayment($loanTransaction, $request->string('reason')->toString(), $this->currentEmployee());
 
-        return $this->loanMessage($message, $loan->fresh(), extra: [
-            'reversal_reference' => $result['reversal']->reference,
-            'payment_id' => $result['payment']->id,
-            'closed_period' => $result['closed_period'],
-        ]);
+        return $this->loanMessage(self::REVERSAL_REQUESTED, $loan->fresh(), 201, ['reversal_request' => ['id' => $reversal->id, 'status' => $reversal->status]]);
     }
 
     /**
-     * POST /loans/{loan}/reverse-disbursement — reverse the disbursement of a loan without repayments or penalties.
+     * POST /loans/{loan}/reverse-disbursement — REQUEST the reversal of a disbursement (maker/checker, see reverseRepayment()).
      */
-    public function reverseDisbursement(ReverseDisbursementRequest $request, Loan $loan, LoanService $loans): JsonResponse
+    public function reverseDisbursement(ReverseDisbursementRequest $request, Loan $loan, ReversalRequests $reversals): JsonResponse
     {
         $this->ensureVisible($loan);
 
-        $loan = $loans->reverseDisbursement($loan, $request->string('reason')->toString(), $this->currentEmployee());
+        $reversal = $reversals->requestDisbursement($loan, $request->string('reason')->toString(), $this->currentEmployee());
 
-        return $this->loanMessage('Loan disbursement reversed successfully; the loan is cancelled.', $loan);
+        return $this->loanMessage(self::REVERSAL_REQUESTED, $loan->fresh(), 201, ['reversal_request' => ['id' => $reversal->id, 'status' => $reversal->status]]);
     }
 
     /**

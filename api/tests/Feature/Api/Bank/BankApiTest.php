@@ -4,19 +4,15 @@ namespace Tests\Feature\Api\Bank;
 
 use App\Enums\Account;
 use App\Models\BankAccount;
-use App\Models\BankTransfer;
-use App\Models\Branch;
 use App\Models\Employee;
 use App\Models\SalaryPayment;
 use App\Services\Ledger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\Concerns\UsesSecondApprover;
 use Tests\TestCase;
 
 class BankApiTest extends TestCase
 {
     use RefreshDatabase;
-    use UsesSecondApprover;
 
     private Employee $admin;
 
@@ -57,52 +53,7 @@ class BankApiTest extends TestCase
 
         $this->actingAs($this->employeeWithRole('loan_officer'));
         $this->getJson('/api/v1/bank/accounts')->assertForbidden();
-        $this->postJson('/api/v1/bank/transfers', [])->assertForbidden();
-    }
-
-    public function test_branch_to_bank_transaction_is_requested_then_approved(): void
-    {
-        $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
-        $this->ledger->openingBalance($this->admin->company_id, Account::LoanFee, 150000, branch: $this->admin->branch_id);
-        $requester = $this->employeeWithRole('admin');
-        $this->actingAs($requester);
-
-        $this->postJson('/api/v1/bank/transfers', [
-            'from_blanch_id' => $this->admin->branch_id, 'ac_type' => Account::LoanFee->value, 'amount' => 110000, 'to_account_id' => $bank->id,
-        ])->assertCreated()->assertJsonPath('message', 'Transaction Sent successfully');
-
-        $transfer = BankTransfer::firstOrFail();
-        $this->assertSame(0.0, $bank->balance());
-        $this->getJson('/api/v1/bank/transfers')->assertOk()->assertJsonPath('data.0.branch_account_label', 'LOAN FEE A/C')->assertJsonPath('total', 0)->assertJsonPath('total_pending', 110000);
-
-        // Rule 6: the requester cannot approve; a second authorised user does.
-        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertForbidden();
-        $approver = $this->secondApprover($this->admin);
-        $this->asApprover($requester, fn () => $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertOk()->assertJsonPath('message', 'Transaction Approved successfully'), $approver);
-
-        $this->assertSame('approved', $transfer->fresh()->status);
-        $this->assertSame(110000.0, $bank->balance());
-        $this->assertSame(40000.0, $this->ledger->balance($this->admin->company_id, Account::LoanFee, $this->admin->branch_id));
-
-        $this->asApprover($requester, fn () => $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertUnprocessable(), $approver);
-        $this->deleteJson("/api/v1/bank/transfers/{$transfer->id}")->assertUnprocessable();
-        $this->getJson('/api/v1/bank/transfers?status=approved&branch_id=all&from='.today()->toDateString().'&to='.today()->toDateString())->assertJsonCount(1, 'data');
-        $this->getJson('/api/v1/bank/transfers?status=approved&from=2020-01-01&to=2020-01-02')->assertJsonCount(0, 'data');
-    }
-
-    public function test_approval_fails_on_insufficient_branch_balance_and_pending_can_be_deleted(): void
-    {
-        $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
-        $transfer = BankTransfer::create([
-            'company_id' => $this->admin->company_id, 'type' => 'branch_to_bank', 'branch_id' => $this->admin->branch_id,
-            'branch_account' => Account::Interest->value, 'bank_account_id' => $bank->id, 'amount' => 5000, 'status' => 'pending', 'transfer_date' => today(),
-        ]);
-
-        $this->postJson("/api/v1/bank/transfers/{$transfer->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('amount');
-        $this->assertSame('pending', $transfer->fresh()->status);
-
-        $this->deleteJson("/api/v1/bank/transfers/{$transfer->id}")->assertOk();
-        $this->assertModelMissing($transfer);
+        $this->postJson('/api/v1/bank/company-transfers', [])->assertForbidden();
     }
 
     public function test_a_bank_never_funds_a_branch_or_the_removed_hq_salary_advance_and_disbursement_accounts(): void
@@ -114,18 +65,32 @@ class BankApiTest extends TestCase
         $this->getJson('/api/v1/bank/to-hq')->assertNotFound();
     }
 
+    /**
+     * A branch holds no money of its own beyond the petty cash HQ sends it, so there is nothing at a branch to sweep
+     * into a company bank account: the Bank Transaction / Approved Transaction screens and their routes are gone.
+     */
+    public function test_the_branch_to_bank_sweep_is_gone(): void
+    {
+        $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
+
+        $this->getJson('/api/v1/bank/transfers')->assertNotFound();
+        $this->postJson('/api/v1/bank/transfers', [
+            'from_blanch_id' => $this->admin->branch_id, 'ac_type' => Account::LoanFee->value, 'amount' => 1000, 'to_account_id' => $bank->id,
+        ])->assertNotFound();
+        $this->getJson('/api/v1/bank/options/branch-accounts')->assertNotFound();
+    }
+
     public function test_a_branch_role_never_reaches_bank_money_even_when_granted_bank_manage(): void
     {
-        $otherBranch = Branch::factory()->create(['company_id' => $this->admin->company_id]);
         $bank = BankAccount::create(['company_id' => $this->admin->company_id, 'name' => 'NMB']);
         $role = $this->admin->company->roles()->where('key', 'branch_manager')->firstOrFail();
         $role->permissions()->create(['permission' => 'bank.manage']);
         $this->actingAs($this->employeeWithRole('branch_manager'));
 
-        $this->postJson('/api/v1/bank/transfers', [
-            'from_blanch_id' => $otherBranch->id, 'ac_type' => Account::Interest->value, 'amount' => 100, 'to_account_id' => $bank->id,
+        $this->postJson('/api/v1/bank/company-transfers', [
+            'direction' => 'company_to_bank', 'bank_account_id' => $bank->id, 'amount' => 100,
         ])->assertForbidden();
-        $this->getJson('/api/v1/bank/transfers')->assertForbidden();
+        $this->getJson('/api/v1/bank/company-transfers')->assertForbidden();
     }
 
     public function test_payroll_list_and_detail(): void

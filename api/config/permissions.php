@@ -28,6 +28,7 @@ return [
         'shares.manage' => 'Set up the share structure and initial allocation, cancel, adjust and reverse share transactions',
         'float.manage' => 'Transfer float between company, branches and accounts',
         'bank.manage' => 'Manage bank accounts and bank transfers',
+        'funds.transfer' => 'Send petty cash to a branch and send HQ reserve to the Investment RESERVE A/C',
         'expenses.request' => 'Request expenses',
         'expenses.approve_branch' => 'Approve small branch expenses',
         'expenses.approve_hq' => 'Approve large and HQ expenses',
@@ -46,8 +47,10 @@ return [
         'loans.prepare_disbursement' => 'Prepare disbursement batches',
         'loans.disburse' => 'Disburse and retry disbursements',
         'loans.write_off' => 'Write off defaulted loans',
-        'loans.reverse_repayment' => 'Reverse a posted loan repayment (dependency-checked, returns the money to suspense)',
-        'loans.reverse_disbursement' => 'Reverse a loan disbursement that has no repayments or penalties',
+        'loans.reverse_repayment' => 'Request the reversal of a posted loan repayment (another user approves; the money returns to suspense)',
+        'loans.reverse_disbursement' => 'Request the reversal of a loan disbursement that has no repayments or penalties (another user approves)',
+        'penalties.reverse_payment' => 'Request the reversal of a direct penalty payment',
+        'reversals.approve' => 'Approve or reject reversal requests (repayment, disbursement, penalty payment) raised by another user',
         'loans.recover' => 'Record money recovered on a written-off loan (split principal, penalty, interest and insurance; Finance entries post at once, branch entries wait for Finance)',
         'payments.cash' => 'Record cash repayments (teller)',
         'payments.verify' => 'Verify cash deposits and reconcile bank statements',
@@ -87,9 +90,11 @@ return [
     | Permissions that are never implied: the Super Admin does not receive them automatically and no role holds them by
     | default. They are effective only when a company grants them explicitly (role permission or employee override).
     | Rule 6 (segregation of duties): the initiator of a financial transaction must not approve it unless the company
-    | explicitly allows self-approval.
+    | explicitly allows self-approval. `funds.transfer` is Finance's own leg of the HQ money chain (petty cash to a
+    | branch, HQ reserve to the Investment RESERVE A/C): the owners approve those requests, they never raise them, so
+    | the Super Admin does not hold it implicitly.
     */
-    'explicit_only' => ['approvals.self_approve'],
+    'explicit_only' => ['approvals.self_approve', 'funds.transfer'],
 
     /*
     | Company money: bank accounts and bank transfers belong to the company owners. These permissions are effective only
@@ -117,13 +122,13 @@ return [
             'dashboard.view', 'settings.manage', 'users.manage', 'hrm.staff_privileges', 'hrm.staff_reset_password', 'float.manage', 'bank.manage', 'expenses.request',
             'expenses.approve_hq', 'hq.manage', 'customers.view', 'customers.manage', 'customers.approve',
             'customers.assign_officer', 'groups.view', 'groups.manage', 'branches.view_all', 'loans.view', 'loans.write_off', 'loans.reverse_repayment', 'loans.reverse_disbursement',
-            'loans.recover', 'accounting.view', 'salary_advance.manage', 'penalties.manage', 'savings.manage', 'visa.manage',
+            'reversals.approve', 'loans.recover', 'accounting.view', 'salary_advance.manage', 'penalties.manage', 'savings.manage', 'visa.manage',
             'reports.view', 'reports.financial', 'income.view', 'crm.use', 'messages.use', 'goals.manage', 'goals.view', 'audit.view', 'approvals.view',
         ]],
         'finance' => ['name' => 'Finance', 'scope' => 'company', 'permissions' => [
-            'dashboard.view', 'float.manage', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
+            'dashboard.view', 'float.manage', 'funds.transfer', 'expenses.approve_branch', 'hq.manage', 'customers.view', 'groups.view', 'branches.view_all',
             'loans.view', 'loans.prepare_disbursement', 'loans.disburse', 'loans.reverse_repayment', 'loans.reverse_disbursement', 'loans.recover', 'payments.verify', 'payments.suspense',
-            'accounting.view', 'accounting.reverse', 'accounting.close_period', 'salary_advance.manage', 'penalties.manage',
+            'accounting.view', 'accounting.reverse', 'accounting.close_period', 'salary_advance.manage', 'penalties.manage', 'penalties.reverse_payment', 'reversals.approve',
             'savings.manage', 'payroll.pay', 'reports.view', 'reports.financial', 'income.view', 'messages.use', 'goals.view', 'approvals.view',
         ]],
         'hr' => ['name' => 'HR', 'scope' => 'company', 'permissions' => [
@@ -173,7 +178,7 @@ return [
             'items' => [
                 ['key' => 'apply', 'label' => 'APPLY LOAN', 'permissions' => ['loans.apply']],
                 ['key' => 'aprove', 'label' => 'APPROVE', 'permissions' => ['loans.approve_manager', 'loans.credit_review', 'customers.approve']],
-                ['key' => 'bank', 'label' => 'BANK', 'permissions' => ['bank.manage']],
+                ['key' => 'bank', 'label' => 'BANK', 'permissions' => ['bank.manage', 'funds.transfer']],
                 ['key' => 'bankpassword', 'label' => 'BANK PASSWORD', 'permissions' => ['visa.manage']],
                 ['key' => 'customer', 'label' => 'CUSTOMER', 'permissions' => ['customers.view', 'customers.manage']],
                 ['key' => 'debit', 'label' => 'DEBIT PENDING', 'permissions' => ['salary_advance.manage']],
@@ -210,6 +215,8 @@ return [
                 ['key' => 'write_off', 'label' => 'WRITE-OFF LOAN', 'permissions' => ['loans.write_off']],
                 ['key' => 'reverse_repayment', 'label' => 'REVERSE LOAN REPAYMENT', 'permissions' => ['loans.reverse_repayment']],
                 ['key' => 'reverse_disbursement', 'label' => 'REVERSE LOAN DISBURSEMENT', 'permissions' => ['loans.reverse_disbursement']],
+                ['key' => 'reverse_penalty_payment', 'label' => 'REVERSE PENALTY PAYMENT', 'permissions' => ['penalties.reverse_payment']],
+                ['key' => 'approve_reversals', 'label' => 'APPROVE REVERSAL REQUESTS', 'permissions' => ['reversals.approve']],
                 ['key' => 'recover', 'label' => 'RECORD WRITE-OFF RECOVERY', 'permissions' => ['loans.recover']],
                 ['key' => 'verify_payments', 'label' => 'VERIFY PAYMENTS', 'permissions' => ['payments.verify']],
                 ['key' => 'suspense', 'label' => 'SUSPENSE', 'permissions' => ['payments.suspense']],

@@ -30,6 +30,7 @@ export const menu: MenuTab[] = [
     items: [
       { label: "Dashboard", icon: "icon-home", href: "/dashboard", permission: "dashboard.view" },
       { label: "Pending Approvals", icon: "icon-check", href: "/approvals", permission: "approvals.view" },
+      { label: "Reversal Requests", icon: "icon-action-undo", href: "/reversals", permission: ["reversals.approve", "loans.reverse_repayment", "loans.reverse_disbursement", "penalties.reverse_payment"] },
       {
         label: "Settings",
         icon: "icon-settings",
@@ -69,11 +70,12 @@ export const menu: MenuTab[] = [
         children: [
           { label: "Register Account", href: "/bank/accounts", permission: "bank.manage" },
           { label: "Account Balance", href: "/bank/balances", permission: "bank.manage" },
-          { label: "Bank Transaction", href: "/bank/transfers", permission: "bank.manage" },
-          { label: "Approved Transaction", href: "/bank/transfers/approved", permission: "bank.manage" },
           { label: "Company Cash ↔ Bank Transfer", href: "/bank/company-transfers", permission: "bank.manage" },
-          { label: "Send Reserve To Investment", href: "/bank/reserve-to-investment", permission: "bank.manage" },
-          { label: "Send Petty Cash To Branch", href: "/bank/petty-cash", permission: "bank.manage" },
+          /* Leg 1 of the reserve chain is Finance's alone: the owners approve reserve transfers, they never raise
+             them, so this is gated on `funds.transfer` (explicit-only) and never on `bank.manage`. */
+          { label: "Send Reserve To Investment Reserve", href: "/bank/reserve-to-investment", permission: "funds.transfer" },
+          { label: "Send Reserve To Operation Principal", href: "/bank/reserve-to-principal", permission: "capital.manage" },
+          { label: "Send Petty Cash To Branch", href: "/bank/petty-cash", permission: "funds.transfer" },
           { label: "Register Bank Expenses", href: "/bank/expense-types", permission: "bank.manage" },
           { label: "Request Expenses", href: "/bank/expenses", permission: "bank.manage" },
           { label: "Payroll", href: "/bank/payroll", permission: ["bank.manage", "payroll.pay"] },

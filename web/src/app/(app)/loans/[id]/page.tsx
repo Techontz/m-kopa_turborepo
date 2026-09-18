@@ -57,6 +57,9 @@ const ACTION_LABELS: Record<string, string> = {
   REPAYMENT_REVERSED: "Repayment reversed",
   SETTLEMENT_FREEZE_REVERSED: "Settlement freeze cleared (repayment reversed)",
   DISBURSEMENT_REVERSED: "Disbursement reversed",
+  REVERSAL_REQUESTED: "Reversal requested (waiting for approval)",
+  REVERSAL_REJECTED: "Reversal request rejected",
+  PENALTY_PAYMENT_REVERSED: "Penalty payment reversed",
   RECOVERY_RECORDED: "Write-off recovery recorded (interest income)",
   RECOVERY_REVERSED: "Write-off recovery reversed",
   COMMENT: "Comment",
@@ -75,7 +78,11 @@ function formFromDetail(detail: LoanDetail): LoanForm {
 export default function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
-  const { data: detail, isLoading } = useApi<LoanDetail>(`loans/${id}`);
+  const { data: detail, isLoading, error } = useApi<LoanDetail>(`loans/${id}`);
+
+  if (error) {
+    return <><PageHeader crumbs={["Loan", "View Loan"]} /><Card><p className="text-danger">Could not load this loan: {error.message}</p></Card></>;
+  }
 
   if (isLoading || !detail) {
     return <><PageHeader crumbs={["Loan", "View Loan"]} /><Card><p>Loading...</p></Card></>;

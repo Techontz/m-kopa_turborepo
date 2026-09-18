@@ -4,7 +4,6 @@ namespace Database\Seeders;
 
 use App\Enums\Account;
 use App\Models\BankAccount;
-use App\Models\BankTransfer;
 use App\Models\Branch;
 use App\Models\Capital;
 use App\Models\Company;
@@ -228,17 +227,6 @@ class DemoDataSeeder extends Seeder
             'from_branch_id' => $branches[1]->id,
             'to_branch_id' => $branches[4]->id,
             'amount' => 100000,
-            'status' => 'pending',
-            'transfer_date' => $today,
-        ]);
-
-        BankTransfer::create([
-            'company_id' => $company->id,
-            'type' => 'branch_to_bank',
-            'branch_id' => $branches[1]->id,
-            'branch_account' => Account::LoanFee->value,
-            'bank_account_id' => $bank->id,
-            'amount' => 10000,
             'status' => 'pending',
             'transfer_date' => $today,
         ]);

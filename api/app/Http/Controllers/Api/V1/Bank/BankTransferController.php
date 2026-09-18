@@ -4,11 +4,9 @@ namespace App\Http\Controllers\Api\V1\Bank;
 
 use App\Enums\Account;
 use App\Http\Controllers\Api\V1\ApiController;
-use App\Http\Requests\Api\Bank\BranchToBankRequest;
 use App\Http\Requests\Api\Bank\CompanyFundTransferRequest;
 use App\Http\Resources\Api\V1\Bank\BankTransferResource;
 use App\Models\BankTransfer;
-use App\Services\Approvals\ReserveProtection;
 use App\Services\CompanyFunds;
 use App\Services\Ledger;
 use App\Services\Reports\Financial\CashAccounts;
@@ -19,52 +17,19 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * Bank → Bank Transaction / Approved Transaction (branch → bank, request then approve),
- * Transfer Balance /Salary advance & disbursement Acc (bank → HQ account) and
- * Company Cash ↔ Bank (COMPANY ACCOUNT ↔ bank account, {@see CompanyFunds}).
+ * The bank money movements the owners and Finance run: Company Cash ↔ Bank (COMPANY ACCOUNT ↔ bank account),
+ * the two reserve legs, petty cash to a branch, and the shared approve / reject / reverse decisions
+ * ({@see CompanyFunds}).
+ *
+ * There is no branch → bank sweep: a branch holds no money of its own beyond the petty cash HQ sends it, so
+ * there is nothing at a branch to sweep into a company bank account.
  */
 class BankTransferController extends ApiController
 {
-    public const BRANCH_TO_BANK = 'branch_to_bank';
-
     public function __construct(private readonly Ledger $ledger) {}
 
     /**
-     * Pending (default) or approved branch → bank transactions; approved list takes the branch/date filter.
-     */
-    public function index(Request $request): JsonResponse
-    {
-        $this->authorizeAny('bank.manage');
-
-        $status = $request->input('status') === 'approved' ? 'approved' : 'pending';
-        $query = $this->transfers(self::BRANCH_TO_BANK)->whereIn('status', $status === 'approved' ? ['approved', TransferReversal::STATUS_REVERSED] : ['pending']);
-
-        if ($status === 'approved') {
-            $this->applyFilters($query, $request, 'transfer_date');
-        }
-
-        return $this->collection($query);
-    }
-
-    public function store(BranchToBankRequest $request, CompanyFunds $funds): JsonResponse
-    {
-        $this->authorizeAny('bank.manage');
-        $this->assertBranchAccessible($request->integer('from_blanch_id'));
-
-        $transfer = $funds->requestBranchToBank(
-            $this->currentEmployee()->company_id,
-            $request->integer('from_blanch_id'),
-            Account::from($request->string('ac_type')->toString()),
-            $request->integer('to_account_id'),
-            $request->float('amount'),
-            $this->currentEmployee(),
-        );
-
-        return $this->message('Transaction Sent successfully', 201, ['data' => new BankTransferResource($transfer->load(['branch', 'bankAccount', 'employee']))]);
-    }
-
-    /**
-     * Approve a pending bank movement of any type (branch → bank, company cash ↔ bank, reserve → investment, petty cash) and post
+     * Approve a pending bank movement of any type (company cash ↔ bank, reserve → investment, reserve → principal, petty cash) and post
      * it ({@see CompanyFunds::approve()}). The initiator cannot approve their own transfer (rule 6).
      */
     public function approve(BankTransfer $bankTransfer, CompanyFunds $funds): JsonResponse
@@ -91,26 +56,13 @@ class BankTransferController extends ApiController
         return $this->message('Transaction Rejected successfully');
     }
 
-    public function destroy(BankTransfer $bankTransfer): JsonResponse
-    {
-        $this->authorizeAny('bank.manage');
-        $this->assertTransferVisible($bankTransfer);
-
-        if ($bankTransfer->status !== 'pending') {
-            return $this->message('Approved transaction cannot be deleted', 422);
-        }
-
-        $bankTransfer->delete();
-
-        return $this->message('Transaction Deleted successfully');
-    }
-
     /**
      * HQ reserve → Investment RESERVE A/C transfers, with the HQ reserve still to send and the Investment RESERVE A/C balance.
+     * Readable by Finance (the sender) and by bank.manage (the owners, following the link from Pending Approvals).
      */
     public function reserveToInvestmentIndex(Request $request, CashAccounts $cash): JsonResponse
     {
-        $this->authorizeAny('bank.manage');
+        $this->authorizeAny('bank.manage', 'funds.transfer');
         $companyId = $this->currentEmployee()->company_id;
 
         return $this->collection(
@@ -121,10 +73,12 @@ class BankTransferController extends ApiController
 
     /**
      * Request HQ reserve → Investment RESERVE A/C (pending). Posted only when another authorised user approves.
+     * Sending is Finance's own leg (funds.transfer): the owners approve the request, they never raise it, so bank.manage
+     * alone (Super Admin, Admin) opens the list above but not this — the same split as petty cash.
      */
     public function reserveToInvestmentStore(Request $request, CompanyFunds $funds): JsonResponse
     {
-        $this->authorizeAny('bank.manage');
+        $this->authorizeAny('funds.transfer');
         $validated = $request->validate(['amount' => ['required', 'numeric', 'min:1']]);
 
         $transfer = $funds->requestReserveToInvestment($this->currentEmployee()->company_id, (float) $validated['amount'], $this->currentEmployee());
@@ -133,11 +87,40 @@ class BankTransferController extends ApiController
     }
 
     /**
+     * Investment RESERVE A/C → OPERATION PRINCIPAL: the second leg of the reserve chain, for the owners only (capital.manage).
+     * The Investment can send only what Finance has already sent it.
+     */
+    public function reserveToPrincipalIndex(Request $request): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $companyId = $this->currentEmployee()->company_id;
+
+        return $this->collection(
+            $this->applyFilters($this->transfers(CompanyFunds::RESERVE_TO_PRINCIPAL), $request->merge(['branch_id' => null]), 'transfer_date'),
+            [
+                'investment_reserve_balance' => $this->ledger->balance($companyId, Account::InvestmentReserve) + 0.0,
+                'operation_principal_balance' => $this->ledger->balance($companyId, Account::Principal) + 0.0,
+            ],
+        );
+    }
+
+    public function reserveToPrincipalStore(Request $request, CompanyFunds $funds): JsonResponse
+    {
+        $this->authorizeAny('capital.manage');
+        $validated = $request->validate(['amount' => ['required', 'numeric', 'min:1']]);
+
+        $transfer = $funds->requestReserveToPrincipal($this->currentEmployee()->company_id, (float) $validated['amount'], $this->currentEmployee());
+
+        return $this->message('Transaction Requested successfully — awaiting approval by another authorised user', 201, ['data' => new BankTransferResource($transfer->load(['employee']))]);
+    }
+
+    /**
      * Petty cash sent to branches, with the HQ interest income still available and each branch's PETTY CASH A/C balance.
+     * Readable by Finance (the sender) and by bank.manage (the approver following the link from Pending Approvals).
      */
     public function pettyCashIndex(Request $request, CashAccounts $cash): JsonResponse
     {
-        $this->authorizeAny('bank.manage');
+        $this->authorizeAny('bank.manage', 'funds.transfer');
         $companyId = $this->currentEmployee()->company_id;
 
         return $this->collection(
@@ -156,10 +139,12 @@ class BankTransferController extends ApiController
 
     /**
      * Request HQ interest income → a branch PETTY CASH A/C (pending). The branch then spends it only on expenses HQ approves.
+     * Sending is Finance's own leg (funds.transfer): the owners approve the request, they never raise it, so bank.manage
+     * alone (Super Admin, Admin) opens the list above but not this.
      */
     public function pettyCashStore(Request $request, CompanyFunds $funds): JsonResponse
     {
-        $this->authorizeAny('bank.manage');
+        $this->authorizeAny('funds.transfer');
         $validated = $request->validate([
             'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where('company_id', $this->currentEmployee()->company_id)->where('is_head_office', false)],
             'amount' => ['required', 'numeric', 'min:1'],
@@ -218,7 +203,7 @@ class BankTransferController extends ApiController
     }
 
     /**
-     * Reverse a posted bank transfer of any type (branch → bank, bank → branch, bank → HQ, company cash ↔ bank): the
+     * Reverse a posted bank transfer of any type (bank → branch, bank → HQ, company cash ↔ bank): the
      * journal is mirrored exactly (charges included) and the row is kept with status "reversed".
      */
     public function reverse(Request $request, BankTransfer $bankTransfer, TransferReversal $reversals): JsonResponse
@@ -234,23 +219,13 @@ class BankTransferController extends ApiController
     }
 
     /**
-     * Branch accounts that can send money to a bank ("Select Account" dropdown).
-     */
-    public function branchAccountOptions(): JsonResponse
-    {
-        $this->authorizeAny('bank.manage');
-
-        return response()->json(['data' => array_map(fn (Account $account): array => ['value' => $account->value, 'label' => $account->label()], ReserveProtection::withoutReserve(Account::transferableBranchAccounts()))]);
-    }
-
-    /**
      * @return Builder<BankTransfer>
      */
     private function transfers(string $type): Builder
     {
         $query = BankTransfer::query()->where('type', $type)->with(['branch', 'bankAccount', 'employee', 'approver', 'rejectedBy', 'journalEntry', 'reversedBy', 'reversalJournalEntry'])->latest('id');
 
-        return $type === CompanyFunds::RESERVE_TO_INVESTMENT
+        return in_array($type, [CompanyFunds::RESERVE_TO_INVESTMENT, CompanyFunds::RESERVE_TO_PRINCIPAL], true)
             ? $query->where('company_id', $this->currentEmployee()->company_id)
             : $this->scoped($query);
     }
@@ -275,11 +250,12 @@ class BankTransferController extends ApiController
     }
 
     /**
-     * Reserve → Investment transfers are decided only by Super Admin, Admin or a shareholder; every other type needs bank.manage.
+     * Both reserve legs (HQ → Investment, Investment → OPERATION PRINCIPAL) are decided only by Super Admin, Admin or a
+     * shareholder; every other type needs bank.manage.
      */
     private function authorizeDecision(BankTransfer $bankTransfer): void
     {
-        if ($bankTransfer->type === CompanyFunds::RESERVE_TO_INVESTMENT) {
+        if (in_array($bankTransfer->type, [CompanyFunds::RESERVE_TO_INVESTMENT, CompanyFunds::RESERVE_TO_PRINCIPAL], true)) {
             abort_unless(CompanyFunds::canDecideReserve($this->currentEmployee()), 403, CompanyFunds::RESERVE_APPROVER_MESSAGE);
 
             return;

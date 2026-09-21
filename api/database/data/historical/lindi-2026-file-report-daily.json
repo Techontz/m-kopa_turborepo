@@ -1,0 +1,22 @@
+{
+    "code": "lindi-2026-file-report-daily",
+    "title": "FILE REPORT - LINDI / DATE : 2026 (Daily & Weekly)",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "LINDI",
+    "year": 2026,
+    "source_document": "FILE LINDI 2026.pdf",
+    "rows": "lindi-2026-file-report-daily.csv",
+    "printed_totals": {
+        "1": 0,
+        "2": 0,
+        "3": 75000,
+        "4": 1380577,
+        "5": 813698,
+        "6": 1033600,
+        "7": 1111400,
+        "8": 482936,
+        "9": 195500
+    },
+    "notes": "Lindi Branch File report for 2026, the small Daily (30-session) and Weekly (4-session) loans (62 rows, March to September 2026), printed by the old Mikopofasta system. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed; several customers appear more than once because they took successive short loans in the year. Every month column adds up to the printed TOTAL row exactly."
+}

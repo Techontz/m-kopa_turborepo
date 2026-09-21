@@ -1,0 +1,12 @@
+{
+    "code": "nyasaka-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - NYASAKA",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "NYASAKA",
+    "source_document": "nyasaka Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "nyasaka-penalty-report.csv",
+    "printed_total": 734936.0,
+    "notes": "NYASAKA Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (144 rows, penalties dated 2023-03-15 to 2026-09-19). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Row 140 has no customer name on the printout and is kept blank. Row 51 shows a penalty of 1, as printed."
+}

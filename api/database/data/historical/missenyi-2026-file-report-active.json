@@ -1,0 +1,22 @@
+{
+    "code": "missenyi-2026-file-report-active",
+    "title": "FILE REPORT - MISSENYI / DATE : 2026 (Active)",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "MISSENYI",
+    "year": 2026,
+    "source_document": "MISSENYI ACTIVE 2026 FILE.pdf",
+    "rows": "missenyi-2026-file-report-active.csv",
+    "printed_totals": {
+        "1": 647000,
+        "2": 962000,
+        "3": 1134000,
+        "4": 1614000,
+        "5": 4390000,
+        "6": 6957598,
+        "7": 8563000,
+        "8": 14584339,
+        "9": 12994602
+    },
+    "notes": "Missenyi Branch File report for 2026, active and new loans (137 rows, January to September 2026), printed by the old Mikopofasta system. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed, including loans withdrawn in 2022-2025 that are still open and the status \"New\" (disbursed, nothing repaid yet). Every month column adds up to the printed TOTAL row exactly. The branch's defaulted loans are a separate printed document (MISSENYI DEFAULT 2026 FILE.pdf)."
+}

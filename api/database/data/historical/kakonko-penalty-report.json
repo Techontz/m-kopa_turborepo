@@ -1,0 +1,12 @@
+{
+    "code": "kakonko-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - KAKONKO",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "KAKONKO",
+    "source_document": "kakonko Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "kakonko-penalty-report.csv",
+    "printed_total": 1178556.0,
+    "notes": "KAKONKO Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (43 rows, penalties dated 2023-10-07 to 2026-09-05). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Five rows carry a negative penalty (a waiver or correction the old system printed as a negative figure) and are kept as printed."
+}

@@ -1,0 +1,12 @@
+{
+    "code": "igoma-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - IGOMA",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "IGOMA",
+    "source_document": "igoma Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "igoma-penalty-report.csv",
+    "printed_total": 29138.0,
+    "notes": "IGOMA Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (6 rows, penalties dated 2026-09-12 to 2026-09-19). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Row 6 (LAMECK BENEZETI ALPHONCE) shows a loan amount of 0 with a penalty of 457, as printed."
+}

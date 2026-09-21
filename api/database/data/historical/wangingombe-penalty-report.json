@@ -1,0 +1,12 @@
+{
+    "code": "wangingombe-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - WANGING'OMBE",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "WANGING'OMBE",
+    "source_document": "wanging'ombe Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "wangingombe-penalty-report.csv",
+    "printed_total": 4085931.0,
+    "notes": "WANGING'OMBE Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (74 rows, penalties dated 2024-11-05 to 2026-09-05). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Nineteen rows carry a negative penalty (a waiver or correction the old system printed as a negative figure) and are kept as printed."
+}

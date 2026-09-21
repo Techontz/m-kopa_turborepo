@@ -123,6 +123,18 @@ class LiveReportController extends ReportApiController
         return $this->report($this->reports->historicalPayments($scope, $year) + ['year' => $year, 'years' => $historicalYears]);
     }
 
+    /**
+     * Penalty (the old system's "PENARTY REPORT"): penalties charged, live ones alongside the rows of imported
+     * historical Penalty reports (records only — no penalty, payment or ledger entry stands behind those).
+     */
+    public function penalties(Request $request): JsonResponse
+    {
+        $this->authorizeAny('reports.view');
+        $scope = $this->reportScope($request);
+
+        return $this->report($this->reports->penalties($scope) + ['filter' => $this->filterEcho($request, $scope)]);
+    }
+
     public function newLoans(Request $request): JsonResponse
     {
         $this->authorizeAny('reports.view');

@@ -1,0 +1,22 @@
+{
+    "code": "lindi-2026-file-report-active",
+    "title": "FILE REPORT - LINDI / DATE : 2026 (Active)",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "LINDI",
+    "year": 2026,
+    "source_document": "LINDI ACTIVE 2026 FILE.pdf",
+    "rows": "lindi-2026-file-report-active.csv",
+    "printed_totals": {
+        "1": 0,
+        "2": 62000,
+        "3": 0,
+        "4": 530000,
+        "5": 1824000,
+        "6": 3741000,
+        "7": 5671576,
+        "8": 9560581,
+        "9": 2218000
+    },
+    "notes": "Lindi Branch File report for 2026, active and new loans (110 rows, January to September 2026), printed by the old Mikopofasta system. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed, including loans withdrawn in 2022 that are still open and the status \"New\". Every month column adds up to the printed TOTAL row exactly. Phone 255623080068 is shared by several different names in this branch, as printed. The branch's defaulted loans and its daily/weekly loans are separate printed documents (LINDI DEFAULT 2026 FILE.pdf, FILE LINDI 2026.pdf)."
+}

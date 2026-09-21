@@ -1,0 +1,22 @@
+{
+    "code": "lindi-2026-file-report-default",
+    "title": "FILE REPORT - LINDI / DATE : 2026 (Default)",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "LINDI",
+    "year": 2026,
+    "source_document": "LINDI DEFAULT 2026 FILE.pdf",
+    "rows": "lindi-2026-file-report-default.csv",
+    "printed_totals": {
+        "1": 760000,
+        "2": 822000,
+        "3": 617000,
+        "4": 655000,
+        "5": 498000,
+        "6": 568000,
+        "7": 664000,
+        "8": 363500,
+        "9": 73500
+    },
+    "notes": "Lindi Branch File report for 2026, defaulted loans only (83 rows, January to September 2026), printed by the old Mikopofasta system. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed, including Daily loans (30, 26 and 90 sessions) alongside Monthly ones and row 14 DESTERIA . MWANJILE whose middle initial is blank on the printout. Every month column adds up to the printed TOTAL row exactly."
+}

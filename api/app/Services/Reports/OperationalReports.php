@@ -9,10 +9,13 @@ use App\Models\Customer;
 use App\Models\HistoricalFilePayment;
 use App\Models\HistoricalFileRecord;
 use App\Models\HistoricalFileReport;
+use App\Models\HistoricalPenaltyRecord;
+use App\Models\HistoricalPenaltyReport;
 use App\Models\Loan;
 use App\Models\LoanSchedule;
 use App\Models\LoanTransaction;
 use App\Models\Payment;
+use App\Models\Penalty;
 use App\Models\WriteOff;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -295,6 +298,90 @@ class OperationalReports
                     ->all(),
             ]))
             ->values();
+    }
+
+    /**
+     * "Penalty" (the old system's "PENARTY REPORT"): every penalty charged, live and historical, newest first.
+     *
+     * Live rows come from the penalties table (a waived penalty is shown with its printed amount and flagged), and
+     * historical rows from imported Penalty reports — records only, with no penalty, payment or journal entry behind
+     * them. Both are listed in the printed shape: S/No., Customer Name, Branch Name, Loan Amount, Penalty Amount, Date.
+     *
+     * @return array{rows: list<array<string, mixed>>, totals: array{loan_amount: float, penalty_amount: float, paid_amount: float}, historical: list<array<string, mixed>>}
+     */
+    public function penalties(ReportScope $scope): array
+    {
+        $live = $scope->between(
+            $scope->apply(Penalty::query(), 'penalties')->with(['customer', 'branch', 'loan']),
+            'penalties.penalty_date',
+        )->orderByDesc('penalties.penalty_date')->get()
+            ->map(fn (Penalty $penalty): array => [
+                'id' => $penalty->id,
+                'historical' => false,
+                'source' => null,
+                'serial_number' => null,
+                'customer_id' => $penalty->customer_id,
+                'customer' => $penalty->customer?->full_name,
+                'branch' => $penalty->branch?->name,
+                'loan_id' => $penalty->loan_id,
+                'loan_number' => $penalty->loan?->loan_number,
+                'loan_amount' => (float) ($penalty->loan?->total_payable ?? 0),
+                'penalty_amount' => (float) $penalty->amount,
+                'paid_amount' => (float) $penalty->paid_amount,
+                'is_waived' => (bool) $penalty->is_waived,
+                'penalty_date' => $penalty->penalty_date?->toDateString(),
+            ]);
+
+        $reports = $this->historicalPenaltyReports($scope);
+        $historical = $reports->flatMap(fn (HistoricalPenaltyReport $report): Collection => $report->records
+            ->map(fn (HistoricalPenaltyRecord $record): array => [
+                'id' => "historical-{$record->id}",
+                'historical' => true,
+                'source' => $report->label(),
+                'serial_number' => $record->serial_number,
+                'customer_id' => $record->customer_id,
+                'customer' => $record->customer_name,
+                'branch' => $record->branch_name,
+                'loan_id' => null,
+                'loan_number' => null,
+                'loan_amount' => (float) $record->loan_amount,
+                'penalty_amount' => (float) $record->penalty_amount,
+                'paid_amount' => 0.0,
+                'is_waived' => false,
+                'penalty_date' => $record->penalty_date?->toDateString(),
+            ]))
+            ->filter(fn (array $row): bool => ! $scope->dated()
+                || (($scope->from === null || $row['penalty_date'] >= $scope->from->toDateString())
+                    && ($scope->to === null || $row['penalty_date'] <= $scope->to->toDateString())))
+            ->values();
+
+        $rows = $live->concat($historical)->sortByDesc('penalty_date')->values();
+
+        return [
+            'rows' => $rows->all(),
+            'totals' => $this->sums($rows, ['loan_amount', 'penalty_amount', 'paid_amount']),
+            'historical' => $reports->map(fn (HistoricalPenaltyReport $report): array => [
+                'id' => $report->id,
+                'title' => $report->title,
+                'source_document' => $report->source_document,
+                'branch' => $report->branch_name,
+                'printed_on' => $report->printed_on?->toDateString(),
+                'records' => $report->records->count(),
+                'printed_total' => (float) $report->printed_total,
+                'notes' => $report->notes,
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * @return Collection<int, HistoricalPenaltyReport>
+     */
+    private function historicalPenaltyReports(ReportScope $scope): Collection
+    {
+        return $scope->apply(HistoricalPenaltyReport::query(), 'historical_penalty_reports')
+            ->with(['records' => fn ($query) => $query->orderBy('serial_number')])
+            ->orderBy('branch_name')
+            ->get();
     }
 
     /**

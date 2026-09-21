@@ -1,0 +1,12 @@
+{
+    "code": "ilembula-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - ILEMBULA",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "ILEMBULA",
+    "source_document": "ilembula Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "ilembula-penalty-report.csv",
+    "printed_total": 212156.0,
+    "notes": "ILEMBULA Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (19 rows, penalties dated 2026-05-19 to 2026-09-19). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Rows 3 and 5 have no customer name on the printout and are kept blank."
+}

@@ -1,0 +1,12 @@
+{
+    "code": "lindi-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - LINDI",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "LINDI",
+    "source_document": "lind Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "lindi-penalty-report.csv",
+    "printed_total": 2911587.0,
+    "notes": "LINDI Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (193 rows, penalties dated 2023-09-01 to 2026-09-05). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Twenty-eight rows carry a negative penalty (a waiver or correction the old system printed as a negative figure) and are kept as printed."
+}

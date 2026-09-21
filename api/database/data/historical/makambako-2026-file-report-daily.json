@@ -1,0 +1,22 @@
+{
+    "code": "makambako-2026-file-report-daily",
+    "title": "FILE REPORT - MAKAMBAKO / DATE : 2026 (Daily & Weekly)",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "MAKAMBAKO",
+    "year": 2026,
+    "source_document": "FILE MAKAMBAKO 2026.pdf",
+    "rows": "makambako-2026-file-report-daily.csv",
+    "printed_totals": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 819800,
+        "5": 1036799,
+        "6": 556620,
+        "7": 837000,
+        "8": 537500,
+        "9": 108300
+    },
+    "notes": "Makambako Branch File report for 2026, the small Daily (30-session) and Weekly (4-session) loans (21 rows, April to September 2026), printed by the old Mikopofasta system. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed. The printed TOTAL row is larger than the sum of the 21 listed rows in every month (e.g. April 819,800 against 248,800 listed) because it also counts collections on loans this filtered document does not list; it is kept as printed, not adjusted. GEORGE J. NDUNGURU appears four times, having taken successive short loans in the year. This report is separate from the branch's Monthly loans (MAKAMBAKO ALL 2026 FILE.pdf)."
+}

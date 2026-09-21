@@ -1,0 +1,22 @@
+{
+    "code": "kakonko-2026-file-report-daily",
+    "title": "FILE REPORT - KAKONKO / DATE : 2026 (Daily & Weekly)",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "KAKONKO",
+    "year": 2026,
+    "source_document": "file kakonko 2026.pdf",
+    "rows": "kakonko-2026-file-report-daily.csv",
+    "printed_totals": {
+        "1": 0,
+        "2": 0,
+        "3": 33000,
+        "4": 1077300,
+        "5": 1154700,
+        "6": 117200,
+        "7": 575700,
+        "8": 390000,
+        "9": 0
+    },
+    "notes": "Kakonko Branch File report for 2026, the small Daily (30-session) and Weekly (4-session) loans (3 rows, all ESTHER D. MSUYA's successive short loans, March to August 2026), printed by the old Mikopofasta system. Imported as history: no loans, repayments, cash or ledger entries were created. Figures are as printed. The printed TOTAL row is far larger than the sum of the 3 listed rows in every month (e.g. April 1,077,300 against 112,000 listed) because it also counts collections on loans this filtered document does not list; it is kept as printed, not adjusted. This report is separate from the branch's Monthly loans (KAKONKO BRANCH 2026 FILE.pdf)."
+}

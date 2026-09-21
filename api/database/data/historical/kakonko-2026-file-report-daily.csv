@@ -1,0 +1,4 @@
+s_no,customer_name,phone,loan_amount,duration_type,sessions,collection,paid_amount,remain_amount,withdrawal_date,status,jan,feb,mar,apr,may,jun,jul,aug,sep,oct,nov,dec
+1,ESTHER D. MSUYA,255655552655,120000,Weekly,4,33750,135000,0,2026-03-20,Done,0,0,33000,102000,0,0,0,0,0,0,0,0
+2,ESTHER D. MSUYA,255655552655,120000,Daily,30,4167,105900,19100,2026-05-29,Default,0,0,0,0,0,27200,60700,18000,0,0,0,0
+3,ESTHER D. MSUYA,255655552655,120000,Daily,30,4167,125000,0,2026-04-27,Done,0,0,0,10000,115000,0,0,0,0,0,0,0

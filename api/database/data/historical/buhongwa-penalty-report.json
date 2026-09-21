@@ -1,0 +1,12 @@
+{
+    "code": "buhongwa-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - BUHONGWA",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "BUHONGWA",
+    "source_document": "buhongwa Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "buhongwa-penalty-report.csv",
+    "printed_total": 156537.0,
+    "notes": "BUHONGWA Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (18 rows, penalties dated 2026-06-20 to 2026-09-01). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Rows 2 and 3 have no customer name on the printout and are kept blank."
+}

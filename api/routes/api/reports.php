@@ -12,6 +12,7 @@ Route::prefix('reports')->name('reports.')->group(function (): void {
         Route::get('file', 'file')->name('file');
         Route::get('file/new-loans', 'newLoans')->name('file.new-loans');
         Route::get('file/historical-payments', 'historicalPayments')->name('file.historical-payments');
+        Route::get('penalties', 'penalties')->name('penalties');
         Route::get('pending', 'pending')->name('pending');
         Route::get('repayment', 'repayment')->name('repayment');
         Route::get('default', 'default')->name('default');

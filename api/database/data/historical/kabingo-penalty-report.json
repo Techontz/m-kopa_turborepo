@@ -1,0 +1,12 @@
+{
+    "code": "kabingo-penalty-report-2026-09-20",
+    "title": "PENARTY REPORT - KABINGO",
+    "company": "M-KOPA CREDIT LIMITED",
+    "region": "KIGOMA",
+    "branch": "KABINGO",
+    "source_document": "kabingo Penalty Report 2026-09-20.pdf",
+    "printed_on": "2026-09-20",
+    "rows": "kabingo-penalty-report.csv",
+    "printed_total": 261926.0,
+    "notes": "KABINGO Branch Penalty report printed by the old Mikopofasta system on 2026-09-20 (23 rows, penalties dated 2026-05-19 to 2026-09-19). Imported as history: no penalty, penalty payment, receipt, transaction or journal entry was created and no customer's balance moved. Figures are as printed, including the printed TOTAL row. The rows add up to the printed TOTAL exactly. Row 2 has no customer name on the printout and is kept blank."
+}

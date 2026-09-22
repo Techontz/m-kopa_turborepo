@@ -17,8 +17,9 @@ use Illuminate\Support\Facades\DB;
  *
  * The two printouts spell the same person differently — a Penalty report prints the middle name in full
  * ("SHABAN DAUD MASONJO") where a File report prints its initial ("SHABAN D. MASONJO") — so names are compared with
- * {@see HistoricalNameMatcher}. Matching is company-wide, like the customers created from the File reports, because
- * one person may appear in more than one branch.
+ * {@see HistoricalNameMatcher}. Matching is company-wide, because one person may appear in more than one branch, but
+ * a customer of the report's own branch wins: two people can share a name across branches (there is a FESTO E.
+ * NYAGAWA at Makambako and another at Wanging'ombe), and a Makambako penalty belongs to the Makambako one.
  */
 class LinkHistoricalPenalties extends Command
 {
@@ -62,6 +63,10 @@ class LinkHistoricalPenalties extends Command
                         }
                         $candidates = ($byKey->get(HistoricalNameMatcher::key($record->customer_name)) ?? collect())
                             ->filter(fn (Customer $customer): bool => HistoricalNameMatcher::same($record->customer_name, $customer->full_name));
+                        $sameBranch = $candidates->where('branch_id', $report->branch_id);
+                        if ($sameBranch->count() === 1) {
+                            $candidates = $sameBranch;
+                        }
 
                         match (true) {
                             $candidates->count() === 1 => $this->link($record, $candidates->first(), $dryRun, $linked),

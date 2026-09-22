@@ -68,12 +68,16 @@ class CreateHistoricalCustomers extends Command
 
         DB::transaction(function () use ($people, $report, $registrar, $kyc, $dryRun, &$counts): void {
             $existing = Customer::query()->where('company_id', $report->company_id)->get()
-                ->keyBy(fn (Customer $customer): string => self::normalise($customer->full_name));
+                ->groupBy(fn (Customer $customer): string => self::normalise($customer->full_name));
             $phoneHolders = Customer::withTrashed()->whereNotNull('phone')->pluck('id', 'phone');
 
             foreach ($people as $name => $records) {
                 /** @var Collection<int, HistoricalFileRecord> $records */
-                $customer = $records->firstWhere('customer_id', '!=', null)?->customer ?? $existing->get($name);
+                $printedPhone = $records->first()->phone;
+                $customer = collect([$records->firstWhere('customer_id', '!=', null)?->customer])
+                    ->concat($existing->get($name) ?? [])
+                    ->filter()
+                    ->first(fn (Customer $candidate): bool => self::isSamePerson($candidate, $printedPhone));
                 $serials = $records->pluck('serial_number')->implode(', ');
 
                 if ($customer !== null) {
@@ -127,7 +131,7 @@ class CreateHistoricalCustomers extends Command
                     if ($customer->phone !== null) {
                         $phoneHolders->put($customer->phone, $customer->id);
                     }
-                    $existing->put($name, $customer);
+                    $existing->put($name, ($existing->get($name) ?? collect())->push($customer));
                 }
 
                 if (! $dryRun) {
@@ -140,6 +144,23 @@ class CreateHistoricalCustomers extends Command
         $this->info(sprintf('%s%d customers created (%d without a phone of their own), %d already existed; %d report rows, %d people.', $dryRun ? '[dry run] ' : '', $counts['created'], $counts['without_phone'], $counts['reused'], $report->records->count(), $people->count()));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Whether a customer of the same printed name is the same person as the one on this row, judged on the phone
+     * number the report prints beside the name.
+     *
+     * Two people really do share a name across branches — FESTO E. NYAGAWA borrows at Makambako on 255655995363 and
+     * another FESTO E. NYAGAWA at Wanging'ombe on 255764587402 — and merging them files one of them under the other's
+     * branch. So a customer is only reused when the printed number is one of theirs; a different number means a
+     * different person and a customer of their own. A row or a customer with no number keeps the old behaviour of
+     * matching on the name alone, because that is all either of them has.
+     */
+    private static function isSamePerson(Customer $customer, ?string $printedPhone): bool
+    {
+        $theirs = array_filter([$customer->phone, $customer->alternative_phone]);
+
+        return $printedPhone === null || $theirs === [] || in_array($printedPhone, $theirs, true);
     }
 
     /**

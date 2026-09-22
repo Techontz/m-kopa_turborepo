@@ -146,6 +146,26 @@ class HistoricalFileReportTest extends TestCase
         $this->assertSame($sharer->id, $row['customer_id']);
     }
 
+    public function test_a_namesake_on_another_phone_number_gets_their_own_customer_in_their_own_branch(): void
+    {
+        $this->artisan('mkopa:import-historical-file-report')->assertSuccessful();
+        $other = $this->otherBranch();
+        // The same printed name as S/No. 11, 71 and 167, but the report prints a different number beside it, so this
+        // is a different person who happens to share the name — as FESTO E. NYAGAWA does at Makambako and Wanging'ombe.
+        $namesake = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $other->id, 'first_name' => 'Juma', 'middle_name' => 'K', 'last_name' => 'Juma', 'phone' => '255700000001']);
+
+        $this->artisan('mkopa:create-historical-customers')->assertSuccessful();
+
+        $rows = HistoricalFileRecord::whereIn('serial_number', [11, 71, 167])->get();
+        $this->assertSame(0, $rows->where('customer_id', $namesake->id)->count(), 'the namesake on another number must not collect these rows');
+
+        $mine = Customer::query()->where('last_name', 'JUMA')->where('phone', '255687216205')->sole();
+        $this->assertSame($this->kakonko->id, $mine->branch_id);
+        $this->assertSame([11, 71, 167], $rows->sortBy('serial_number')->pluck('serial_number')->values()->all());
+        $this->assertSame([$mine->id], $rows->pluck('customer_id')->unique()->values()->all());
+        $this->assertSame($other->id, $namesake->refresh()->branch_id, 'the namesake keeps their own branch');
+    }
+
     public function test_later_reports_reuse_the_customers_of_earlier_ones(): void
     {
         $manifest2023 = 'database/data/historical/kakonko-2023-file-report.json';

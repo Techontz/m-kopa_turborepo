@@ -191,6 +191,21 @@ class HistoricalPenaltyReportTest extends TestCase
         $this->assertSame(6, HistoricalPenaltyRecord::whereNull('customer_id')->count());
     }
 
+    public function test_a_penalty_goes_to_the_namesake_of_its_own_branch(): void
+    {
+        $makambako = $this->branch('Makambako');
+        $this->artisan('mkopa:import-historical-penalty-report', ['manifest' => 'database/data/historical/makambako-penalty-report.json'])->assertSuccessful();
+        // Two people share this name across branches; the Makambako penalties are the Makambako one's.
+        $theirs = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $makambako->id, 'first_name' => 'FESTO', 'middle_name' => 'E.', 'last_name' => 'NYAGAWA']);
+        $namesake = Customer::factory()->create(['company_id' => $this->admin->company_id, 'branch_id' => $this->kakonko->id, 'first_name' => 'FESTO', 'middle_name' => 'E.', 'last_name' => 'NYAGAWA']);
+
+        $this->artisan('mkopa:link-historical-penalties')->assertSuccessful();
+
+        $rows = HistoricalPenaltyRecord::whereIn('serial_number', [7, 28, 44])->get();
+        $this->assertSame([$theirs->id], $rows->pluck('customer_id')->unique()->values()->all());
+        $this->assertSame(0, HistoricalPenaltyRecord::where('customer_id', $namesake->id)->count());
+    }
+
     public function test_the_report_needs_permission(): void
     {
         $this->actingAs($this->employeeWithRole('loan_officer'));

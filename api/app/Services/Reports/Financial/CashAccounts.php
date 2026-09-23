@@ -3,6 +3,7 @@
 namespace App\Services\Reports\Financial;
 
 use App\Enums\Account;
+use App\Enums\HqFund;
 use App\Models\BankAccount;
 use App\Models\Company;
 use App\Services\Ledger;
@@ -127,6 +128,17 @@ class CashAccounts
     public function hqReserveHoldings(Company|int $company): array
     {
         return $this->holdings($company, [Account::Reserve, Account::HqReserve]);
+    }
+
+    /**
+     * Where an HQ Account List row is held in the ledger, largest first — one row can be a pool of branch accounts plus
+     * HQ's own ({@see HqFund}), and money is drawn from each in proportion to what it holds.
+     *
+     * @return list<array{account: Account, branch: int|null, balance: float}>
+     */
+    public function fundHoldings(Company|int $company, HqFund $fund): array
+    {
+        return $this->holdings($company, $fund->accounts());
     }
 
     /**

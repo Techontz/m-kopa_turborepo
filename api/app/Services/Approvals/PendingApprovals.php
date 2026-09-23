@@ -3,6 +3,7 @@
 namespace App\Services\Approvals;
 
 use App\Enums\Account;
+use App\Enums\HqFund;
 use App\Enums\LoanStatus;
 use App\Enums\StaffCreditStatus;
 use App\Models\ApprovalPolicy;
@@ -36,6 +37,7 @@ use App\Services\LoanService;
 use App\Services\LoanWorkflow;
 use App\Services\PaymentService;
 use App\Services\ReversalRequests;
+use App\Services\ShareholderAccounts;
 use App\Services\Shares\ShareIssuance;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -289,12 +291,12 @@ class PendingApprovals
 
         return HqTransaction::where('company_id', $this->viewer->company_id)
             ->where('status', 'pending')
-            ->with('employee')
+            ->with(['employee', 'bankAccount'])
             ->get()
             ->map(fn (HqTransaction $row): array => $this->row(
                 ApprovalPolicy::HQ_TRANSACTIONS,
                 $row->id,
-                (Account::tryFrom((string) $row->from_account)?->label() ?? $row->from_account).' → '.(Account::tryFrom((string) $row->to_account)?->label() ?? $row->to_account),
+                $this->hqAccountName((string) $row->from_account).' → '.($row->bankAccount?->name ?? $this->hqAccountName((string) $row->to_account)),
                 null,
                 (float) $row->amount,
                 $row->employee?->full_name,
@@ -766,6 +768,18 @@ class PendingApprovals
             'link' => $link,
             ...$this->duties->flags($initiatorIds, $this->viewer, true, $permitted, workflow: $workflow),
         ];
+    }
+
+    /**
+     * An HQ transaction names an HQ Account List row on the FROM side and a shareholders' account on the TO side; rows
+     * raised before that change name a ledger account on both sides.
+     */
+    private function hqAccountName(string $account): string
+    {
+        return HqFund::tryFrom($account)?->label()
+            ?? ShareholderAccounts::nameOf($account)
+            ?? Account::tryFrom($account)?->label()
+            ?? $account;
     }
 
     private function canAny(string ...$permissions): bool

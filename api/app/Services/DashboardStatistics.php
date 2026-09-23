@@ -197,33 +197,24 @@ class DashboardStatistics
     }
 
     /**
-     * The memo lines the live account modal prints under TOTAL: today's savings deposits, what staff still owe on salary
-     * advances and the customer savings still held. None of them are part of the total — they say what some of the money
-     * is owed to (savings) or still to come back (advances).
+     * The memo lines the live account modal prints under TOTAL: what staff still owe on salary advances, and the dividends
+     * declared but not yet paid out. Neither is part of the total — one is money still to come back, the other money already
+     * promised to the shareholders. DIVIDEND is a company-level liability, so it is the whole company's whatever branches the
+     * caller is scoped to.
      *
      * @param  list<int>|null  $branchIds  null = the whole company
      * @return list<array{label: string, amount: float, tone: string}>
      */
     public function accountMemos(Company $company, ?array $branchIds = null): array
     {
-        $inBranches = fn (Builder $query): Builder => $branchIds === null ? $query : $query->whereIn('branch_id', $branchIds);
-
-        $savingDeposit = (float) $inBranches(Saving::where('company_id', $company->id))
-            ->where('type', 'deposit')->whereNull('reversed_at')
-            ->whereDate('transaction_date', CarbonImmutable::today())->sum('amount');
-
-        $advances = $inBranches(SalaryAdvance::where('company_id', $company->id))
+        $advances = SalaryAdvance::where('company_id', $company->id)
+            ->when($branchIds !== null, fn (Builder $query): Builder => $query->whereIn('branch_id', $branchIds))
             ->where('status', 'active')->withSum('payments', 'amount')->get();
         $advanceRemaining = round($advances->sum(fn (SalaryAdvance $advance): float => $advance->remaining_amount), 2);
 
-        $savingHeld = $branchIds === null
-            ? $this->ledger->balance($company, Account::HqSaving, allBranches: true)
-            : array_sum(array_map(fn (int $branchId): float => $this->ledger->balance($company, Account::HqSaving, $branchId), $branchIds));
-
         return [
-            ['label' => 'Saving Deposit', 'amount' => round($savingDeposit, 2), 'tone' => 'danger'],
             ['label' => 'Salary advance Remain', 'amount' => $advanceRemaining, 'tone' => 'primary'],
-            ['label' => 'Saving Remain', 'amount' => round($savingHeld, 2), 'tone' => 'success'],
+            ['label' => 'Dividend', 'amount' => round($this->ledger->balance($company, Account::DividendPayable, allBranches: true), 2) + 0.0, 'tone' => 'success'],
         ];
     }
 

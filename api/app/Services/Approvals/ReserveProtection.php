@@ -7,8 +7,11 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Rule 3 — the interest reserve stays in the reserve account. Manual outflows from the branch RESERVE fund or the HQ
- * RESERVE account (float account-to-account, branch → bank, HQ transactions, expense sources) are blocked until a
- * reserve allocation is configured; reserve accounts are left out of the source dropdowns.
+ * RESERVE account (float account-to-account, branch → bank, expense sources) are blocked until a reserve allocation is
+ * configured; reserve accounts are left out of the source dropdowns.
+ *
+ * The one way out is towards the Investment RESERVE A/C, where the owners approve: Bank → Send Reserve To Investment,
+ * and the RESERVE row of Headquarters Transaction (user ruling 2026-09-22), which may name no other destination.
  */
 class ReserveProtection
 {

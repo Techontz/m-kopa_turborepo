@@ -49,7 +49,7 @@ class ReserveToInvestmentApiTest extends TestCase
     {
         $companyId = $this->admin->company_id;
 
-        $this->getJson('/api/v1/hq/balances')->assertOk()->assertJsonPath('data.3.account', Account::HqReserve->value)->assertJsonPath('data.3.balance', 400000);
+        $this->getJson('/api/v1/hq/balances')->assertOk()->assertJsonPath('data.3.name', 'RESERVE')->assertJsonPath('data.3.balance', 400000);
         $this->getJson('/api/v1/dashboard')->assertOk()->assertJsonPath('data.account_balances.Reserve A/C', 0);
 
         $this->actAs($this->finance);

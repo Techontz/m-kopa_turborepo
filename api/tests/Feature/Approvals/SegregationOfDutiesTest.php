@@ -3,6 +3,7 @@
 namespace Tests\Feature\Approvals;
 
 use App\Enums\Account;
+use App\Enums\HqFund;
 use App\Models\ApprovalPolicy;
 use App\Models\BankAccount;
 use App\Models\BankTransfer;
@@ -138,7 +139,7 @@ class SegregationOfDutiesTest extends TestCase
     {
         $this->ledger->openingBalance($this->admin->company_id, Account::HqInterest, 100000);
         $initiator = $this->employee('admin');
-        $this->actingAs($initiator)->postJson('/api/v1/hq/transactions', ['from_account' => Account::HqInterest->value, 'to_account' => Account::HqDisbursement->value, 'amount' => 60000])->assertCreated();
+        $this->actingAs($initiator)->postJson('/api/v1/hq/transactions', ['from_account' => HqFund::OperationIncome->value, 'to_account' => Account::Company->value, 'amount' => 60000])->assertCreated();
         $transaction = HqTransaction::firstOrFail();
 
         $this->postJson("/api/v1/hq/transactions/{$transaction->id}/approve")->assertForbidden();
@@ -265,8 +266,14 @@ class SegregationOfDutiesTest extends TestCase
         $this->ledger->openingBalance($this->admin->company_id, Account::HqReserve, 50000);
         $entries = JournalEntry::count();
 
-        $this->postJson('/api/v1/hq/transactions', ['from_account' => Account::HqReserve->value, 'to_account' => Account::HqInterest->value, 'amount' => 1000])
-            ->assertUnprocessable()->assertJsonPath('errors.from_account.0', ReserveProtection::MESSAGE);
+        // The RESERVE row of an HQ transaction is the one way out, and only towards the Investment RESERVE A/C — anywhere
+        // else is refused, and the money moves only when an owner approves, never on Finance's word.
+        $this->postJson('/api/v1/hq/transactions', ['from_account' => HqFund::Reserve->value, 'to_account' => Account::Company->value, 'amount' => 1000])
+            ->assertUnprocessable()->assertJsonValidationErrors('to_account');
+        $reserveOut = $this->postJson('/api/v1/hq/transactions', ['from_account' => HqFund::Reserve->value, 'to_account' => Account::InvestmentReserve->value, 'amount' => 1000])
+            ->assertCreated()->json('data.id');
+        $this->actingAs($this->employee('finance'))->postJson("/api/v1/hq/transactions/{$reserveOut}/approve")->assertForbidden();
+        $this->actingAs($this->admin);
 
         $type = ExpenseType::create(['company_id' => $this->admin->company_id, 'scope' => 'hq', 'name' => 'KODI']);
         $expense = ExpenseRequest::create(['company_id' => $this->admin->company_id, 'scope' => 'hq', 'expense_type_id' => $type->id, 'employee_id' => $this->employee('finance')->id, 'amount' => 1000, 'status' => 'pending', 'request_date' => today()]);
@@ -284,9 +291,10 @@ class SegregationOfDutiesTest extends TestCase
         $this->assertSame(50000.0, $this->ledger->balance($this->admin->company_id, Account::Reserve, $this->admin->branch_id));
         $this->assertSame(50000.0, $this->ledger->balance($this->admin->company_id, Account::HqReserve));
 
-        $this->assertNotContains(Account::HqReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts?direction=from')->json('data'), 'value'));
+        $this->assertNotContains(Account::Reserve->value, array_column($this->getJson('/api/v1/hq/options/accounts?with_company=1')->json('data'), 'value'));
         $this->assertNotContains(Account::HqReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts?with_company=1')->json('data'), 'value'));
-        $this->assertContains(Account::HqReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts')->json('data'), 'value'), 'reserve stays a valid destination');
+        // The destination list is the shareholders' accounts now, and their RESERVE A/C still takes money.
+        $this->assertContains(Account::InvestmentReserve->value, array_column($this->getJson('/api/v1/hq/options/accounts?direction=to')->json('data'), 'value'), 'reserve stays a valid destination');
     }
 
     public function test_the_employee_who_posted_a_transfer_cannot_reverse_it(): void

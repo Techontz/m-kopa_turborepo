@@ -35,6 +35,12 @@ class HqTransaction extends Model
         return $this->belongsTo(Employee::class, 'approved_by');
     }
 
+    /** The shareholders' bank account the money was sent to, when the destination is a bank. */
+    public function bankAccount(): BelongsTo
+    {
+        return $this->belongsTo(BankAccount::class, 'to_bank_account_id');
+    }
+
     public function journalEntry(): BelongsTo
     {
         return $this->belongsTo(JournalEntry::class);

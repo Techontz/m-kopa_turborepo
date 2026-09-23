@@ -26,6 +26,19 @@ interface TransactionForm {
 
 const EMPTY: TransactionForm = { from_account: "", to_account: "", amount: "", charge: "" };
 
+/**
+ * An HQ Account List row Finance can send from. `pairs_with` is the shareholders' account of the same name, which
+ * choosing this row fills the To box with — Finance can still pick another one, unless the row is `locked` (RESERVE and
+ * DIVIDEND may go to their pair and nowhere else), when the To box is fixed to it.
+ */
+interface SourceOption {
+  value: string;
+  label: string;
+  pairs_with: string | null;
+  pairs_with_label: string | null;
+  locked: boolean;
+}
+
 /** Headquarters Transaction → Requested Transaction (live request_headqueter) / Approved Transaction (request_headqueter_aproved). */
 export function HqTransactionsPage({ approved }: { approved: boolean }) {
   const [filters, setFilters] = useState<Filters>({});
@@ -33,7 +46,10 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
   const [form, setForm] = useState<TransactionForm>(EMPTY);
   const { data: rows, isLoading } = useApi<HqTransaction[]>("hq/transactions", { status: approved ? "approved" : "pending", from: filters.from, to: filters.to });
   const create = useAction<TransactionForm>("post", "hq/transactions");
+  const { data: sources } = useApi<SourceOption[]>("hq/options/accounts", { direction: "from" });
   const remove = useAction<{ id: number }>("delete", (body) => `hq/transactions/${body.id}`);
+  const source = (sources ?? []).find((option) => option.value === form.from_account) ?? null;
+  const fixedDestination = source?.locked && source.pairs_with ? { value: source.pairs_with, label: source.pairs_with_label ?? "" } : null;
 
   const columns: Column<HqTransaction>[] = [
     { key: "sn", header: "S/No.", render: (_, index) => `${index + 1}.`, sortable: false },
@@ -102,10 +118,23 @@ export function HqTransactionsPage({ approved }: { approved: boolean }) {
       <Modal open={modal === "request"} onClose={() => setModal(null)} title="Request Transaction" submitLabel="Request" submitting={create.isPending} onSubmit={() => create.mutate(form, { onSuccess: () => setModal(null) })}>
         <div className="row clearfix">
           <Field label="From Account:" required className="col-lg-6" error={create.fieldError("from_account")}>
-            <SelectBox placeholder="Select Account" optionsUrl="hq/options/accounts" query={{ direction: "from" }} value={form.from_account} onChange={(value) => setForm({ ...form, from_account: value ?? "" })} />
+            <SelectBox
+              placeholder="Select Account"
+              options={sources}
+              value={form.from_account}
+              onChange={(value) => {
+                const chosen = (sources ?? []).find((option) => option.value === value);
+                setForm({ ...form, from_account: value ?? "", to_account: chosen?.pairs_with ?? "" });
+              }}
+            />
           </Field>
           <Field label="To Account:" required className="col-lg-6" error={create.fieldError("to_account")}>
-            <SelectBox placeholder="Select Account" optionsUrl="hq/options/accounts" value={form.to_account} onChange={(value) => setForm({ ...form, to_account: value ?? "" })} />
+            <SelectBox
+              placeholder="Select Account"
+              {...(fixedDestination ? { options: [fixedDestination], isDisabled: true } : { optionsUrl: "hq/options/accounts", query: { direction: "to" } })}
+              value={form.to_account}
+              onChange={(value) => setForm({ ...form, to_account: value ?? "" })}
+            />
           </Field>
           <Field label="Amount:" required className="col-lg-6" error={create.fieldError("amount")}>
             <input type="number" className="form-control" placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required />

@@ -28,10 +28,17 @@ export function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phone.replace(/\s+/g, ""), password: pin, remember: keep }),
       });
-      const payload = await response.json();
+      // A proxy or gateway failure answers with an empty (or HTML) body, so never parse blindly.
+      const text = await response.text();
+      let payload: { message?: string; errors?: Record<string, string[]> } | null = null;
+      try {
+        payload = text.trim() ? JSON.parse(text) : null;
+      } catch {
+        payload = null;
+      }
       if (!response.ok) {
-        const message = payload?.errors ? Object.values(payload.errors as Record<string, string[]>)[0]?.[0] : payload?.message;
-        throw new Error(message ?? "Phone number or password is incorrect");
+        const message = payload?.errors ? Object.values(payload.errors)[0]?.[0] : payload?.message;
+        throw new Error(message ?? `Sign-in failed (${response.status}). Please try again.`);
       }
       window.location.href = "/dashboard";
     } catch (error) {

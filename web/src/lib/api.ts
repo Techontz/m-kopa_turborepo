@@ -61,11 +61,24 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
     window.location.href = "/login";
   }
 
+  // An error from the proxy, a gateway or the edge can be empty or HTML, so never parse blindly.
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  let payload: { message?: string; errors?: ValidationErrors } | null = null;
+  let malformed = false;
+  if (text.trim()) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      malformed = true;
+    }
+  }
 
   if (!response.ok) {
     throw new ApiError(payload?.message ?? `Request failed (${response.status})`, response.status, payload?.errors ?? {});
+  }
+
+  if (malformed) {
+    throw new ApiError("The server returned an unexpected response.", response.status);
   }
 
   return payload as T;

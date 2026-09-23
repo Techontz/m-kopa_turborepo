@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { apiUrl, clearToken, getToken } from "@/lib/session";
+import { apiUrl, clearToken, getToken, safeFetch } from "@/lib/session";
 
 /**
  * Forwards browser requests to the Laravel API (/api/v1/*), attaching the Sanctum token
@@ -29,11 +29,10 @@ async function forward(request: NextRequest, context: RouteContext<"/api/backend
   }
 
   const hasBody = !["GET", "HEAD"].includes(request.method);
-  const response = await fetch(target, {
+  const response = await safeFetch(target, {
     method: request.method,
     headers,
     body: hasBody ? await request.arrayBuffer() : undefined,
-    cache: "no-store",
   });
 
   if (response.status === 401) {

@@ -1,6 +1,6 @@
 import { Source_Serif_4 } from "next/font/google";
 
-import { apiUrl } from "@/lib/session";
+import { apiUrl, readJson, safeFetch } from "@/lib/session";
 
 import { FooterLinks, LoginForm } from "./LoginForm";
 import styles from "./login.module.css";
@@ -11,12 +11,12 @@ type LoginStats = { active_loans: number; on_time_repayment: number | null; bran
 
 /** Counts shown under the picture (GET auth/login-stats, public). The page still renders if the API is down. */
 async function loginStats(): Promise<LoginStats | null> {
-  try {
-    const response = await fetch(apiUrl("auth/login-stats"), { headers: { Accept: "application/json" }, cache: "no-store" });
-    return response.ok ? ((await response.json()).data as LoginStats) : null;
-  } catch {
+  const response = await safeFetch(apiUrl("auth/login-stats"), { headers: { Accept: "application/json" } });
+  if (!response.ok) {
     return null;
   }
+  const payload = await readJson<{ data?: LoginStats }>(response);
+  return payload?.data ?? null;
 }
 
 /** Staff login, built to the Claude Design "M-Kopa Staff Login" (1530 × 1028 canvas; stacks below 1100px). */

@@ -1,14 +1,13 @@
-import { apiUrl, clearToken, getToken } from "@/lib/session";
+import { apiUrl, clearToken, getToken, safeFetch } from "@/lib/session";
 
 export async function POST() {
   const token = await getToken();
 
   if (token) {
-    await fetch(apiUrl("auth/logout"), {
+    await safeFetch(apiUrl("auth/logout"), {
       method: "POST",
       headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    }).catch(() => undefined);
+    });
   }
 
   await clearToken();

@@ -1,70 +1,80 @@
-"use client";
+import { Source_Serif_4 } from "next/font/google";
 
-import { useState, type FormEvent } from "react";
+import { apiUrl } from "@/lib/session";
 
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { notifyError } from "@/components/ui/notify";
-import { BRAND_LOGO, BRAND_NAME } from "@/lib/brand";
+import { FooterLinks, LoginForm } from "./LoginForm";
+import styles from "./login.module.css";
 
-export default function LoginPage() {
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+const serif = Source_Serif_4({ subsets: ["latin"], style: ["normal", "italic"], axes: ["opsz"] });
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSubmitting(true);
-    try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, password }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        const message = payload?.errors ? Object.values(payload.errors as Record<string, string[]>)[0]?.[0] : payload?.message;
-        throw new Error(message ?? "Phone number or password is incorrect");
-      }
-      window.location.href = "/dashboard";
-    } catch (error) {
-      notifyError(error);
-      setSubmitting(false);
-    }
-  };
+type LoginStats = { active_loans: number; on_time_repayment: number | null; branches: number };
+
+/** Counts shown under the picture (GET auth/login-stats, public). The page still renders if the API is down. */
+async function loginStats(): Promise<LoginStats | null> {
+  try {
+    const response = await fetch(apiUrl("auth/login-stats"), { headers: { Accept: "application/json" }, cache: "no-store" });
+    return response.ok ? ((await response.json()).data as LoginStats) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Staff login, built to the Claude Design "M-Kopa Staff Login" (1530 × 1028 canvas; stacks below 1100px). */
+export default async function LoginPage() {
+  const stats = await loginStats();
+  const now = new Date();
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }).formatToParts(now).map((part) => [part.type, part.value]),
+  );
+  const today = `${parts.weekday} ${parts.day} ${parts.month.slice(0, 3)} ${parts.year}`.toUpperCase();
 
   return (
-    <div className="auth-page">
-      <ThemeToggle />
-      <div id="wrapper">
-        <div className="vertical-align-wrap">
-          <div className="vertical-align-middle auth-main">
-            <div className="auth-box">
-              <div className="top">
-                {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset */}
-                <img src={BRAND_LOGO} alt={BRAND_NAME} className="mf-auth-logo" />
-              </div>
-              <div className="card">
-                <div className="header">
-                  <p className="lead">Login to your account</p>
-                </div>
-                <div className="body">
-                  <form className="form-auth-small" onSubmit={submit}>
-                    <div className="form-group">
-                      <label htmlFor="signin-phone" className="control-label sr-only">Phone number</label>
-                      <input type="number" className="form-control" id="signin-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Eg.0753(XXXX)34" required autoComplete="off" />
-                    </div>
-                    <div className="form-group mt-3">
-                      <label htmlFor="signin-password" className="control-label sr-only">Password</label>
-                      <input type="password" className="form-control" id="signin-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="******" required />
-                    </div>
-                    <button type="submit" className="btn btn-warning btn-lg btn-block" disabled={submitting}>
-                      {submitting ? "..." : "LOGIN"}
-                    </button>
-                  </form>
-                </div>
-              </div>
+    <div className={`${styles.page} ${serif.className}`}>
+      <div className={styles.frame}>
+        <div className={styles.header}>
+          <div className={styles.brand}>
+            M&#8211;Kopa<em>Credit</em>
+          </div>
+          <div className={styles.tagline}>WEWE KWANZA</div>
+          <div className={styles.portal}>
+            STAFF PORTAL
+            <br />
+            {today}
+          </div>
+        </div>
+
+        <LoginForm />
+
+        <div className={styles.footer}>
+          <span>M-KOPA MICROFINANCE &copy; {now.getFullYear()}</span>
+          <FooterLinks />
+        </div>
+
+        <div className={styles.aside}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static design panel */}
+          <img src="/assets/img/login-panel.png" alt="Empowering Communities Through Finance" className={styles.panel} />
+          <div className={styles.stats}>
+            <div className={styles.stat}>
+              <div className={styles.statValue}>{stats ? stats.active_loans.toLocaleString("en-US") : "—"}</div>
+              <div className={styles.statLabel}>ACTIVE LOANS</div>
             </div>
-            <div className="mf-marquee"><h5>M-KOPA MICROFINANCE &copy; {new Date().getFullYear()}</h5></div>
+            <div className={`${styles.stat} ${styles.statMiddle}`}>
+              <div className={styles.statValue}>
+                {stats?.on_time_repayment != null ? (
+                  <>
+                    {stats.on_time_repayment}
+                    <span className={styles.statPercent}>%</span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </div>
+              <div className={styles.statLabel}>ON-TIME REPAYMENT</div>
+            </div>
+            <div className={styles.stat}>
+              <div className={`${styles.statValue} ${styles.statRed}`}>{stats ? stats.branches.toLocaleString("en-US") : "—"}</div>
+              <div className={styles.statLabel}>BRANCHES</div>
+            </div>
           </div>
         </div>
       </div>

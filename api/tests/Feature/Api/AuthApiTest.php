@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Api;
 
+use App\Enums\LoanStatus;
 use App\Models\Branch;
 use App\Models\Employee;
+use App\Models\Loan;
 use App\Services\AccessControl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -34,6 +36,19 @@ class AuthApiTest extends TestCase
 
         $admin->update(['status' => 'blocked']);
         $this->postJson('/api/v1/auth/login', ['phone' => $admin->phone, 'password' => 'password'])->assertUnprocessable();
+    }
+
+    public function test_login_stats_are_public_counts(): void
+    {
+        $this->getJson('/api/v1/auth/login-stats')->assertOk()->assertJsonPath('data.active_loans', 0)->assertJsonPath('data.on_time_repayment', null);
+
+        Loan::factory()->count(3)->create(['status' => LoanStatus::Active]);
+        Loan::factory()->create(['status' => LoanStatus::Overdue]);
+        Loan::factory()->create(['status' => LoanStatus::Closed]);
+        Branch::query()->update(['status' => 'inactive']);
+        Branch::factory()->count(2)->create();
+
+        $this->getJson('/api/v1/auth/login-stats')->assertOk()->assertJsonPath('data.branches', 2)->assertJsonPath('data.active_loans', 4)->assertJsonPath('data.on_time_repayment', 75);
     }
 
     public function test_api_requires_authentication(): void

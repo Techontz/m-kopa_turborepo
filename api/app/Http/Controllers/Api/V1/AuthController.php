@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\LoanStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\EmployeeResource;
 use App\Models\AuditLog;
+use App\Models\Branch;
 use App\Models\Employee;
+use App\Models\Loan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +18,22 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    /**
+     * The three figures under the login page picture (public, counts only): running loans (active, overdue or default),
+     * the share of them not in arrears, and active branches.
+     */
+    public function loginStats(): JsonResponse
+    {
+        $running = Loan::query()->status(LoanStatus::Active, LoanStatus::Overdue, LoanStatus::Default)->count();
+        $onTime = Loan::query()->status(LoanStatus::Active)->count();
+
+        return response()->json(['data' => [
+            'active_loans' => $running,
+            'on_time_repayment' => $running === 0 ? null : round($onTime / $running * 100, 1),
+            'branches' => Branch::query()->where('status', 'active')->count(),
+        ]]);
+    }
+
     /**
      * Phone + password login (live: "Login to your account"). Issues a Sanctum token.
      */

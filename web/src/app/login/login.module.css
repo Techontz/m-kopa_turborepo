@@ -1,0 +1,517 @@
+/*
+ * Staff login — Claude Design "M-Kopa Staff Login" (1530 × 1028 canvas). Desktop keeps the design's absolute
+ * coordinates; below 1100px the same blocks stack in a single column. Always light, whatever the app theme (hence the
+ * .page .form selectors, which outrank the dark theme's h1/label colours).
+ */
+
+.page {
+  min-height: 100vh;
+  background: #f8f8f8;
+  color: #201e1d;
+}
+
+.frame {
+  position: relative;
+  width: min(1530px, 100%);
+  min-height: 1028px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.page button {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* Header: brand block, tagline, portal/date */
+.header {
+  position: absolute;
+  left: 78px;
+  top: 65px;
+  width: 567px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  width: 217px;
+  height: 52px;
+  flex: none;
+  background: #c80f2d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.2px;
+}
+
+.brand em {
+  font-style: italic;
+}
+
+.tagline {
+  margin: 1px 0 0 18px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2.4px;
+  color: #6f6f6f;
+}
+
+.portal {
+  margin-left: auto;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2.4px;
+  color: #56565a;
+  line-height: 23px;
+}
+
+/* Form column */
+.form {
+  position: absolute;
+  left: 78px;
+  top: 0;
+  width: 477px;
+  height: 827px;
+}
+
+.eyebrow,
+.title,
+.intro,
+.phoneLabel,
+.phoneInput,
+.pinRow,
+.pinInput,
+.keepRow,
+.submit {
+  position: absolute;
+  left: 0;
+}
+
+.eyebrow {
+  top: 211px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: 700;
+  letter-spacing: 2.6px;
+  color: #c80f2d;
+}
+
+.eyebrowBar {
+  display: block;
+  width: 26px;
+  height: 2px;
+  background: #c80f2d;
+}
+
+.page .form .title {
+  top: 236px;
+  margin: 0;
+  width: 480px;
+  font-family: inherit;
+  font-size: 55px;
+  line-height: 64px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: #201e1d;
+}
+
+.intro {
+  top: 374px;
+  margin: 0;
+  width: 366px;
+  font-size: 17.5px;
+  line-height: 27.5px;
+  color: #3a3a3c;
+}
+
+.page .form .label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2.2px;
+  color: #5c5c5e;
+}
+
+.phoneLabel {
+  top: 489px;
+}
+
+.input {
+  width: 477px;
+  background: #fefefe;
+  border: 1px solid #ebebeb;
+  border-radius: 3px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  padding: 0 18px;
+  box-sizing: border-box;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #c80f2d;
+}
+
+.input::placeholder {
+  color: #8b8b8d;
+  opacity: 1;
+}
+
+.phoneInput {
+  top: 522px;
+  height: 55px;
+  font-size: 18px;
+  color: #2f2f31;
+}
+
+.pinRow {
+  top: 608px;
+  width: 477px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.page .showToggle {
+  font-size: 15px;
+  font-weight: 600;
+  color: #c80f2d;
+  border-bottom: 1.5px solid #c80f2d;
+}
+
+.page .showToggle:hover {
+  color: #a00c24;
+  border-bottom-color: #a00c24;
+}
+
+.pinInput {
+  top: 638px;
+  height: 56px;
+  font-size: 17px;
+  letter-spacing: 3px;
+  color: #3a3a3c;
+}
+
+.keepRow {
+  top: 719px;
+  width: 477px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.page .form .keep {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0;
+  cursor: pointer;
+  font-size: 16.5px;
+  font-weight: 400;
+  color: #2b2b2d;
+}
+
+.keepInput {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.checkbox {
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: transparent;
+  border: 1.5px solid #c80f2d;
+  box-sizing: border-box;
+}
+
+.keepInput:checked + .checkbox {
+  background: #c80f2d;
+  color: #fff;
+}
+
+.keepInput:focus-visible + .checkbox {
+  outline: 2px solid #c80f2d;
+  outline-offset: 2px;
+}
+
+.page .forgot {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: #c80f2d;
+}
+
+.page .forgot:hover {
+  color: #a00c24;
+}
+
+.page .submit {
+  top: 767px;
+  width: 477px;
+  height: 60px;
+  background: #c80f2d;
+  border-radius: 3px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 4.5px;
+  color: #fff;
+}
+
+.page .submit:hover {
+  background: #b00d28;
+}
+
+.page .submit:active {
+  background: #9b0b22;
+}
+
+.page .submit:disabled {
+  opacity: 0.8;
+  cursor: wait;
+}
+
+/* Footer */
+.footer {
+  position: absolute;
+  left: 78px;
+  top: 921px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1.7px;
+  color: #8b8b8d;
+}
+
+.footerLinks {
+  position: absolute;
+  left: 414px;
+  top: 0;
+  display: flex;
+  gap: 26px;
+  white-space: nowrap;
+}
+
+.page .footerLinks button {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.7px;
+  color: #c80f2d;
+}
+
+.page .footerLinks button:hover {
+  color: #a00c24;
+}
+
+/* Picture and figures */
+.aside {
+  position: absolute;
+  left: 687px;
+  right: 0;
+  top: 0;
+}
+
+.panel {
+  display: block;
+  width: 100%;
+  max-width: 843px;
+  height: auto;
+}
+
+.stats {
+  margin: 46px 0 0 5.1%;
+  width: 78.3%;
+  display: flex;
+  align-items: stretch;
+}
+
+.stat {
+  flex: 1;
+  text-align: center;
+}
+
+.statMiddle {
+  border-left: 1px solid #dedede;
+  border-right: 1px solid #dedede;
+}
+
+.statValue {
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 52px;
+  letter-spacing: -0.5px;
+  color: #201e1d;
+}
+
+.statPercent {
+  font-size: 25px;
+}
+
+.statRed {
+  color: #c80f2d;
+}
+
+.statLabel {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 2.1px;
+  color: #6a6a6c;
+}
+
+/* Tablet and phone: one column, same blocks in the same order */
+@media (max-width: 1099px) {
+  .frame {
+    min-height: 0;
+    padding: 32px 16px 40px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header,
+  .form,
+  .eyebrow,
+  .title,
+  .intro,
+  .phoneLabel,
+  .phoneInput,
+  .pinRow,
+  .pinInput,
+  .keepRow,
+  .page .submit,
+  .footer,
+  .footerLinks,
+  .aside {
+    position: static;
+  }
+
+  .header {
+    width: 100%;
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+  .form {
+    order: 1;
+    width: 100%;
+    max-width: 477px;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .eyebrow {
+    margin-top: 48px;
+  }
+
+  .page .form .title {
+    width: 100%;
+    margin-top: 8px;
+    font-size: 40px;
+    line-height: 48px;
+  }
+
+  .intro {
+    width: 100%;
+    margin-top: 12px;
+  }
+
+  .page .form .phoneLabel {
+    margin-top: 32px;
+  }
+
+  .input,
+  .pinRow,
+  .keepRow,
+  .page .submit {
+    width: 100%;
+  }
+
+  .phoneInput {
+    margin-top: 14px;
+  }
+
+  .pinRow {
+    margin-top: 28px;
+  }
+
+  .pinInput {
+    margin-top: 12px;
+  }
+
+  .keepRow {
+    margin-top: 24px;
+    gap: 12px;
+  }
+
+  .page .submit {
+    margin-top: 22px;
+  }
+
+  .aside {
+    order: 2;
+    margin-top: 48px;
+  }
+
+  .panel {
+    max-width: 100%;
+  }
+
+  .stats {
+    margin: 32px 0 0;
+    width: 100%;
+  }
+
+  .statValue {
+    font-size: 32px;
+    line-height: 40px;
+  }
+
+  .statPercent {
+    font-size: 20px;
+  }
+
+  .statLabel {
+    font-size: 11px;
+    letter-spacing: 1.2px;
+  }
+
+  .footer {
+    order: 3;
+    margin-top: 40px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px 26px;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand {
+    width: 180px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .portal {
+    margin-left: 0;
+    width: 100%;
+    text-align: left;
+  }
+}

@@ -14,13 +14,14 @@ export async function getToken(): Promise<string | undefined> {
   return (await cookies()).get(TOKEN_COOKIE)?.value;
 }
 
-export async function setToken(token: string): Promise<void> {
+/** remember = false ("Keep me signed in" unticked) keeps the cookie only until the browser closes. */
+export async function setToken(token: string, remember = true): Promise<void> {
   (await cookies()).set(TOKEN_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    ...(remember ? { maxAge: 60 * 60 * 12 } : {}),
   });
 }
 

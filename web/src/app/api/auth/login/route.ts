@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     return Response.json(payload, { status: response.status });
   }
 
-  await setToken(payload.token);
+  await setToken(payload.token, body.remember !== false);
 
   return Response.json({ user: payload.user });
 }

@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\DB;
  * Repayments are split at posting time in the order Principal → Penalty → Interest → Insurance and stored on
  * `loan_transactions`, so per loan: outstanding principal = approved − Σ principal paid, interest = interest
  * amount − Σ interest paid, insurance = insurance − Σ insurance paid, penalty = Σ (amount − paid) of unwaived
- * penalties (each floored at 0). Reversed repayments (`reversed_at` set) are ignored. Adds the columns `out_principal`, `out_interest`, `out_insurance`,
+ * penalties (each floored at 0). Reversed repayments (`reversed_at` set) are ignored. A loan carried over from the old
+ * system also subtracts `opening_paid_principal`, what that system had already collected, so it opens at its printed
+ * Remain Amount without a repayment of this system standing behind it. Adds the columns `out_principal`, `out_interest`, `out_insurance`,
  * `out_penalty`, `out_total`, `paid_total`, `paid_principal`, `paid_interest`, `paid_penalty` to a `loans` query.
  */
 final class LoanBalances
@@ -39,7 +41,7 @@ final class LoanBalances
             ->groupBy('loan_id')
             ->selectRaw('loan_id, SUM(amount - paid_amount) unpaid');
 
-        $principal = 'GREATEST(0, loans.amount_approved - COALESCE(lb_paid.principal, 0))';
+        $principal = 'GREATEST(0, loans.amount_approved - loans.opening_paid_principal - COALESCE(lb_paid.principal, 0))';
         $interest = 'GREATEST(0, loans.interest_amount - COALESCE(lb_paid.interest, 0))';
         $insurance = 'GREATEST(0, loans.insurance - COALESCE(lb_paid.insurance, 0))';
         $penalty = 'GREATEST(0, COALESCE(lb_pen.unpaid, 0))';

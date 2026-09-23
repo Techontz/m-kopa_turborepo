@@ -340,7 +340,10 @@ class LoanService
             ->selectRaw('COALESCE(SUM(principal),0) p, COALESCE(SUM(interest),0) i, COALESCE(SUM(insurance),0) s')
             ->first();
 
-        $principal = max(0.0, round((float) $loan->amount_approved - (float) $paid->p, 2));
+        // A loan carried over from the old system keeps its printed Loan Amount in amount_approved and what the old
+        // system had already collected in opening_paid_principal, so its outstanding principal opens at the printed
+        // Remain Amount without a repayment of this system standing behind it (see the legacy import).
+        $principal = max(0.0, round((float) $loan->amount_approved - (float) $loan->opening_paid_principal - (float) $paid->p, 2));
         $interest = max(0.0, round((float) $loan->interest_amount - (float) $paid->i, 2));
         $insurance = max(0.0, round((float) $loan->insurance - (float) $paid->s, 2));
         $penalty = max(0.0, round((float) Penalty::where('loan_id', $loan->id)->where('is_waived', false)->selectRaw('COALESCE(SUM(amount - paid_amount),0) v')->value('v'), 2));
